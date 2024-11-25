@@ -316,7 +316,7 @@ class Tensor:
 
         self.data = new_data
         self.indices = new_index_ordering
-        self.dimensions = new_shape
+        self.dimensions = tuple(new_shape)
         self.rank = new_rank
         
         return

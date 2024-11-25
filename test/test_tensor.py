@@ -55,8 +55,20 @@ def test_rank_4_qiskit_gate():
 def test_reorder_indices():
     tensor = Tensor(TEST_ARRAY, ["I1", "I2", "I3", "I4"], ["Label1"])
     tensor.reorder_indices(["I3", "I4", "I1", "I2"])
-
-    assert tensor.indices == ["I3", "I4", "I1", "I2"]
+    
+    # Check indices
+    assert tensor.indices == ["I3", "I4", "I1", "I2"], "Indices not reordered correctly"
+    
+    # Check data shape
+    expected_shape = (TEST_ARRAY.shape[2], TEST_ARRAY.shape[3], TEST_ARRAY.shape[0], TEST_ARRAY.shape[1])
+    assert tensor.dimensions == expected_shape, "Shape not updated correctly after reordering"
+    
+    # Check data manipulation
+    expected_data = sparse.moveaxis(TEST_ARRAY, [0, 1, 2, 3], [2, 3, 0, 1])
+    if isinstance(tensor.data, np.ndarray):
+        assert np.array_equal(tensor.data, expected_data), "Data not moved correctly (numpy array)"
+    else:
+        assert (tensor.data == expected_data).all(), "Data not moved correctly (sparse array)"
 
 def test_new_index_name():
     tensor = Tensor(TEST_ARRAY, ["B1", "B2", "B3"], ["Label1"])
@@ -79,15 +91,43 @@ def test_get_total_dimension_of_indices():
 def test_combine_indices():
     tensor = Tensor(TEST_ARRAY, ["I1", "I2", "I3", "I4"], ["Label1"])
     tensor.combine_indices(["I1", "I2"], "Combined")
+    
+    # Check indices
+    assert "Combined" in tensor.indices, "New combined index not found in indices"
+    assert len(tensor.indices) == 3, "Incorrect number of indices after combining"
 
-    assert "Combined" in tensor.indices
-    assert len(tensor.indices) == 3
+    # Check shape
+    combined_dim = TEST_ARRAY.shape[0] * TEST_ARRAY.shape[1]
+    expected_shape = (combined_dim,) + TEST_ARRAY.shape[2:]
+    assert tensor.dimensions == expected_shape, "Shape not updated correctly after combining indices"
+    
+    # Check data manipulation
+    reshaped_data = TEST_ARRAY.reshape(expected_shape)
+    assert (tensor.data == reshaped_data).all(), "Data not reshaped correctly"
 
 def test_tensor_to_matrix():
     tensor = Tensor(TEST_ARRAY, ["I1", "I2", "I3", "I4"], ["Label1"])
     tensor.tensor_to_matrix(["I1", "I2"], ["I3", "I4"])
+    
+    # Check rank
+    assert tensor.rank == 2, "Tensor rank not reduced to 2 for matrix"
 
-    assert tensor.rank == 2
+    # Check indices
+    assert tensor.indices == ["O1", "I1"], "Matrix indices not set correctly"
+
+    # Check shape
+    input_dim = TEST_ARRAY.shape[0] * TEST_ARRAY.shape[1]  # Should reflect output dimensions
+    output_dim = TEST_ARRAY.shape[2] * TEST_ARRAY.shape[3] # Should reflect input dimensions
+    expected_shape = (output_dim, input_dim)
+    assert tensor.dimensions == expected_shape, "Shape not updated correctly for matrix"
+
+    # Check data manipulation
+    reshaped_data = np.moveaxis(TEST_ARRAY, [0, 1], [2, 3])
+    reshaped_data = reshaped_data.reshape(expected_shape)
+    tensor_data = tensor.data.todense()
+    print(tensor_data)
+    print(reshaped_data)
+    assert (tensor_data == reshaped_data).all(), "Data not reshaped correctly"
 
 def test_multiply_by_constant():
     tensor = Tensor(TEST_ARRAY, ["I1", "I2", "I3", "I4"], ["Label1"])
