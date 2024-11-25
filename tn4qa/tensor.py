@@ -221,12 +221,11 @@ class Tensor:
             index_order: The desired new ordering of indices.
         """
         old_indices = list(range(self.rank))
-        new_indices = [old_indices[self.indices.index(idx)] for idx in index_order]
+        new_indices = [index_order.index(idx) for idx in self.indices]
         new_data = sparse.moveaxis(self.data, old_indices, new_indices)
-        new_dimensions = new_data.shape
         self.data = new_data
         self.indices = index_order
-        self.dimensions = new_dimensions
+        self.dimensions = new_data.shape
         return
 
     def new_index_name(self, index_prefix : str="B", num_new_indices : int=1) -> Union[str, List[str]]:
@@ -331,6 +330,7 @@ class Tensor:
         """
         self.combine_indices(input_idxs, new_index_name="I1")
         self.combine_indices(output_idxs, new_index_name="O1")
+        print(self.data.todense())
         return 
 
     def multiply_by_constant(self, const : complex) -> None:

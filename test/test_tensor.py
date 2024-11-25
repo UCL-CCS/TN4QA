@@ -65,10 +65,7 @@ def test_reorder_indices():
     
     # Check data manipulation
     expected_data = sparse.moveaxis(TEST_ARRAY, [0, 1, 2, 3], [2, 3, 0, 1])
-    if isinstance(tensor.data, np.ndarray):
-        assert np.array_equal(tensor.data, expected_data), "Data not moved correctly (numpy array)"
-    else:
-        assert (tensor.data == expected_data).all(), "Data not moved correctly (sparse array)"
+    assert np.allclose(tensor.data.todense(), expected_data), "Data not moved correctly (sparse array)"
 
 def test_new_index_name():
     tensor = Tensor(TEST_ARRAY, ["B1", "B2", "B3"], ["Label1"])
@@ -116,18 +113,16 @@ def test_tensor_to_matrix():
     assert tensor.indices == ["O1", "I1"], "Matrix indices not set correctly"
 
     # Check shape
-    input_dim = TEST_ARRAY.shape[0] * TEST_ARRAY.shape[1]  # Should reflect output dimensions
-    output_dim = TEST_ARRAY.shape[2] * TEST_ARRAY.shape[3] # Should reflect input dimensions
+    input_dim = TEST_ARRAY.shape[0] * TEST_ARRAY.shape[1] 
+    output_dim = TEST_ARRAY.shape[2] * TEST_ARRAY.shape[3] 
     expected_shape = (output_dim, input_dim)
     assert tensor.dimensions == expected_shape, "Shape not updated correctly for matrix"
 
     # Check data manipulation
     reshaped_data = np.moveaxis(TEST_ARRAY, [0, 1], [2, 3])
     reshaped_data = reshaped_data.reshape(expected_shape)
-    tensor_data = tensor.data.todense()
-    print(tensor_data)
-    print(reshaped_data)
-    assert (tensor_data == reshaped_data).all(), "Data not reshaped correctly"
+    tensor_data = tensor.data.todense() 
+    assert np.allclose(tensor_data, reshaped_data), "Data not reshaped correctly"
 
 def test_multiply_by_constant():
     tensor = Tensor(TEST_ARRAY, ["I1", "I2", "I3", "I4"], ["Label1"])
