@@ -1,8 +1,26 @@
 import numpy as np
+from tn4qa.tensor import Tensor
+from tn4qa.mps import MatrixProductState
 
 np.random.seed(12)
 
+TEST_ARRAYS = [np.random.rand(4,2), np.random.rand(4,6,2), np.random.rand(6,2)]
+contracted_array = np.einsum(TEST_ARRAYS[0], [0,1], np.einsum(TEST_ARRAYS[1], [0,2,3], TEST_ARRAYS[2], [2,4], [0,3,4]), [0,3,4], [1,3,4])
+
 def test_constructor():
+    t1 = Tensor(TEST_ARRAYS[0], ["B1", "P1"], ["MPS_T1"])
+    t2 = Tensor(TEST_ARRAYS[1], ["B1", "B2", "P2"], ["MPS_T2"])
+    t3 = Tensor(TEST_ARRAYS[2], ["B2", "P3"], ["MPS_T3"])
+    tensors = [t1,t2,t3]
+    mps = MatrixProductState(tensors)
+
+    assert mps.name == "MPS"
+    assert mps.shape == "udp"
+    assert mps.physical_dimension == 2
+    assert mps.bond_dimension == 6
+    assert mps.num_sites == 3
+    assert all(x in mps.indices for x in ["B1", "B2", "P1", "P2", "P3"])
+
     return 
 
 def test_from_arrays():

@@ -13,9 +13,6 @@ from .tn import TensorNetwork
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 
-# DMRG calculations offloaded to Block2
-import block2
-
 DataOptions : TypeAlias = Union[ndarray, SparseArray]
 
 class MatrixProductOperator(TensorNetwork):
