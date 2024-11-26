@@ -71,7 +71,31 @@ def test_from_array():
     assert tensor_large.data.shape == (1000, 1000), "Data shape should match input array"
 
 def test_from_qiskit_gate():
-    return 
+    # Test single-qubit gate (XGate)
+    x_gate = XGate()
+    tensor_x = Tensor.from_qiskit_gate(x_gate)
+    assert tensor_x.indices == ["O1", "I1"], "Indices for XGate should be ['O1', 'I1']"
+    assert tensor_x.labels == ["T1", "x"], "Labels for XGate should be ['T1', 'x']"
+    assert tensor_x.data.shape == (2, 2), "Data shape for XGate should be (2, 2)"
+
+    # Test single-qubit gate (HGate)
+    h_gate = HGate()
+    tensor_h = Tensor.from_qiskit_gate(h_gate, labels=["Label"])
+    assert tensor_h.indices == ["O1", "I1"], "Indices for HGate should be ['O1', 'I1']"
+    assert tensor_h.labels == ["Label", "h"], "Labels for HGate should be ['Label', 'h']"
+    assert tensor_h.data.shape == (2, 2), "Data shape for HGate should be (2, 2)"
+
+    # Test two-qubit gate (CXGate)
+    cx_gate = CXGate()
+    tensor_cx = Tensor.from_qiskit_gate(cx_gate)
+    assert tensor_cx.indices == ["O1", "O2", "I1", "I2"], "Indices for CXGate should be ['O1', 'O2', 'I1', 'I2']"
+    assert tensor_cx.labels == ["T1", "cx"], "Labels for CXGate should be ['T1', 'cx']"
+    assert tensor_cx.data.shape == (2, 2, 2, 2), "Data shape for CXGate should be (2, 2, 2, 2)"
+
+    # Test custom indices
+    tensor_custom_indices = Tensor.from_qiskit_gate(h_gate, indices=["I1", "O1"], labels=["Custom"])
+    assert tensor_custom_indices.indices == ["I1", "O1"], "Custom indices should be used"
+    assert tensor_custom_indices.labels == ["Custom", "h"], "Labels should include custom label and gate name"
 
 def test_rank_3_copy():
     return 
