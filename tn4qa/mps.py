@@ -271,14 +271,9 @@ class MatrixProductState(TensorNetwork):
         """
         Convert the MPS to a sparse array.
         """
-        internal_bonds = self.get_internal_indices()
-        for index in internal_bonds:
-            self.contract_index(index)
-        
-        tensor = self.tensors[0]
-        indices = tensor.indices
-        tensor.tensor_to_matrix([], indices)
-        return tensor.data
+        output = self.contract_entire_network()
+        output.combine_indices(output.indices, output.indices[0])
+        return output.data
 
     def to_dense_array(self) -> ndarray:
         """

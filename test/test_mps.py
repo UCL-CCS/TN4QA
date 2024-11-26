@@ -6,7 +6,8 @@ from qiskit import QuantumCircuit
 np.random.seed(12)
 
 TEST_ARRAYS = [np.random.rand(4,2), np.random.rand(4,6,2), np.random.rand(6,2)]
-contracted_array = np.einsum(TEST_ARRAYS[0], [0,1], np.einsum(TEST_ARRAYS[1], [0,2,3], TEST_ARRAYS[2], [2,4], [0,3,4]), [0,3,4], [1,3,4]).reshape(1,8)
+CONTRACTED_TEST_ARRAY = np.einsum(TEST_ARRAYS[0], [0,1], np.einsum(TEST_ARRAYS[1], [0,2,3], TEST_ARRAYS[2], [2,4], [0,3,4]), [0,3,4], [1,3,4]).reshape(1,8)
+
 
 def test_constructor():
     t1 = Tensor(TEST_ARRAYS[0], ["B1", "P1"], ["MPS_T1"])
@@ -138,24 +139,70 @@ def test_subtract():
     return 
 
 def test_to_sparse_array():
+    mps = MatrixProductState.from_arrays(TEST_ARRAYS)
+    sparse_array = mps.to_sparse_array()
+
+    assert np.allclose(sparse_array.todense().flatten(), CONTRACTED_TEST_ARRAY.flatten())
+
     return 
 
 def test_to_dense_array():
+    mps = MatrixProductState.from_arrays(TEST_ARRAYS)
+    sparse_array = mps.to_dense_array()
+    
+    assert np.allclose(sparse_array.flatten(), CONTRACTED_TEST_ARRAY.flatten())
+
     return 
 
 def test_reshape():
+    mps = MatrixProductState.from_arrays(TEST_ARRAYS)
+    mps.reshape("pud")
+
+    expected_output = [
+        np.moveaxis(TEST_ARRAYS[0], [0,1], [1,0]),
+        np.moveaxis(TEST_ARRAYS[1], [0,1,2], [1,2,0]),
+        np.moveaxis(TEST_ARRAYS[2], [0,1], [1,0])
+    ]
+
+    for i in range(3):
+        assert np.allclose(mps.tensors[i].data.todense(), expected_output[i])
+    
     return 
 
 def test_multiply_by_constant():
+    mps = MatrixProductState.from_arrays(TEST_ARRAYS)
+    mps.multiply_by_constant(-3.7+1.2j)
+
+    expected_output = [
+        TEST_ARRAYS[0] * (-3.7+1.2j),
+        TEST_ARRAYS[1],
+        TEST_ARRAYS[2]
+    ]
+
+    for i in range(3):
+        assert np.allclose(mps.tensors[i].data.todense(), expected_output[i])
+
     return 
 
 def test_dagger():
+    mps = MatrixProductState.from_arrays(TEST_ARRAYS)
+    mps.dagger()
+
+    contracted = mps.contract_entire_network()
+    contracted.combine_indices(["P1", "P2", "P3"])
+    output_data = contracted.data.todense()
+
+    expected_output = CONTRACTED_TEST_ARRAY.conj().T
+
+    assert np.allclose(output_data.flatten(), expected_output.flatten())
+
     return 
 
 def test_move_orthogonality_centre():
     return 
 
 def test_apply_mpo():
+
     return 
 
 def test_compute_inner_product():
