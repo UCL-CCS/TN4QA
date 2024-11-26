@@ -110,9 +110,31 @@ def test_from_qiskit_circuit_2():
     return 
 
 def test_add():
+    mps1 = MatrixProductState.all_zero_mps(4)
+    mps2 = MatrixProductState.equal_superposition_mps(4)
+    output = mps1 + mps2 
+    contracted = output.contract_entire_network()
+    contracted.combine_indices(["P1", "P2", "P3", "P4"])
+    output_data = contracted.data.todense()
+
+    assert np.isclose(output_data[0], 1.25)
+    for i in range(1, 16):
+        assert np.isclose(output_data[i], 0.25)
+
     return 
 
 def test_subtract():
+    mps1 = MatrixProductState.all_zero_mps(4)
+    mps2 = MatrixProductState.equal_superposition_mps(4)
+    output = mps2 - mps1
+    contracted = output.contract_entire_network()
+    contracted.combine_indices(["P1", "P2", "P3", "P4"])
+    output_data = contracted.data.todense()
+
+    assert np.isclose(output_data[0], -0.75)
+    for i in range(1, 16):
+        assert np.isclose(output_data[i], 0.25)
+
     return 
 
 def test_to_sparse_array():
@@ -139,23 +161,23 @@ def test_apply_mpo():
 def test_compute_inner_product():
     return 
 
-def test_sample_configuration():
-    return 
+# def test_sample_configuration():
+#     return 
 
-def test_to_staircase_circuit():
-    return 
+# def test_to_staircase_circuit():
+#     return 
 
-def test_warmstart_ansatz_circuit():
-    return 
+# def test_warmstart_ansatz_circuit():
+#     return 
 
-def test_to_preparation_mpo():
-    return 
+# def test_to_preparation_mpo():
+#     return 
 
-def test_perfect_amplitude_amplification():
-    return 
+# def test_perfect_amplitude_amplification():
+#     return 
 
-def test_perfect_amplitude_suppression():
-    return 
+# def test_perfect_amplitude_suppression():
+#     return 
 
-def test_get_grovers_operator():
-    return 
+# def test_get_grovers_operator():
+#     return 

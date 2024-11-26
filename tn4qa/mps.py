@@ -195,40 +195,68 @@ class MatrixProductState(TensorNetwork):
         other.reshape()
         arrays = []
 
-        for t_idx in range(self.num_sites):
+        t1 = self.tensors[0]
+        t2 = other.tensors[0]
+
+        t1_data = t1.data
+        t2_data = t2.data
+        t1_data = sparse.reshape(t1_data, (1, t1.dimensions[0], t1.dimensions[1]))
+        t2_data = sparse.reshape(t2_data, (1, t2.dimensions[0], t2.dimensions[1]))
+        t1_dimensions = (1, t1.dimensions[0], t1.dimensions[1])
+        t2_dimensions = (1, t2.dimensions[0], t2.dimensions[1])
+
+        data1 = sparse.reshape(t1_data, (t1_dimensions[0]*t1_dimensions[2], t1_dimensions[1]))
+        data2 = sparse.reshape(t2_data, (t2_dimensions[0]*t2_dimensions[2], t2_dimensions[1]))
+
+        new_data = sparse.concatenate([data1, data2],axis=1)
+        new_data = sparse.moveaxis(new_data, [0,1], [1,0])
+        arrays.append(new_data)
+
+        for t_idx in range(1, self.num_sites-1):
             t1 = self.tensors[t_idx]
             t2 = other.tensors[t_idx]
 
             t1_data = t1.data 
             t2_data = t2.data
-            if t_idx == 0:
-                t1_data = sparse.reshape(t1_data, (1, t1.dimensions[0], t1.dimensions[1]))
-                t2_data = sparse.reshape(t2_data, (1, t2.dimensions[0], t2.dimensions[1]))
-            if t_idx == self.num_sites-1:
-                t1_data = sparse.reshape(t1_data, (t1.dimensions[0], 1, t1.dimensions[1]))
-                t2_data = sparse.reshape(t2_data, (t2.dimensions[0], 1, t2.dimensions[1]))
+            t1_dimensions = t1.dimensions
+            t2_dimensions = t2.dimensions
 
-            data1 = sparse.moveaxis(t1.data, [0,1,2], [0,2,1])
-            data2 = sparse.moveaxis(t2.data, [0,1,2], [0,2,1])
+            data1 = sparse.moveaxis(t1_data, [0,1,2], [0,2,1])
+            data2 = sparse.moveaxis(t2_data, [0,1,2], [0,2,1])
 
-            data1 = sparse.reshape(data1, (t1.dimensions[0]*t1.dimensions[2], t1.dimensions[1]))
-            data2 = sparse.reshape(data2, (t2.dimensions[0]*t2.dimensions[2], t2.dimensions[1]))
+            data1 = sparse.reshape(data1, (t1_dimensions[0]*t1_dimensions[2], t1_dimensions[1]))
+            data2 = sparse.reshape(data2, (t2_dimensions[0]*t2_dimensions[2], t2_dimensions[1]))
 
             zeros_top_right = sparse.COO.from_numpy(np.zeros((data1.shape[0], data2.shape[1])))
             zeros_bottom_left = sparse.COO.from_numpy(np.zeros((data2.shape[0], data1.shape[1])))
 
-            new_data = sparse.concatenate(sparse.concatenate([data1, zeros_top_right],axis=1), sparse.concatenate([zeros_bottom_left, data2],axis=1))
-            new_data = sparse.reshape(new_data, (t1.dimensions[0]*t2.dimensions[0], t1.dimensions[2], t1.dimensions[1]*t2.dimensions[1]))
-            new_data = sparse.moveaxis(new_data, [0,1,2], [0,2,1])
-
-            if t_idx == 0:
-                new_data = sparse.reshape(new_data, (new_data.shape[1], new_data.shape[2]))
-            if t_idx == self.num_sites-1:
-                new_data = sparse.reshape(new_data, (new_data.shape[0], new_data.shape[1]))
+            new_data = sparse.concatenate([sparse.concatenate([data1, zeros_top_right],axis=1), sparse.concatenate([zeros_bottom_left, data2],axis=1)])
+            new_data = sparse.moveaxis(new_data, [0,1], [1,0])
+            new_data = sparse.reshape(new_data, (t1_dimensions[0]+t2_dimensions[0], t1_dimensions[1]+t2_dimensions[1], t1_dimensions[2]))
 
             arrays.append(new_data)
-        
-        output = MatrixProductOperator.from_arrays(arrays)
+
+        t1 = self.tensors[-1]
+        t2 = other.tensors[-1]
+
+        t1_data = t1.data
+        t2_data = t2.data
+        t1_data = sparse.reshape(t1_data, (t1.dimensions[0], 1, t1.dimensions[1]))
+        t2_data = sparse.reshape(t2_data, (t2.dimensions[0], 1, t2.dimensions[1]))
+        t1_dimensions = (t1.dimensions[0], 1, t1.dimensions[1])
+        t2_dimensions = (t2.dimensions[0], 1, t2.dimensions[1])
+
+        data1 = sparse.reshape(t1_data, (t1_dimensions[0]*t1_dimensions[2], t1_dimensions[1]))
+        data2 = sparse.reshape(t2_data, (t2_dimensions[0]*t2_dimensions[2], t2_dimensions[1]))
+
+        new_data = sparse.concatenate([data1, data2],axis=1)
+        new_data = sparse.moveaxis(new_data, [0,1], [1,0])
+        arrays.append(new_data)
+
+        for a in arrays:
+            print(a.todense())
+
+        output = MatrixProductState.from_arrays(arrays)
         return output
 
     def __sub__(self, other : "MatrixProductState") -> "MatrixProductState":
@@ -434,80 +462,81 @@ class MatrixProductState(TensorNetwork):
         self.multiply_by_constant(np.sqrt(1/norm))
         return
 
-    def sample_configurations(self, num_samples : int) -> List[str]:
-        """
-        Randomly sample from the MPS.
+    # def sample_configurations(self, num_samples : int) -> List[str]:
+    #     """
+    #     Randomly sample from the MPS.
         
-        Args:
-            num_samples: The number of samples to take.
+    #     Args:
+    #         num_samples: The number of samples to take.
         
-        Returns:
-            A list of strings (e.g. bitstrings for qubit MPS).
-        """
-        return
+    #     Returns:
+    #         A list of strings (e.g. bitstrings for qubit MPS).
+    #     """
+    #     return
 
-    def to_staircase_circuit(self, max_layers : int, fidelity_target : float) -> QuantumCircuit:
-        """
-        Construct a Qiskit QuantumCircuit that prepares the MPS.
+    # def to_staircase_circuit(self, max_layers : int, fidelity_target : float) -> QuantumCircuit:
+    #     """
+    #     Construct a Qiskit QuantumCircuit that prepares the MPS.
         
-        Args:
-            max_layers: The maximum number of staircase layers to allow.
-            fidelity_target: The circuit will aim to reproduce the MPS with this fidelity.
+    #     Args:
+    #         max_layers: The maximum number of staircase layers to allow.
+    #         fidelity_target: The circuit will aim to reproduce the MPS with this fidelity.
         
-        Returns:
-            A QuantumCircuit that prepares the MPS.
-        """
-        return
+    #     Returns:
+    #         A QuantumCircuit that prepares the MPS.
+    #     """
+    #     return
     
-    def warmstart_ansatz_circuit(self, ansatz : QuantumCircuit, maxiter : int, fidelity_target : float) -> List[float]:
-        """
-        Use the MPS to warm-start a variational quantum circuit.
+    # def warmstart_ansatz_circuit(self, ansatz : QuantumCircuit, maxiter : int, fidelity_target : float) -> List[float]:
+    #     """
+    #     Use the MPS to warm-start a variational quantum circuit.
         
-        Args:
-            ansatz: A parameterised quantum circuit.
-            maxiter: The maximum number of optimisation iterations.
-            fidelity_target: The fidelity target for optimisation.
+    #     Args:
+    #         ansatz: A parameterised quantum circuit.
+    #         maxiter: The maximum number of optimisation iterations.
+    #         fidelity_target: The fidelity target for optimisation.
         
-        Returns:
-            A list of parameters to warm-start the given ansatz.
-        """
-        return
+    #     Returns:
+    #         A list of parameters to warm-start the given ansatz.
+    #     """
+    #     return
 
-    def to_preparation_mpo(self) -> MatrixProductOperator:
-        """
-        Create an MPO that prepares the MPS.
+    # def to_preparation_mpo(self) -> MatrixProductOperator:
+    #     """
+    #     Create an MPO that prepares the MPS.
         
-        Returns:
-            An MPO such that MPO|0> = MPS.
-        """
-        return
+    #     Returns:
+    #         An MPO such that MPO|0> = MPS.
+    #     """
+    #     return
 
-    def perfect_amplitude_amplification(self, oracle : QuantumCircuit) -> None:
-        """
-        Amplify the good part of the MPS.
+    # def perfect_amplitude_amplification(self, oracle : QuantumCircuit) -> None:
+    #     """
+    #     Amplify the good part of the MPS.
         
-        Args:
-            oracle: A quantum circuit that marks the good states.
-        """
-        return
+    #     Args:
+    #         oracle: A quantum circuit that marks the good states.
+    #     """
+    #     return
 
-    def perfect_amplitude_suppression(self, oracle : QuantumCircuit) -> None:
-        """
-        Amplify the bad part of the MPS.
+    # def perfect_amplitude_suppression(self, oracle : QuantumCircuit) -> None:
+    #     """
+    #     Amplify the bad part of the MPS.
         
-        Args:
-            oracle: A quantum circuit that marks the good states.
-        """
-        return
+    #     Args:
+    #         oracle: A quantum circuit that marks the good states.
+    #     """
+    #     return
 
-    def get_grovers_operator(self, oracle : QuantumCircuit) -> MatrixProductOperator:
-        """
-        Create an MPO representation of the Grovers operator.
+    # def get_grovers_operator(self, oracle : QuantumCircuit) -> MatrixProductOperator:
+    #     """
+    #     Create an MPO representation of the Grovers operator.
         
-        Args:
-            oracle: A quantum circuit that marks the good states.
+    #     Args:
+    #         oracle: A quantum circuit that marks the good states.
         
-        Returns:
-            The MPO representation of the Grovers operator.
-        """
-        return
+    #     Returns:
+    #         The MPO representation of the Grovers operator.
+    #     """
+    #     return
+    
