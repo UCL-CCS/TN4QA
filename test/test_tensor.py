@@ -179,10 +179,39 @@ def test_rank_4_copy_open():
   assert tensor.labels == expected_labels,  " Labels do not match expected"
 
 def test_rank_3_qiskit_gate():
-    return
+    h_gate = HGate()
+    tensor = Tensor.rank_3_qiskit_gate(h_gate)
+
+    # Expected data
+    h_matrix = Operator(h_gate).data
+    id_matrix = np.eye(2, dtype=complex)
+    expected_data = np.array(
+        [id_matrix, (1j / np.sqrt(2)) * (id_matrix - h_matrix)]
+    ).reshape(2, 2, 2)
+
+    # Test properties
+    assert np.allclose(tensor.data.todense(), expected_data), "Data does not match expected"
+    assert tensor.indices == ["B1", "R1", "L1"], "Indices do not match expected"
+    assert tensor.labels == ["T1", "rank3h"], "Labels do not match expected"
 
 def test_rank_4_qiskit_gate():
-    return 
+    h_gate = HGate()
+    tensor = Tensor.rank_4_qiskit_gate(h_gate)
+
+    # Expected data
+    h_matrix = Operator(h_gate).data
+    id_array = np.array([[1,0],[0,1]], dtype=complex).reshape(2,2)
+    zero_array = np.array([[0,0],[0,0]], dtype=complex).reshape(2,2)
+    expected_data = np.array(
+        [[id_array, zero_array], [zero_array, h_matrix]]
+    ).reshape(2, 2, 2, 2)
+
+
+    # Test properties
+    assert np.allclose(tensor.data.todense(), expected_data), "Data does not match expected"
+    assert tensor.indices == ["B1", "B2", "R1", "L1"], "Indices do not match expected"
+    assert tensor.labels == ["T1", "rank4h"], "Labels do not match expected"
+    assert tensor.dimensions == (2, 2, 2, 2), "Dimensions do not match expected"
 
 def test_reorder_indices():
     tensor = Tensor(TEST_ARRAY, ["I1", "I2", "I3", "I4"], ["Label1"])
