@@ -98,10 +98,44 @@ def test_from_qiskit_gate():
     assert tensor_custom_indices.labels == ["Custom", "h"], "Labels should include custom label and gate name"
 
 def test_rank_3_copy():
-    return 
+  tensor = Tensor.rank_3_copy()
+        
+  # Expected data
+  expected_data = np.array(
+      [[[1, 0], [0, 1]], [[0, 0], [0, 1j * np.sqrt(2)]]],
+      dtype=complex
+  )
+  expected_shape = (2, 2, 2)
+  expected_rank = 3
+  expected_indices = ["B1", "R1", "L1"]
+  expected_labels = ["T1", "copy3"]
+
+  # Test properties
+  assert (tensor.data.todense() == expected_data).all(),  "Validate the data"
+  assert tensor.dimensions == expected_shape,  " Validate the shape"
+  assert tensor.rank == expected_rank,  " Validate the rank"
+  assert tensor.indices == expected_indices,  " Validate the indices"
+  assert tensor.labels == expected_labels,  " Validate the labels"
 
 def test_rank_4_copy():
-    return 
+  tensor = Tensor.rank_4_copy()
+        
+  # Expected data
+  expected_data = np.array(
+      [[[[1, 0], [0, 1]], [[0, 0], [0, 0]]], [[[0, 0], [0, 0]], [[0, 0], [0, 1]]]],
+      dtype=complex
+  )
+  expected_shape = (2, 2, 2, 2)
+  expected_rank = 4
+  expected_indices = ["B1", "B2", "R1", "L1"]
+  expected_labels = ["T1", "copy4"]
+
+  # Test properties
+  assert (tensor.data.todense() == expected_data).all(),  "Data does not match expected"
+  assert tensor.dimensions == expected_shape,  " Invalid shape"
+  assert tensor.rank == expected_rank,  " Incorrect rank"
+  assert tensor.indices == expected_indices,  "Indices do not match expected"
+  assert tensor.labels == expected_labels,  " Validate do not match expected"
 
 def test_rank_3_copy_open():
     return 
