@@ -1,6 +1,13 @@
 from tn4qa.tensor import Tensor 
-import numpy as np 
+# Underlying tensor objects can either be NumPy arrays or Sparse arrays
+import numpy as np
+from numpy import ndarray
 import sparse
+from sparse import SparseArray
+
+# Qiskit Imports
+from qiskit.circuit.library import XGate, HGate, CXGate
+from qiskit.quantum_info import Operator
 
 TEST_ARRAY = np.array([[[[0,1,0],[1,0,0]],[[0,1,0],[1,0,0]]],[[[0,1,0],[1,0,0]],[[0,1,0],[1,0,0]]]], dtype=complex)
 
