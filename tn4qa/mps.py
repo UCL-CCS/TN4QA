@@ -420,7 +420,7 @@ class MatrixProductState(TensorNetwork):
             tn.combine_indices([f"P{n+2}", f"B{n+1}_"], new_index_name=f"P{n+2}")
 
         tn.contract_index(f"P{self.num_sites}")
-        val = complex(tn.tensors[0].data)
+        val = complex(tn.tensors[0].data.flatten()[0])
 
         return val
 
