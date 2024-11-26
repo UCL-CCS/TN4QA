@@ -1,4 +1,4 @@
-from typing import List, Union, TypeAlias, Tuple
+from typing import List, Union, TypeAlias
 import copy
 
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
@@ -8,7 +8,6 @@ import sparse
 from sparse import SparseArray
 from .tensor import Tensor 
 from .tn import TensorNetwork
-from .mps import MatrixProductState
 
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
@@ -301,7 +300,7 @@ class MatrixProductOperator(TensorNetwork):
         return mpo
     
     @classmethod
-    def from_qiskit_circuit(cls, qc : QuantumCircuit, max_bond : int) -> "MatrixProductState":
+    def from_qiskit_circuit(cls, qc : QuantumCircuit, max_bond : int) -> "MatrixProductOperator":
         """
         Create an MPO for a circuit.
 
@@ -623,17 +622,4 @@ class MatrixProductOperator(TensorNetwork):
         """
         tensor = self.tensors[0]
         tensor.multiply_by_constant(const)
-        return
-
-    def dmrg(self, max_bond : int, maxiter : int) -> Tuple[float, MatrixProductState]:
-        """
-        Find the groundstate of an MPO with DMRG.
-        
-        Args:
-            max_bond: The maximum bond dimension allowed.
-            maxiter: The maximum number of DMRG sweeps.
-        
-        Returns:
-            A tuple of the DMRG energy and the DMRG state.
-        """
         return
