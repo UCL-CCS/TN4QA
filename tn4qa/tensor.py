@@ -330,7 +330,6 @@ class Tensor:
         """
         self.combine_indices(input_idxs, new_index_name="I1")
         self.combine_indices(output_idxs, new_index_name="O1")
-        print(self.data.todense())
         return 
 
     def multiply_by_constant(self, const : complex) -> None:

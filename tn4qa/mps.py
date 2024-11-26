@@ -167,7 +167,7 @@ class MatrixProductState(TensorNetwork):
         return cls.from_arrays(arrays, shape="udp")
 
     @classmethod
-    def from_qiskit_circuit(cls, qc : QuantumCircuit, max_bond : int, input : "MatrixProductState"=None) -> "MatrixProductState":
+    def from_qiskit_circuit(cls, qc : QuantumCircuit, max_bond : int, input_mps : "MatrixProductState"=None) -> "MatrixProductState":
         """
         Create an MPS for the output of a Qiskit QuantumCircuit.
         
@@ -180,8 +180,11 @@ class MatrixProductState(TensorNetwork):
             An MPS.
         """
         qc_mpo = MatrixProductOperator.from_qiskit_circuit(qc, max_bond)
-        mps = cls.all_zero_mps(qc.num_qubits)
-        mps.apply_mpo(qc_mpo)
+        if not input_mps:
+            mps = cls.all_zero_mps(qc.num_qubits)
+        else:
+            mps = input_mps
+        mps = mps.apply_mpo(qc_mpo)
         return mps
 
     def __add__(self, other : "MatrixProductState") -> "MatrixProductState":
@@ -348,7 +351,7 @@ class MatrixProductState(TensorNetwork):
         t1 = self.tensors[0]
         t2 = mpo.tensors[0]
 
-        t1.indices = ["T1_DOWN", "T1_CONTRACT"]
+        t1.indices = ["T1_DOWN", "TO_CONTRACT"]
         t2.indices = ["T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
 
         tn = TensorNetwork([t1, t2])
@@ -363,7 +366,7 @@ class MatrixProductState(TensorNetwork):
             t1 = self.tensors[t_idx]
             t2 = mpo.tensors[t_idx]
 
-            t1.indices = ["T1_UP", "T1_DOWN", "T1_CONTRACT"]
+            t1.indices = ["T1_UP", "T1_DOWN", "TO_CONTRACT"]
             t2.indices = ["T2_UP", "T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
 
             tn = TensorNetwork([t1, t2])
@@ -378,7 +381,7 @@ class MatrixProductState(TensorNetwork):
         t1 = self.tensors[-1]
         t2 = mpo.tensors[-1]
 
-        t1.indices = ["T1_UP", "T1_CONTRACT", "T1_LEFT"]
+        t1.indices = ["T1_UP", "TO_CONTRACT"]
         t2.indices = ["T2_UP", "T2_RIGHT", "TO_CONTRACT"]
 
         tn = TensorNetwork([t1, t2])
@@ -388,7 +391,6 @@ class MatrixProductState(TensorNetwork):
         tensor.combine_indices(["T1_UP", "T2_UP"], new_index_name="UP")
         tensor.reorder_indices(["UP", "T2_RIGHT"])
         arrays.append(tensor.data)
-
         mps = MatrixProductState.from_arrays(arrays)
         return mps
 

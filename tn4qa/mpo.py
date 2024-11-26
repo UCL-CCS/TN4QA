@@ -31,15 +31,14 @@ class MatrixProductOperator(TensorNetwork):
         self.num_sites = len(tensors)
         self.shape = shape
 
-        tn_dict = self.get_index_to_tensor_dict()
         internal_inds = self.get_internal_indices()
         external_inds = self.get_external_indices()
         bond_dims = []
         physical_dims = []
         for idx in internal_inds:
-            bond_dims.append(tn_dict[idx])
+            bond_dims.append(self.get_dimension_of_index(idx))
         for idx in external_inds:
-            physical_dims.append(tn_dict[idx])
+            physical_dims.append(self.get_dimension_of_index(idx))
         self.bond_dimension = max(bond_dims)
         self.physical_dimension = max(physical_dims)
 
@@ -252,7 +251,8 @@ class MatrixProductOperator(TensorNetwork):
         """
         tn = TensorNetwork.from_qiskit_layer(layer, layer_number)
         arrays = [0]*(layer.num_qubits)
-        for t in tn:
+        tensors = [t for t in tn.tensors]
+        for t in tensors:
             num_qubits = int(len(t.indices) / 2)
             if num_qubits == 2:
                 qidx_labels = [l for l in t.labels if l[0] == "Q"]
@@ -262,22 +262,33 @@ class MatrixProductOperator(TensorNetwork):
                 q2_indices = [t.indices[1], t.indices[3]]
 
                 new_index_name = "TEMP_INDEX"
-                new_labels = ["TEMP_LABEL_1", "TEMP_LABEL_2"]
+                new_labels = [["TEMP_LABEL_1"], ["TEMP_LABEL_2"]]
                 tn.svd(t, q1_indices, q2_indices, new_index_name=new_index_name, new_labels=new_labels)
+                
+                tensor0 = tn.get_tensors_from_label("TEMP_LABEL_1")[0]
+                tensor1 = tn.get_tensors_from_label("TEMP_LABEL_2")[0]
+                tensor0.labels.remove("TEMP_LABEL_1")
+                tensor1.labels.remove("TEMP_LABEL_2")
+                tensor0.reorder_indices(["TEMP_INDEX"] + q1_indices)
+                tensor1.reorder_indices(["TEMP_INDEX"] + q2_indices)
 
-                tensor0_data = tn.get_tensors_from_label(new_labels[0])[0].data 
-                tensor1_data = tn.get_tensors_from_label(new_labels[1])[0].data
+                tensor0_data = tensor0.data
+                tensor1_data = tensor1.data
 
-                if q1 == 0:
+                if int(q1) == 0:
                     tensor0_shape = tensor0_data.shape 
                 else:
                     tensor0_shape = (1,) + tensor0_data.shape 
-                tensor1_shape = (tensor1_data.shape[0],) + (1,) + (tensor1_data.shape[1],) + (tensor1_data.shape[2],)
+                
+                if int(q2) == layer.num_qubits - 1:
+                    tensor1_shape = tensor1_data.shape
+                else:
+                    tensor1_shape = (tensor1_data.shape[0],) + (1,) + (tensor1_data.shape[1],) + (tensor1_data.shape[2],)
 
                 tensor0_data = sparse.reshape(tensor0_data, tensor0_shape)
                 tensor1_data = sparse.reshape(tensor1_data, tensor1_shape)
-                arrays[q1] = tensor0_data
-                arrays[q2] = tensor1_data
+                arrays[int(q1)] = tensor0_data
+                arrays[int(q2)] = tensor1_data
 
             else:
                 qidx_labels = [l for l in t.labels if l[0] == "Q"]
@@ -285,13 +296,13 @@ class MatrixProductOperator(TensorNetwork):
 
                 data = t.data
 
-                if qidx == 0:
-                    new_shape = (1,) + t.shape 
+                if int(qidx) == 0 or int(qidx) == layer.num_qubits - 1:
+                    new_shape = (1,) + t.dimensions 
                 else:
-                    new_shape = (1,1,) + t.shape 
+                    new_shape = (1,1,) + t.dimensions 
 
                 data = sparse.reshape(data, new_shape)
-                arrays[qidx] = data
+                arrays[int(qidx)] = data
         
         mpo = cls.from_arrays(arrays)
         return mpo
@@ -309,10 +320,12 @@ class MatrixProductOperator(TensorNetwork):
             An MPO.
         """
         dag = circuit_to_dag(qc)
-        first_layer = dag.layers()[0]
-        mpo = cls.from_qiskit_layer(first_layer, layer_number=1)
+        all_layers = [l for l in dag.layers()]
+        first_layer = all_layers[0]
+        first_layer_as_circ = dag_to_circuit(first_layer['graph'])
+        mpo = cls.from_qiskit_layer(first_layer_as_circ, layer_number=1)
         layer_number = 2
-        for layer in dag.layers()[1:]:
+        for layer in all_layers[1:]:
             layer_as_circ = dag_to_circuit(layer['graph'])
             temp_mpo = cls.from_qiskit_layer(layer_as_circ, layer_number)
             mpo = mpo * temp_mpo
@@ -497,7 +510,7 @@ class MatrixProductOperator(TensorNetwork):
         t1 = self.tensors[0]
         t2 = other.tensors[0]
 
-        t1.indices = ["T1_DOWN", "T1_CONTRACT", "T1_LEFT"]
+        t1.indices = ["T1_DOWN", "TO_CONTRACT", "T1_LEFT"]
         t2.indices = ["T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
 
         tn = TensorNetwork([t1, t2])
@@ -512,7 +525,7 @@ class MatrixProductOperator(TensorNetwork):
             t1 = self.tensors[t_idx]
             t2 = other.tensors[t_idx]
 
-            t1.indices = ["T1_UP", "T1_DOWN", "T1_CONTRACT", "T1_LEFT"]
+            t1.indices = ["T1_UP", "T1_DOWN", "TO_CONTRACT", "T1_LEFT"]
             t2.indices = ["T2_UP", "T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
 
             tn = TensorNetwork([t1, t2])
@@ -527,7 +540,7 @@ class MatrixProductOperator(TensorNetwork):
         t1 = self.tensors[-1]
         t2 = other.tensors[-1]
 
-        t1.indices = ["T1_UP", "T1_CONTRACT", "T1_LEFT"]
+        t1.indices = ["T1_UP", "TO_CONTRACT", "T1_LEFT"]
         t2.indices = ["T2_UP", "T2_RIGHT", "TO_CONTRACT"]
 
         tn = TensorNetwork([t1, t2])
