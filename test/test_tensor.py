@@ -29,7 +29,46 @@ def test_constructor_numpy():
     return
 
 def test_from_array():
-    return 
+    # High-dimensional NumPy array
+    numpy_array_3d = np.random.rand(2, 3, 4)
+    tensor_3d = Tensor.from_array(numpy_array_3d, index_prefix="H", labels=["Dim1", "Dim2", "Dim3"])
+    assert isinstance(tensor_3d.data.todense(), ndarray), "Data should be a NumPy ndarray"
+    assert tensor_3d.indices == ["H1", "H2", "H3"], "Indices should match the array dimensions"
+    assert tensor_3d.labels == ["Dim1", "Dim2", "Dim3"], "Labels should match the given labels"
+
+    # Empty NumPy array
+    empty_numpy_array = np.array([])
+    tensor_empty_numpy = Tensor.from_array(empty_numpy_array, index_prefix="E")
+    print(tensor_empty_numpy.indices)
+    assert tensor_empty_numpy.indices == [], "Indices should be empty for empty array"
+    assert tensor_empty_numpy.labels == ["T1"], "Labels should default to ['T1']"
+
+    # High-dimensional Sparse array
+    sparse_array_3d = sparse.COO(np.random.randint(0, 2, size=(2, 3, 4)))
+    tensor_sparse_3d = Tensor.from_array(sparse_array_3d, index_prefix="S", labels=["L1", "L2", "L3"])
+    assert isinstance(tensor_sparse_3d.data, SparseArray), "Data should be a SparseArray"
+    assert tensor_sparse_3d.indices == ["S1", "S2", "S3"], "Indices should match the array dimensions"
+    assert tensor_sparse_3d.labels == ["L1", "L2", "L3"], "Labels should match the given labels"
+
+    # Empty Sparse array
+    empty_sparse_array = sparse.COO(np.array([]))
+    tensor_empty_sparse = Tensor.from_array(empty_sparse_array, index_prefix="ES")
+    assert tensor_empty_sparse.indices == [], "Indices should be empty for empty Sparse array"
+    assert tensor_empty_sparse.labels == ["T1"], "Labels should default to ['T1']"
+
+    # Invalid input
+    try:
+        invalid_input = [1, 2, 3]
+        Tensor.from_array(invalid_input)
+        assert False, "An error should have been raised for invalid input"
+    except AttributeError:
+        pass  # Expected for invalid input without ".shape"
+
+    # Large arrays
+    large_array = np.random.rand(1000, 1000)
+    tensor_large = Tensor.from_array(large_array, index_prefix="L")
+    assert len(tensor_large.indices) == 2, "Indices should match the number of dimensions"
+    assert tensor_large.data.shape == (1000, 1000), "Data shape should match input array"
 
 def test_from_qiskit_gate():
     return 
