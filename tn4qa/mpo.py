@@ -633,3 +633,4 @@ class MatrixProductOperator(TensorNetwork):
         tensor = self.tensors[0]
         tensor.multiply_by_constant(const)
         return
+    
