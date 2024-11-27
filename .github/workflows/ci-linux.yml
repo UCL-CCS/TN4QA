@@ -17,7 +17,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
@@ -25,9 +25,10 @@ jobs:
       - name: Install dependencies
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install setuptools numpy scipy sparse qiskit qiskit_ibm_provider qiskit_ibm_runtime qiskit-aer symmer cotengra kahypar block2
           python3 -m pip install pytest
+      
+      - name: Setup package
+        run: python3 -m pip install .
 
       - name: Test with pytest
-        run: |
-          pytest .
+        run: pytest .
