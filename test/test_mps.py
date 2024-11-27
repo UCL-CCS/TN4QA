@@ -1,6 +1,7 @@
 import numpy as np
 from tn4qa.tensor import Tensor
 from tn4qa.mps import MatrixProductState
+from tn4qa.mpo import MatrixProductOperator
 from qiskit import QuantumCircuit
 
 np.random.seed(12)
@@ -199,32 +200,86 @@ def test_dagger():
     return 
 
 def test_move_orthogonality_centre():
+    mps = MatrixProductState.random_mps(4, 4, 2)
+    mps.move_orthogonality_centre(2)
+
+    t = mps.tensors[0]
+    t.tensor_to_matrix([t.indices[1]], [t.indices[0]])
+    t_mat = t.data.todense()
+    if t.dimensions[0] >= t.dimensions[1]:
+        id_mat = np.eye(t.dimensions[1])
+        assert np.allclose(id_mat, t_mat.conj().T @ t_mat)
+    else:
+        id_mat = np.eye(t.dimensions[0])
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T)
+
+    t = mps.tensors[2]
+    t.tensor_to_matrix([t.indices[1], t.indices[2]], [t.indices[0]])
+    t_mat = t.data.todense()
+    if t.dimensions[0] >= t.dimensions[1]:
+        id_mat = np.eye(t.dimensions[1])
+        assert np.allclose(id_mat, t_mat.conj().T @ t_mat)
+    else:
+        id_mat = np.eye(t.dimensions[0])
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T)
+
+    t = mps.tensors[3]
+    t.tensor_to_matrix([t.indices[1]], [t.indices[0]])
+    t_mat = t.data.todense()
+    if t.dimensions[0] >= t.dimensions[1]:
+        id_mat = np.eye(t.dimensions[1])
+        assert np.allclose(id_mat, t_mat.conj().T @ t_mat)
+    else:
+        id_mat = np.eye(t.dimensions[0])
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T)
+
     return 
 
-def test_apply_mpo():
+def test_apply_mpo_1():
+    mps = MatrixProductState.equal_superposition_mps(4)
+    qc = QuantumCircuit(4)
+    qc.h([0,1,2,3])
+    mpo = MatrixProductOperator.from_qiskit_circuit(qc, 4)
+
+    output = mps.apply_mpo(mpo).to_dense_array()
+    expected_output = np.array([0]*16, dtype=complex)
+    expected_output[0] = 1
+
+    assert np.allclose(output, expected_output)
 
     return 
+
+def test_apply_mpo_2():
+    mps = MatrixProductState.all_zero_mps(12)
+    qc = QuantumCircuit(12)
+    qc.h(0)
+    for i in range(11):
+        qc.cx(i,i+1)
+    mpo = MatrixProductOperator.from_qiskit_circuit(qc, 64)
+    output = mps.apply_mpo(mpo).to_dense_array()
+
+    expected_output = np.array([0]*(2**12), dtype=complex)
+    expected_output[0] = np.sqrt(1/2)
+    expected_output[-1] = np.sqrt(1/2)
+
+    print(output)
+
+    assert np.allclose(output, expected_output, atol=0.1)
+
+    return
 
 def test_compute_inner_product():
+    mps1 = MatrixProductState.all_zero_mps(5)
+    mps2 = MatrixProductState.equal_superposition_mps(5)
+
+    prod1 = mps1.compute_inner_product(mps1)
+    prod2 = mps2.compute_inner_product(mps2)
+    prod3 = mps1.compute_inner_product(mps2)
+    prod4 = mps2.compute_inner_product(mps1)
+
+    assert np.isclose(prod1, 1.0)
+    assert np.isclose(prod2, 1.0)
+    assert np.isclose(prod3, np.sqrt(1/2**5))
+    assert np.isclose(prod4, np.sqrt(1/2**5))
+
     return 
-
-# def test_sample_configuration():
-#     return 
-
-# def test_to_staircase_circuit():
-#     return 
-
-# def test_warmstart_ansatz_circuit():
-#     return 
-
-# def test_to_preparation_mpo():
-#     return 
-
-# def test_perfect_amplitude_amplification():
-#     return 
-
-# def test_perfect_amplitude_suppression():
-#     return 
-
-# def test_get_grovers_operator():
-#     return 

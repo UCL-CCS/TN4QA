@@ -235,10 +235,6 @@ def test_compress_index():
     t2 = Tensor(TEST_ARRAY_2, ["B", "C"], [])
 
     tn = TensorNetwork([t1,t2], "TEST_TN")
-    tn.compress_index("B", max_bond=2)
-
-    assert np.allclose(tn.tensors[0].data.todense(), TEST_ARRAY_1)
-    assert np.allclose(tn.tensors[1].data.todense(), TEST_ARRAY_2)
 
     tn.compress_index("B", max_bond=1)
     bond_size_A = tn.get_dimension_of_index("A")

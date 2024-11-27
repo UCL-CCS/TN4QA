@@ -197,13 +197,13 @@ class MatrixProductOperator(TensorNetwork):
 
         num_sites = len(ps)
         for qidx in range(2, num_sites):
-            qidx_indices = [f"B{qidx-1}", f"D{qidx}", f"R{qidx}", f"L{qidx}"]
+            qidx_indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
             qidx_labels = [f"MPO_T{qidx}"]
             qidx_gate = pauli_dict[ps[qidx-1]].reshape(1,1,2,2)
             qidx_tensor = Tensor(qidx_gate, qidx_indices, qidx_labels)
             tensors.append(qidx_tensor)
         
-        last_indices = [f"U{num_sites-1}", f"R{num_sites}", f"L{num_sites}"]
+        last_indices = [f"B{num_sites-1}", f"R{num_sites}", f"L{num_sites}"]
         last_labels = [f"MPO_T{num_sites}"]  
         last_gate = pauli_dict[ps[-1]].reshape(1,2,2)
         last_tensor = Tensor(last_gate, last_indices, last_labels)
@@ -426,14 +426,15 @@ class MatrixProductOperator(TensorNetwork):
         """
         Converts MPO to a sparse matrix.
         """
-        self.reshape()
-        internal_bonds = self.get_internal_indices()
+        mpo = copy.deepcopy(self)
+        mpo.reshape()
+        internal_bonds = mpo.get_internal_indices()
         for index in internal_bonds:
-            self.contract_index(index)
+            mpo.contract_index(index)
 
-        tensor = self.tensors[0]
-        output_indices = self.indices[:self.num_sites]
-        input_indices = self.indices[self.num_sites:]
+        tensor = mpo.tensors[0]
+        output_indices = mpo.indices[:mpo.num_sites]
+        input_indices = mpo.indices[mpo.num_sites:]
         tensor.tensor_to_matrix(input_indices, output_indices)
         
         return tensor.data
@@ -442,7 +443,8 @@ class MatrixProductOperator(TensorNetwork):
         """
         Converts MPO to a dense matrix.
         """
-        sparse_matrix = self.to_sparse_array()
+        mpo = copy.deepcopy(self)
+        sparse_matrix = mpo.to_sparse_array()
         dense_matrix = sparse_matrix.todense()
 
         return dense_matrix

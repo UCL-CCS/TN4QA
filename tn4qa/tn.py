@@ -313,9 +313,10 @@ class TensorNetwork:
             idx: The index to compress.
             max_bond: The maximum bond dimension for this index.
         """
-        tensors = self.get_tensors_from_index_name(idx)
         if reverse_direction:
-            tensors = tensors[::-1]
+            tensors = self.get_tensors_from_index_name(idx)[::-1]
+        else:
+            tensors = self.get_tensors_from_index_name(idx)
 
         array0, array1 = tensors[0].data, tensors[1].data
         indices0, indices1 = tensors[0].indices, tensors[1].indices
@@ -329,16 +330,15 @@ class TensorNetwork:
         input_idxs = [i for i in indices0 if i != idx]
         output_idxs = [i for i in indices1 if i != idx]
         temp_tensor.tensor_to_matrix(input_idxs, output_idxs)
-        if max_bond >= min(temp_tensor.data.shape):
-            return 
-        u, s, vh = svd(temp_tensor.data.todense(), full_matrices=True)      
-        new_data0 = sparse.COO.from_numpy(vh[:max_bond, :])
-        new_data1 = sparse.COO.from_numpy(u[:, :max_bond] * s[:max_bond])
+        u, s, vh = svd(temp_tensor.data.todense(), full_matrices=True)    
+        bond_dim = min([max_bond, temp_tensor.data.shape[0], temp_tensor.data.shape[1]])  
+        new_data0 = sparse.COO.from_numpy(vh[:bond_dim, :])
+        new_data1 = sparse.COO.from_numpy(u[:, :bond_dim] * s[:bond_dim])
 
         idx_pos0 = indices0.index(idx)
         idx_pos1 = indices1.index(idx)
-        new_dims0 = (max_bond,) + dims0[:idx_pos0] + dims0[idx_pos0+1:]
-        new_dims1 = dims1[:idx_pos1] + dims1[idx_pos1+1:] + (max_bond,)
+        new_dims0 = (bond_dim,) + dims0[:idx_pos0] + dims0[idx_pos0+1:]
+        new_dims1 = dims1[:idx_pos1] + dims1[idx_pos1+1:] + (bond_dim,)
         new_indices0 = [idx] + indices0[:idx_pos0] + indices0[idx_pos0+1:] 
         new_indices1 = indices1[:idx_pos1] + indices1[idx_pos1+1:] + [idx]
 

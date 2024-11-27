@@ -271,7 +271,8 @@ class MatrixProductState(TensorNetwork):
         """
         Convert the MPS to a sparse array.
         """
-        output = self.contract_entire_network()
+        mps = copy.deepcopy(self)
+        output = mps.contract_entire_network()
         output.combine_indices(output.indices, output.indices[0])
         return output.data
 
@@ -279,7 +280,8 @@ class MatrixProductState(TensorNetwork):
         """
         Convert the MPS to a dense array.
         """
-        sparse_array = self.to_sparse_array()
+        mps = copy.deepcopy(self)
+        sparse_array = mps.to_sparse_array()
         dense_array = sparse_array.todense()
         return dense_array
 
@@ -341,6 +343,8 @@ class MatrixProductState(TensorNetwork):
         """
         if not where:
             where = self.num_sites 
+
+        internal_indices = self.get_internal_indices()
         
         push_down = list(range(1, where))
         push_up = list(range(where, self.num_sites))[::-1]
@@ -348,11 +352,11 @@ class MatrixProductState(TensorNetwork):
         max_bond = self.bond_dimension
 
         for idx in push_down:
-            index = self.indices[idx]
+            index = internal_indices[idx-1]
             self.compress_index(index, max_bond)
         
         for idx in push_up:
-            index = self.indices[idx]
+            index = internal_indices[idx-1]
             self.compress_index(index, max_bond, reverse_direction=True)
 
         return
