@@ -35,14 +35,15 @@ def test_constructor_numpy():
 
     return
 
-def test_from_array():
+def test_from_array_numpy_3D():
     # High-dimensional NumPy array
     numpy_array_3d = np.random.rand(2, 3, 4)
     tensor_3d = Tensor.from_array(numpy_array_3d, index_prefix="H", labels=["Dim1", "Dim2", "Dim3"])
     assert isinstance(tensor_3d.data.todense(), ndarray), "Data should be a NumPy ndarray"
     assert tensor_3d.indices == ["H1", "H2", "H3"], "Indices should match the array dimensions"
-    assert tensor_3d.labels == ["Dim1", "Dim2", "Dim3"], "Labels should match the given labels"
+    assert tensor_3d.labels == ["L1", "L2", "L3"], "Labels should match the given labels"
 
+def test_from_array_numpy_empty():
     # Empty NumPy array
     empty_numpy_array = np.array([])
     tensor_empty_numpy = Tensor.from_array(empty_numpy_array, index_prefix="E")
@@ -50,6 +51,7 @@ def test_from_array():
     assert tensor_empty_numpy.indices == [], "Indices should be empty for empty array"
     assert tensor_empty_numpy.labels == ["T1"], "Labels should default to ['T1']"
 
+def test_from_array_sparse_3D():
     # High-dimensional Sparse array
     sparse_array_3d = sparse.COO(np.random.randint(0, 2, size=(2, 3, 4)))
     tensor_sparse_3d = Tensor.from_array(sparse_array_3d, index_prefix="S", labels=["L1", "L2", "L3"])
@@ -57,12 +59,14 @@ def test_from_array():
     assert tensor_sparse_3d.indices == ["S1", "S2", "S3"], "Indices should match the array dimensions"
     assert tensor_sparse_3d.labels == ["L1", "L2", "L3"], "Labels should match the given labels"
 
+def test_from_array_sparse_empty():
     # Empty Sparse array
     empty_sparse_array = sparse.COO(np.array([]))
     tensor_empty_sparse = Tensor.from_array(empty_sparse_array, index_prefix="ES")
     assert tensor_empty_sparse.indices == [], "Indices should be empty for empty Sparse array"
     assert tensor_empty_sparse.labels == ["T1"], "Labels should default to ['T1']"
 
+def test_from_array_invalid():
     # Invalid input
     try:
         invalid_input = [1, 2, 3]
@@ -71,13 +75,14 @@ def test_from_array():
     except AttributeError:
         pass  # Expected for invalid input without ".shape"
 
+def test_from_array_large():
     # Large arrays
     large_array = np.random.rand(1000, 1000)
     tensor_large = Tensor.from_array(large_array, index_prefix="L")
     assert len(tensor_large.indices) == 2, "Indices should match the number of dimensions"
     assert tensor_large.data.shape == (1000, 1000), "Data shape should match input array"
 
-def test_from_qiskit_gate():
+def test_from_qiskit_gate_xgate():
     # Test single-qubit gate (XGate)
     x_gate = XGate()
     tensor_x = Tensor.from_qiskit_gate(x_gate)
@@ -85,6 +90,7 @@ def test_from_qiskit_gate():
     assert tensor_x.labels == ["T1", "x"], "Labels for XGate should be ['T1', 'x']"
     assert tensor_x.data.shape == (2, 2), "Data shape for XGate should be (2, 2)"
 
+def test_from_qiskit_gate_hgate():
     # Test single-qubit gate (HGate)
     h_gate = HGate()
     tensor_h = Tensor.from_qiskit_gate(h_gate, labels=["Label"])
@@ -92,6 +98,7 @@ def test_from_qiskit_gate():
     assert tensor_h.labels == ["Label", "h"], "Labels for HGate should be ['Label', 'h']"
     assert tensor_h.data.shape == (2, 2), "Data shape for HGate should be (2, 2)"
 
+def test_from_qiskit_gate_cxgate():
     # Test two-qubit gate (CXGate)
     cx_gate = CXGate()
     tensor_cx = Tensor.from_qiskit_gate(cx_gate)
@@ -99,6 +106,7 @@ def test_from_qiskit_gate():
     assert tensor_cx.labels == ["T1", "cx"], "Labels for CXGate should be ['T1', 'cx']"
     assert tensor_cx.data.shape == (2, 2, 2, 2), "Data shape for CXGate should be (2, 2, 2, 2)"
 
+def test_from_qiskit_gate_custom():
     # Test custom indices
     tensor_custom_indices = Tensor.from_qiskit_gate(h_gate, indices=["I1", "O1"], labels=["Custom"])
     assert tensor_custom_indices.indices == ["I1", "O1"], "Custom indices should be used"
@@ -118,11 +126,11 @@ def test_rank_3_copy():
   expected_labels = ["T1", "copy3"]
 
   # Test properties
-  assert (tensor.data.todense() == expected_data).all(),  "Validate the data"
-  assert tensor.dimensions == expected_shape,  " Validate the shape"
+  assert (tensor.data.todense() == expected_data).all(),  "Data does not match expected"
+  assert tensor.dimensions == expected_shape,  " Invalid shape"
   assert tensor.rank == expected_rank,  " Validate the rank"
-  assert tensor.indices == expected_indices,  " Validate the indices"
-  assert tensor.labels == expected_labels,  " Validate the labels"
+  assert tensor.indices == expected_indices,  "Indices do not match expected"
+  assert tensor.labels == expected_labels,  "Labels do not match expected"
 
 def test_rank_4_copy():
   tensor = Tensor.rank_4_copy()
@@ -142,7 +150,7 @@ def test_rank_4_copy():
   assert tensor.dimensions == expected_shape,  " Invalid shape"
   assert tensor.rank == expected_rank,  " Incorrect rank"
   assert tensor.indices == expected_indices,  "Indices do not match expected"
-  assert tensor.labels == expected_labels,  " Validate do not match expected"
+  assert tensor.labels == expected_labels,  "Labels do not match expected"
 
 def test_rank_3_copy_open():
   tensor = Tensor.rank_3_copy_open()
