@@ -1,0 +1,33 @@
+name: tn4qa
+
+on:
+  push:
+    branches: [ main, angus-ci ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: "Linux CI" 
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install setuptools numpy scipy sparse qiskit qiskit_ibm_provider qiskit_ibm_runtime qiskit-aer symmer cotengra kahypar block2
+          python3 -m pip install pytest
+
+      - name: Test with pytest
+        run: |
+          pytest .
