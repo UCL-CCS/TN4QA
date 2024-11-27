@@ -47,7 +47,11 @@ class Tensor:
             tensor: The Tensor object.
         """
         data = array
-        indices = [index_prefix+str(d_idx+1) for d_idx in range(tensor.rank)]
+        if array.size == 0:  # Check if the array is empty
+          indices = []
+        else:
+          rank = len(array.shape)  # Use array.shape to calculate rank
+          indices = [index_prefix + str(d_idx + 1) for d_idx in range(rank)]
         labels = labels
 
         tensor = cls(data, indices, labels)
