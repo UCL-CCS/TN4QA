@@ -27,8 +27,8 @@ def test_constructor():
   # Assert
   assert mpo.num_sites == 2, "Number of sites mismatch"
   assert mpo.shape == "udrl", "Shape mismatch"
-  assert mpo.bond_dimension == 2, "Bond dimension not set"
-  assert mpo.physical_dimension == 2, "Physical dimension not set"
+  assert mpo.bond_dimension == 2, "Bond dimension not correct"
+  assert mpo.physical_dimension == 2, "Physical dimension not correct"
 
 def test_MatrixProductOperator_empty_tensors():
     try:
@@ -42,8 +42,8 @@ def test_from_arrays():
     mpo = MatrixProductOperator.from_arrays(arrays_valid, shape="udrl")
     assert mpo.num_sites == 2, "Number of sites mismatch"
     assert mpo.shape == "udrl", "Shape mismatch"
-    assert mpo.bond_dimension == 2, "Bond dimension not set"
-    assert mpo.physical_dimension == 2, "Physical dimension not set"
+    assert mpo.bond_dimension == 2, "Bond dimension not correct"
+    assert mpo.physical_dimension == 2, "Physical dimension not correct"
 
 def test_identity_mpo():
     return 
