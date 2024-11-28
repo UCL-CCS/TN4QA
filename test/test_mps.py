@@ -283,3 +283,11 @@ def test_compute_inner_product():
     assert np.isclose(prod4, np.sqrt(1/2**5))
 
     return 
+
+def test_normalise():
+    mps = MatrixProductState.random_mps(5, 4, 2)
+    mps.normalise() 
+
+    prod = mps.compute_inner_product(mps)
+    assert np.isclose(prod, 1.0)
+    
