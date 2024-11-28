@@ -38,7 +38,7 @@ def test_constructor_numpy():
 def test_from_array_numpy_3D():
     # High-dimensional NumPy array
     numpy_array_3d = np.random.rand(2, 3, 4)
-    tensor_3d = Tensor.from_array(numpy_array_3d, index_prefix="H", labels=["Dim1", "Dim2", "Dim3"])
+    tensor_3d = Tensor.from_array(numpy_array_3d, index_prefix="H", labels=["L1", "L2", "L3"])
     assert isinstance(tensor_3d.data.todense(), ndarray), "Data should be a NumPy ndarray"
     assert tensor_3d.indices == ["H1", "H2", "H3"], "Indices should match the array dimensions"
     assert tensor_3d.labels == ["L1", "L2", "L3"], "Labels should match the given labels"
@@ -108,6 +108,7 @@ def test_from_qiskit_gate_cxgate():
 
 def test_from_qiskit_gate_custom():
     # Test custom indices
+    h_gate = HGate()
     tensor_custom_indices = Tensor.from_qiskit_gate(h_gate, indices=["I1", "O1"], labels=["Custom"])
     assert tensor_custom_indices.indices == ["I1", "O1"], "Custom indices should be used"
     assert tensor_custom_indices.labels == ["Custom", "h"], "Labels should include custom label and gate name"
