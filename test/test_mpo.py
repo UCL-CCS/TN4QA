@@ -1,15 +1,14 @@
 import numpy as np 
-from numpy import ndarray
 import sparse
 from sparse import SparseArray
-from tensor import Tensor 
-from tn import TensorNetwork
-from mpo import MatrixProductOperator
+from tn4qa.tensor import Tensor
+from tn4qa.mpo import MatrixProductOperator
 
 np.random.seed(999)
 
 TEST_ARRAY_1 = np.random.rand(2, 2, 2)
 TEST_ARRAY_2 = np.random.rand(2, 2, 2)
+TEST_ARRAYS = [TEST_ARRAY_1, TEST_ARRAY_2]
 
 arrays_valid = [
   sparse.COO.from_numpy(TEST_ARRAY_1),
@@ -49,6 +48,7 @@ def test_identity_mpo():
     return 
 
 def test_generalised_mcu_mpo():
+    mpo = MatrixProductOperator.generalised_mcu_mpo
     return 
 
 def test_from_pauli_string():
@@ -61,9 +61,6 @@ def test_from_qiskit_layer():
     return 
 
 def test_from_qiskit_circuit():
-    return 
-
-def test_tnqem_mpo_construction():
     return 
 
 def test_zero_reflection_mpo():
@@ -128,7 +125,15 @@ def test_project_to_subspace():
     return 
 
 def test_multiply_by_constant():
-    return 
+    mps = MatrixProductOperator.from_arrays(TEST_ARRAYS)
+    mps.multiply_by_constant(-3.7+1.2j)
 
-def test_dmrg():
+    expected_output = [
+        TEST_ARRAYS[0] * (-3.7+1.2j),
+        TEST_ARRAYS[1],
+    ]
+
+    for i in range(2):
+        assert np.allclose(mps.tensors[i].data.todense(), expected_output[i])
+
     return 

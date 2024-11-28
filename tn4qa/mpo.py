@@ -6,8 +6,8 @@ import numpy as np
 from numpy import ndarray
 import sparse
 from sparse import SparseArray
-from .tensor import Tensor 
-from .tn import TensorNetwork
+from tn4qa.tensor import Tensor 
+from tn4qa.tn import TensorNetwork
 
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
@@ -332,20 +332,20 @@ class MatrixProductOperator(TensorNetwork):
             mpo.compress(max_bond)
         return mpo
     
-    @classmethod
-    def tnqem_mpo_construction(cls, qc : QuantumCircuit, max_bond : int) -> "MatrixProductOperator":
-        """
-        Create an MPO that performs TN-QEM for a given quantum circuit.
+    # @classmethod
+    # def tnqem_mpo_construction(cls, qc : QuantumCircuit, max_bond : int) -> "MatrixProductOperator":
+    #     """
+    #     Create an MPO that performs TN-QEM for a given quantum circuit.
 
-        Args:
-            qc: The quantum circuit.
-            max_bond: The maximum bond dimension allowed. 
+    #     Args:
+    #         qc: The quantum circuit.
+    #         max_bond: The maximum bond dimension allowed. 
         
-        Returns:
-            An MPO.
-        """
-        # TODO
-        return
+    #     Returns:
+    #         An MPO.
+    #     """
+    #     # TODO
+    #     return
     
     @classmethod
     def zero_reflection_mpo(cls, num_sites : int) -> "MatrixProductOperator":
@@ -433,8 +433,8 @@ class MatrixProductOperator(TensorNetwork):
             mpo.contract_index(index)
 
         tensor = mpo.tensors[0]
-        output_indices = mpo.indices[:mpo.num_sites]
-        input_indices = mpo.indices[mpo.num_sites:]
+        output_indices = [mpo.indices[2*i] for i in range(int(len(mpo.indices)/2))]
+        input_indices = [mpo.indices[2*i+1] for i in range(int(len(mpo.indices)/2))][::-1]
         tensor.tensor_to_matrix(input_indices, output_indices)
         
         return tensor.data
