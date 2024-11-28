@@ -1,12 +1,49 @@
 import numpy as np 
+from numpy import ndarray
+import sparse
+from sparse import SparseArray
+from tensor import Tensor 
+from tn import TensorNetwork
+from mpo import MatrixProductOperator
 
 np.random.seed(999)
 
+TEST_ARRAY_1 = np.random.rand(2, 2, 2)
+TEST_ARRAY_2 = np.random.rand(2, 2, 2)
+
+arrays_valid = [
+  sparse.COO.from_numpy(TEST_ARRAY_1),
+  sparse.COO.from_numpy(TEST_ARRAY_2),
+]
+
+t1 = Tensor(TEST_ARRAY_1, ["A", "B", "C"], ["T1"])
+t2 = Tensor(TEST_ARRAY_2, ["A", "E", "F"], ["T2"])
+
+
 def test_constructor():
-    return 
+  mpo = MatrixProductOperator([t1,t2])
+  print(mpo)
+  
+  # Assert
+  assert mpo.num_sites == 2, "Number of sites mismatch"
+  assert mpo.shape == "udrl", "Shape mismatch"
+  assert mpo.bond_dimension == 2, "Bond dimension not set"
+  assert mpo.physical_dimension == 2, "Physical dimension not set"
+
+def test_MatrixProductOperator_empty_tensors():
+    try:
+        MatrixProductOperator([], shape="udrl")
+    except ValueError:
+      pass
+    else:
+        assert False, "Expected ValueError for empty tensors"
 
 def test_from_arrays():
-    return 
+    mpo = MatrixProductOperator.from_arrays(arrays_valid, shape="udrl")
+    assert mpo.num_sites == 2, "Number of sites mismatch"
+    assert mpo.shape == "udrl", "Shape mismatch"
+    assert mpo.bond_dimension == 2, "Bond dimension not set"
+    assert mpo.physical_dimension == 2, "Physical dimension not set"
 
 def test_identity_mpo():
     return 
@@ -39,10 +76,38 @@ def test_projector_from_samples():
     return 
 
 def test_to_sparse_array():
-    return 
+    # Arrange: Create a valid MPO
+    mpo = MatrixProductOperator([t1,t2])
+    
+    # Act: Convert the MPO to a sparse array
+    sparse_matrix = mpo.to_sparse_array()
+    print(sparse_matrix)
+    
+    # Assert: Check the returned object is a SparseArray and is non-empty
+    assert isinstance(sparse_matrix, SparseArray), "Output is not a SparseArray"
+    assert sparse_matrix.nnz > 0, "Sparse array is empty"
 
 def test_to_dense_array():
-    return 
+    # Arrange: Create a valid MPO
+    mpo = MatrixProductOperator([t1,t2])
+    
+    # Act: Convert the MPO to a dense array
+    dense_matrix = mpo.to_dense_array()
+    
+    # Assert: Check the returned object is a NumPy ndarray and has expected dimensions
+    assert isinstance(dense_matrix, np.ndarray), "Output is not a dense NumPy ndarray"
+    assert dense_matrix.shape == (4, 4), "Dense matrix dimensions are incorrect"
+    assert np.any(dense_matrix), "Dense array is empty or all zeros"
+
+def sparse_and_dense_equivalence():
+    mpo = MatrixProductOperator([t1,t2])
+    
+    # Act: Convert MPO to both sparse and dense arrays
+    sparse_matrix = mpo.to_sparse_array()
+    dense_matrix = mpo.to_dense_array()
+    
+    # Assert: Check equivalence between sparse and dense representations
+    assert np.allclose(sparse_matrix.todense(), dense_matrix), "Sparse and dense matrix representations are not equivalent"
 
 def test_add():
     return 
