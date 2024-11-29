@@ -46,7 +46,10 @@ def test_from_arrays():
     assert mpo.physical_dimension == 2, "Physical dimension not correct"
 
 def test_identity_mpo():
-    return 
+  for n in range(2,10):
+    mpo = MatrixProductOperator.identity_mpo(n)
+    dense_matrix = mpo.to_dense_array()
+    assert dense_matrix.all() == np.identity(n).all(), "Does not return Identity Matrix"
 
 def test_generalised_mcu_mpo():
     return 
