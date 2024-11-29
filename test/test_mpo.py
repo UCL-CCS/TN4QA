@@ -74,9 +74,35 @@ def test_generalised_mcu_mpo():
     return 
 
 def test_from_pauli_string():
+    mpo = MatrixProductOperator.from_pauli_string("XYZIZYIX")
+    mpo_dense = mpo.to_dense_array()
+
+    xmat = np.array([[0,1],[1,0]], dtype=complex)
+    ymat = np.array([[0,-1j],[1j,0]], dtype=complex)
+    zmat = np.array([[1,0],[0,-1]], dtype=complex)
+    idmat = np.array([[1,0],[0,1]], dtype=complex)
+
+    expected_output = np.kron(xmat, np.kron(ymat, np.kron(zmat, np.kron(idmat, np.kron(zmat, np.kron(ymat, np.kron(idmat, xmat)))))))
+
+    assert np.allclose(expected_output, mpo_dense)
+
     return 
 
 def test_from_hamiltonian():
+    ham = {"IXI" : -1.2+0.2j, "YYY" : 0.4-0.8j, "ZIX" : 1.1-0.1j}
+    mpo = MatrixProductOperator.from_hamiltonian(ham, 8)
+    mpo_dense = mpo.to_dense_array()
+    print(mpo_dense)
+
+    xmat = np.array([[0,1],[1,0]], dtype=complex)
+    ymat = np.array([[0,-1j],[1j,0]], dtype=complex)
+    zmat = np.array([[1,0],[0,-1]], dtype=complex)
+    idmat = np.array([[1,0],[0,1]], dtype=complex)
+
+    expected_output = (-1.2+0.2j)*np.kron(idmat, np.kron(ymat,idmat)) + (0.4-0.8j)*np.kron(ymat,np.kron(ymat,ymat)) + (1.1-0.1j)*np.kron(zmat,np.kron(idmat,xmat))
+    print(expected_output)
+
+    assert np.allclose(expected_output, mpo_dense)
     return 
 
 def test_from_qiskit_layer():

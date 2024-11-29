@@ -280,8 +280,8 @@ class MatrixProductOperator(TensorNetwork):
         for ps in pauli_strings[1:]:
             temp_mpo = cls.from_pauli_string(ps)
             temp_mpo.multiply_by_constant(ham[ps])
-            mpo = mpo * temp_mpo 
-            mpo.compress(max_bond)
+            mpo = mpo + temp_mpo 
+            mpo.compress(max_bond) 
 
         return mpo
     
@@ -511,24 +511,30 @@ class MatrixProductOperator(TensorNetwork):
 
             t1_data = t1.data 
             t2_data = t2.data
+            t1_dimensions = t1.dimensions
+            t2_dimensions = t2.dimensions
             if t_idx == 0:
                 t1_data = sparse.reshape(t1_data, (1, t1.dimensions[0], t1.dimensions[1], t1.dimensions[2]))
                 t2_data = sparse.reshape(t2_data, (1, t2.dimensions[0], t2.dimensions[1], t2.dimensions[2]))
+                t1_dimensions = (1, t1.dimensions[0], t1.dimensions[1], t1.dimensions[2])
+                t2_dimensions = (1, t2.dimensions[0], t2.dimensions[1], t2.dimensions[2])
             if t_idx == self.num_sites-1:
                 t1_data = sparse.reshape(t1_data, (t1.dimensions[0], 1, t1.dimensions[1], t1.dimensions[2]))
                 t2_data = sparse.reshape(t2_data, (t2.dimensions[0], 1, t2.dimensions[1], t2.dimensions[2]))
+                t1_dimensions = (t1.dimensions[0], 1, t1.dimensions[1], t1.dimensions[2])
+                t2_dimensions = (t2.dimensions[0], 1, t2.dimensions[1], t2.dimensions[2])
 
-            data1 = sparse.moveaxis(t1.data, [0,1,2,3], [0,2,1,3])
-            data2 = sparse.moveaxis(t2.data, [0,1,2,3], [0,2,1,3])
+            data1 = sparse.moveaxis(t1_data, [0,1,2,3], [0,2,1,3])
+            data2 = sparse.moveaxis(t2_data, [0,1,2,3], [0,2,1,3])
 
-            data1 = sparse.reshape(data1, (t1.dimensions[0]*t1.dimensions[2], t1.dimensions[1]*t1.dimensions[3]))
-            data2 = sparse.reshape(data2, (t2.dimensions[0]*t2.dimensions[2], t2.dimensions[1]*t2.dimensions[3]))
+            data1 = sparse.reshape(data1, (t1_dimensions[0]*t1_dimensions[2], t1_dimensions[1]*t1_dimensions[3]))
+            data2 = sparse.reshape(data2, (t2_dimensions[0]*t2_dimensions[2], t2_dimensions[1]*t2_dimensions[3]))
 
             zeros_top_right = sparse.COO.from_numpy(np.zeros((data1.shape[0], data2.shape[1])))
             zeros_bottom_left = sparse.COO.from_numpy(np.zeros((data2.shape[0], data1.shape[1])))
 
-            new_data = sparse.concatenate(sparse.concatenate([data1, zeros_top_right],axis=1), sparse.concatenate([zeros_bottom_left, data2],axis=1))
-            new_data = sparse.reshape(new_data, (t1.dimensions[0]*t2.dimensions[0], t1.dimensions[2], t1.dimensions[1]*t2.dimensions[1], t1.dimensions[3]))
+            new_data = sparse.concatenate([sparse.concatenate([data1, zeros_top_right],axis=1), sparse.concatenate([zeros_bottom_left, data2],axis=1)])
+            new_data = sparse.reshape(new_data, (t1_dimensions[0]*t2_dimensions[0], t1_dimensions[2], t1_dimensions[1]*t2_dimensions[1], t1_dimensions[3]))
             new_data = sparse.moveaxis(new_data, [0,1,2,3], [0,2,1,3])
 
             if t_idx == 0:
