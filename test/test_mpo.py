@@ -131,7 +131,14 @@ def test_project_to_subspace():
     return 
 
 def test_multiply_by_constant():
-    return 
+  for n in range(1,10):
+    mpo = MatrixProductOperator([t1,t2])
+    dense_matrix = mpo.to_dense_array()
+    result_a = dense_matrix * 2
+    mpo.multiply_by_constant(2)
+    dense_matrix = mpo.to_dense_array()
+    result_b = dense_matrix
+    assert result_a.all() == result_b.all()
 
 def test_dmrg():
     return 
