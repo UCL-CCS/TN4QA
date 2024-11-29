@@ -45,10 +45,32 @@ def test_from_arrays():
     assert mpo.physical_dimension == 2, "Physical dimension not set"
 
 def test_identity_mpo():
+    mpo = MatrixProductOperator.identity_mpo(8)
+    id_mat = np.eye(2**8)
+
+    mpo_dense = mpo.to_dense_array()
+    assert np.allclose(mpo_dense, id_mat)
+
     return 
 
 def test_generalised_mcu_mpo():
-    mpo = MatrixProductOperator.generalised_mcu_mpo
+    x_gate = np.array([[0,1],[1,0]])
+    mpo = MatrixProductOperator.generalised_mcu_mpo(4, [1], [3], 2, x_gate)
+    mpo_dense = mpo.to_dense_array()
+
+    expected_array = np.kron(np.array([
+        [1,0,0,0,0,0,0,0],
+        [0,0,0,1,0,0,0,0],
+        [0,0,1,0,0,0,0,0],
+        [0,1,0,0,0,0,0,0],
+        [0,0,0,0,1,0,0,0],
+        [0,0,0,0,0,1,0,0],
+        [0,0,0,0,0,0,1,0],
+        [0,0,0,0,0,0,0,1]
+    ]), np.eye(2))
+
+    assert np.allclose(expected_array, mpo_dense)
+    
     return 
 
 def test_from_pauli_string():
@@ -78,8 +100,7 @@ def test_to_sparse_array():
     
     # Act: Convert the MPO to a sparse array
     sparse_matrix = mpo.to_sparse_array()
-    print(sparse_matrix)
-    
+     
     # Assert: Check the returned object is a SparseArray and is non-empty
     assert isinstance(sparse_matrix, SparseArray), "Output is not a SparseArray"
     assert sparse_matrix.nnz > 0, "Sparse array is empty"

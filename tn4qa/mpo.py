@@ -6,12 +6,13 @@ import numpy as np
 from numpy import ndarray
 import sparse
 from sparse import SparseArray
-from tn4qa.tensor import Tensor 
-from tn4qa.tn import TensorNetwork
+from .tensor import Tensor 
+from .tn import TensorNetwork
 
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag, dag_to_circuit
+from qiskit.circuit.library import UnitaryGate
 
 DataOptions : TypeAlias = Union[ndarray, SparseArray]
 
@@ -128,44 +129,91 @@ class MatrixProductOperator(TensorNetwork):
         Returns:
             An MPO.
         """
+        unitary = unitary.todense() if isinstance(unitary, SparseArray) else unitary
+        unitary_gate = UnitaryGate(unitary)
+
+        first_mcu_qubit = min(zero_ctrls+one_ctrls+[target])
+        last_mcu_qubit = max(zero_ctrls+one_ctrls+[target])
+        mcu_qubits = list(range(first_mcu_qubit, last_mcu_qubit+1))
+
         tensors = []
 
-        first_indices = ["B1", "R1", "L1"]
-        first_labels = ["MPO_T1"]
-        if 1 in zero_ctrls:
-            first_tensor = Tensor.rank_3_copy_open(first_indices, first_labels)
-        elif 1 in one_ctrls:
-            first_tensor = Tensor.rank_3_copy(first_indices, first_labels)
-        elif 1 == target:
-            first_tensor = Tensor.rank_3_qiskit_gate(unitary, first_indices, first_labels)
-        else:
-            first_tensor = Tensor(np.array([[1,0],[0,1]],dtype=complex).reshape(1,2,2), first_indices, first_labels)
-        tensors.append(first_tensor)
-
-        for qidx in range(2, num_sites):
-            qidx_indices = [f"B{qidx-1}", f"D{qidx}", f"R{qidx}", f"L{qidx}"]
-            qidx_labels = [f"MPO_T{qidx}"]
-            if 1 in zero_ctrls:
-                qidx_tensor = Tensor.rank_4_copy_open(qidx_indices, qidx_labels)
-            elif 1 in one_ctrls:
-                qidx_tensor = Tensor.rank_4_copy(qidx_indices, qidx_labels)
-            elif 1 == target:
-                qidx_tensor = Tensor.rank_4_qiskit_gate(unitary, qidx_indices, qidx_labels)
+        for qidx in range(1, first_mcu_qubit):
+            if qidx == 1:
+                first_indices = ["B1", "R1", "L1"]
+                first_labels = ["MPO_T1"]
+                tensor = Tensor.from_array(np.array([[1,0],[0,1]], dtype=complex).reshape(1,2,2), first_indices, first_labels)
+                tensors.append(tensor)
             else:
-                qidx_tensor = Tensor(np.array([[1,0],[0,1]],dtype=complex).reshape(1,1,2,2), first_indices, first_labels)
-            tensors.append(qidx_tensor)
-                
-        last_indices = [f"U{num_sites-1}", f"R{num_sites}", f"L{num_sites}"]
-        last_labels = [f"MPO_T{num_sites}"]
-        if num_sites in zero_ctrls:
-            last_tensor = Tensor.rank_3_copy_open(last_indices, last_labels)
-        elif num_sites in one_ctrls:
-            last_tensor = Tensor.rank_3_copy(last_indices, last_labels)
-        elif num_sites == target:
-            last_tensor = Tensor.rank_3_qiskit_gate(unitary, last_indices, last_labels)
-        else:
-            last_tensor = Tensor(np.array([[1,0],[0,1]],dtype=complex).reshape(1,2,2), first_indices, first_labels)
-        tensors.append(last_tensor)
+                indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
+                labels = [f"MPO_T{qidx}"]
+                tensor = Tensor.from_array(np.array([[1,0],[0,1]], dtype=complex).reshape(1,1,2,2), indices, labels)
+                tensors.append(tensor)
+
+        for qidx in mcu_qubits:
+            if qidx == 1 or qidx == num_sites:
+                indices = [f"B{qidx}", f"R{qidx}", f"L{qidx}"] if qidx == 1 else [f"B{qidx-1}", f"R{qidx}", f"L{qidx}"]
+                labels = [f"MPO_T{qidx}"]
+                if qidx in zero_ctrls:
+                    tensor = Tensor.rank_3_copy_open(indices, labels)
+                elif qidx in one_ctrls:
+                    tensor = Tensor.rank_3_copy(indices, labels)
+                else:
+                    tensor = Tensor.rank_3_qiskit_gate(unitary_gate, indices, labels)
+                tensors.append(tensor)
+
+            elif qidx == first_mcu_qubit:
+                labels = [f"MPO_T{qidx}"]
+                if qidx in zero_ctrls:
+                    tensor = Tensor.rank_3_copy_open(labels=labels)
+                elif qidx in one_ctrls:
+                    tensor = Tensor.rank_3_copy(indices, labels)
+                else:
+                    tensor = Tensor.rank_3_qiskit_gate(unitary_gate, indices, labels)
+                tensor.data = sparse.reshape(tensor.data, (1,)+tensor.dimensions)
+                tensor.dimensions = (1,) + tensor.dimensions 
+                tensor.indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"] 
+                tensor.rank = 4
+                tensors.append(tensor)
+
+            elif qidx == last_mcu_qubit:
+                labels = [f"MPO_T{qidx}"]
+                if qidx in zero_ctrls:
+                    tensor = Tensor.rank_3_copy_open(labels=labels)
+                elif qidx in one_ctrls:
+                    tensor = Tensor.rank_3_copy(indices, labels)
+                else:
+                    tensor = Tensor.rank_3_qiskit_gate(unitary_gate, indices, labels)
+                tensor.data = sparse.reshape(tensor.data, (tensor.dimensions[0],) + (1,) + (tensor.dimensions[1], tensor.dimensions[2]))
+                tensor.dimensions = (tensor.dimensions[0],) + (1,) + (tensor.dimensions[1], tensor.dimensions[2])
+                tensor.indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"] 
+                tensor.rank = 4
+                tensors.append(tensor)
+
+            else:
+                indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"] 
+                labels = [f"MPO_T{qidx}"]
+                if qidx in zero_ctrls:
+                    tensor = Tensor.rank_4_copy_open(indices, labels)
+                elif qidx in one_ctrls:
+                    tensor = Tensor.rank_4_copy(indices, labels)
+                elif qidx == target:
+                    tensor = Tensor.rank_4_qiskit_gate(unitary_gate, indices, labels)
+                else:
+                    tensor = Tensor.from_array(np.eye(4).reshape(2,2,2,2), indices, labels)
+                tensors.append(tensor)
+
+        for qidx in range(last_mcu_qubit+1, num_sites+1):
+            if qidx == num_sites:
+                last_indices = [f"B{num_sites-1}", f"R{num_sites}", f"L{num_sites}"]
+                last_labels = [f"MPO_T{num_sites}"]
+                tensor = Tensor.from_array(np.array([[1,0],[0,1]], dtype=complex).reshape(1,2,2), last_indices, last_labels)
+                tensors.append(tensor)
+            else:
+                indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
+                labels = [f"MPO_T{qidx}"]
+                tensor = Tensor.from_array(np.array([[1,0],[0,1]], dtype=complex).reshape(1,1,2,2), indices, labels)
+                tensors.append(tensor)
 
         mpo = cls(tensors)
         return mpo
@@ -434,7 +482,7 @@ class MatrixProductOperator(TensorNetwork):
 
         tensor = mpo.tensors[0]
         output_indices = [mpo.indices[2*i] for i in range(int(len(mpo.indices)/2))]
-        input_indices = [mpo.indices[2*i+1] for i in range(int(len(mpo.indices)/2))][::-1]
+        input_indices = [mpo.indices[2*i+1] for i in range(int(len(mpo.indices)/2))]
         tensor.tensor_to_matrix(input_indices, output_indices)
         
         return tensor.data
@@ -635,4 +683,3 @@ class MatrixProductOperator(TensorNetwork):
         tensor = self.tensors[0]
         tensor.multiply_by_constant(const)
         return
-    
