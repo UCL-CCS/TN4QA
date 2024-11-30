@@ -10,7 +10,7 @@ from .tensor import Tensor
 from .tn import TensorNetwork
 
 # Qiskit quantum circuit integration
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, transpile
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.circuit.library import UnitaryGate
 
@@ -291,7 +291,7 @@ class MatrixProductOperator(TensorNetwork):
         Create an MPO for a circuit layer.
 
         Args:
-            layer: The quantum circuit layer (should only contain one and two qubit gates).
+            layer: The quantum circuit layer (should only contain one and two qubit gates with nearest neighbour inetractions).
             layer_number (optional): The layer number within a larger circuit. Default to 1.
         
         Returns:
@@ -377,7 +377,8 @@ class MatrixProductOperator(TensorNetwork):
             layer_as_circ = dag_to_circuit(layer['graph'])
             temp_mpo = cls.from_qiskit_layer(layer_as_circ, layer_number)
             mpo = mpo * temp_mpo
-            mpo.compress(max_bond)
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
         return mpo
     
     # @classmethod
@@ -411,7 +412,7 @@ class MatrixProductOperator(TensorNetwork):
             x_layer.x(idx)
         x_layer_mpo = cls.from_qiskit_layer(x_layer)
         
-        z_gate = np.array([[1,0],[0,1]])
+        z_gate = np.array([[1,0],[0,-1]])
         mcz_mpo = cls.generalised_mcu_mpo(num_sites, [], list(range(1,num_sites)), num_sites, z_gate)
 
         mpo = copy.deepcopy(x_layer_mpo)
@@ -481,7 +482,6 @@ class MatrixProductOperator(TensorNetwork):
             mpo.contract_index(index)
 
         tensor = mpo.tensors[0]
-        print("hi", mpo.indices)
         output_indices = [mpo.indices[2*i] for i in range(int(len(mpo.indices)/2))]
         input_indices = [mpo.indices[2*i+1] for i in range(int(len(mpo.indices)/2))]
         tensor.tensor_to_matrix(input_indices, output_indices)

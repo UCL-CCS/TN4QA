@@ -383,7 +383,7 @@ class TensorNetwork:
         for idx in tn_dict:
             still_exists = False
             if len(tn_dict[idx]) > 0:
-                still_exists == True
+                still_exists = True
             if not still_exists:
                 self.indices.remove(idx)
         

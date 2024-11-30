@@ -11,7 +11,6 @@ setup(
 		'scipy',
         'sparse', 
         'qiskit',
-        'qiskit_ibm_provider',
         'qiskit_ibm_runtime',
         'qiskit-aer',
         'symmer',

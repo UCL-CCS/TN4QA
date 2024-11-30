@@ -87,7 +87,7 @@ def test_from_qiskit_circuit_1():
     qc = QuantumCircuit(4)
     for i in range(4):
         qc.h(i)
-    mps = MatrixProductState.from_qiskit_circuit(qc, 4)
+    mps = MatrixProductState.from_qiskit_circuit(qc, 8)
 
     expected_state = np.array([[np.sqrt(1/2), np.sqrt(1/2)]])
     for tensor in mps.tensors:
@@ -98,11 +98,12 @@ def test_from_qiskit_circuit_2():
     qc.h(0)
     for i in range(5):
         qc.cx(i, i+1)
-    mps = MatrixProductState.from_qiskit_circuit(qc, 2)
+    mps = MatrixProductState.from_qiskit_circuit(qc, 8)
 
     output = mps.contract_entire_network()
     output.combine_indices(["P1", "P2", "P3", "P4", "P5", "P6"])
     output_data = output.data.todense()
+    print(output_data)
 
     assert np.isclose(output_data[0], np.sqrt(1/2))
     assert np.isclose(output_data[63], np.sqrt(1/2))

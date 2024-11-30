@@ -3,6 +3,9 @@ import sparse
 from sparse import SparseArray
 from tn4qa.tensor import Tensor
 from tn4qa.mpo import MatrixProductOperator
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Operator
+from qiskit.circuit.random import random_circuit
 
 np.random.seed(999)
 
@@ -104,15 +107,47 @@ def test_from_hamiltonian():
     return 
 
 def test_from_qiskit_layer():
+    qc = QuantumCircuit(8)
+    qc.h(0)
+    qc.x(1)
+    qc.cx(2,3)
+    qc.cz(4,5)
+    qc.h(6)
+    qc.y(7)
+    expected_op = Operator.from_circuit(qc).reverse_qargs().data
+    mpo = MatrixProductOperator.from_qiskit_layer(qc)
+    mpo_dense = mpo.to_dense_array()
+    assert np.allclose(mpo_dense, expected_op)
+
     return 
 
 def test_from_qiskit_circuit():
+    qc = QuantumCircuit(5)
+    for _ in range(5):
+        qc.h([0,1,2])
+        qc.x([3,4])
+        qc.cx(0,1)
+        qc.cz(2,3)
+        qc.cx(3,4)
+        qc.z([0,1])
+        qc.h([2,3,4])
+        
+    expected_op = Operator.from_circuit(qc).reverse_qargs().data
+    mpo = MatrixProductOperator.from_qiskit_circuit(qc, 64)
+    mpo_dense = mpo.to_dense_array()
+    assert np.allclose(mpo_dense, expected_op)
     return 
 
 def test_zero_reflection_mpo():
+    mpo = MatrixProductOperator.zero_reflection_mpo(8)
+    mpo_dense = mpo.to_dense_array()
+    expected = np.eye(2**8)
+    expected[0][0] = -1
+    assert np.allclose(expected, mpo_dense)
     return 
 
 def test_from_bitstring():
+    
     return 
 
 def test_projector_from_samples():
