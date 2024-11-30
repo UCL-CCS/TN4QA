@@ -446,7 +446,7 @@ class MatrixProductOperator(TensorNetwork):
             array = proj_0_rank4 if b == "0" else proj_1_rank4
             arrays.append(array)
         
-        last_array = proj_0_rank3 if bs[-1] == "0" else proj_1_rank4
+        last_array = proj_0_rank3 if bs[-1] == "0" else proj_1_rank3
         arrays.append(last_array)
 
         mpo = cls.from_arrays(arrays)
@@ -468,7 +468,8 @@ class MatrixProductOperator(TensorNetwork):
         for sample in samples[1:]:
             temp_mpo = cls.from_bitstring(sample)
             mpo = mpo + temp_mpo
-            mpo.compress(max_bond)
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
         return mpo
     
     def to_sparse_array(self) -> SparseArray:
@@ -478,12 +479,12 @@ class MatrixProductOperator(TensorNetwork):
         mpo = copy.deepcopy(self)
         mpo.reshape()
         internal_bonds = mpo.get_internal_indices()
+
         for index in internal_bonds:
             mpo.contract_index(index)
 
         tensor = mpo.tensors[0]
-        print(tensor.rank)
-        print(tensor.indices)
+        print(mpo.indices)
         output_indices = [mpo.indices[2*i] for i in range(int(len(mpo.indices)/2))]
         input_indices = [mpo.indices[2*i+1] for i in range(int(len(mpo.indices)/2))]
         tensor.tensor_to_matrix(input_indices, output_indices)
@@ -679,6 +680,8 @@ class MatrixProductOperator(TensorNetwork):
         """
         if not where:
             where = self.num_sites 
+
+        internal_indices = self.get_internal_indices()
         
         push_down = list(range(1, where))
         push_up = list(range(where, self.num_sites))[::-1]
@@ -686,25 +689,26 @@ class MatrixProductOperator(TensorNetwork):
         max_bond = self.bond_dimension
 
         for idx in push_down:
-            index = self.indices[idx]
+            index = internal_indices[idx-1]
             self.compress_index(index, max_bond)
         
         for idx in push_up:
-            index = self.indices[idx]
+            index = internal_indices[idx-1]
             self.compress_index(index, max_bond, reverse_direction=True)
 
         return
     
-    def project_to_subspace(self, projector : "MatrixProductOperator") -> None:
+    def project_to_subspace(self, projector : "MatrixProductOperator") -> "MatrixProductOperator":
         """
         Project the MPO to a subspace.
         
         Args:
             projector: The projector onto the subspace in MPO form.
         """
-        self = projector * self 
-        self = self * projector
-        return 
+        self_copy = copy.deepcopy(self)
+        mpo = projector * self_copy 
+        mpo = mpo * projector
+        return mpo
 
     def multiply_by_constant(self, const : complex) -> None:
         """

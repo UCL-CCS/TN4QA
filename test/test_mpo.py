@@ -159,6 +159,14 @@ def test_from_bitstring():
     return 
 
 def test_projector_from_samples():
+    list_bs = ["010", "111", "101"]
+    expected = np.zeros((8,8))
+    for bs in list_bs:
+        bs_int = int(bs,2)
+        expected[bs_int][bs_int] = 1
+    mpo = MatrixProductOperator.projector_from_samples(list_bs, 8)
+    mpo_dense = mpo.to_dense_array()
+    assert np.allclose(mpo_dense, expected)
     return 
 
 def test_to_sparse_array():
@@ -195,21 +203,124 @@ def sparse_and_dense_equivalence():
     assert np.allclose(sparse_matrix.todense(), dense_matrix), "Sparse and dense matrix representations are not equivalent"
 
 def test_add():
+    ham1 = {"XX" : 0.2, "YY" : 0.3}
+    ham2 = {"ZZ" : 0.4, "II" : 0.5}
+    total_ham = {"XX" : 0.2, "YY" : 0.3, "ZZ" : 0.4, "II" : 0.5}
+    mpo1 = MatrixProductOperator.from_hamiltonian(ham1, 8)
+    mpo2 = MatrixProductOperator.from_hamiltonian(ham2, 8)
+
+    out = mpo1 + mpo2
+    expected = MatrixProductOperator.from_hamiltonian(total_ham, 8)
+
+    assert np.allclose(out.to_dense_array(), expected.to_dense_array())
     return 
 
 def test_subtract():
+    ham1 = {"XX" : 0.2, "YY" : 0.3}
+    ham2 = {"ZZ" : 0.4, "II" : 0.5}
+    total_ham = {"XX" : 0.2, "YY" : 0.3, "ZZ" : 0.4, "II" : 0.5}
+    mpo1 = MatrixProductOperator.from_hamiltonian(ham1, 8)
+    mpo2 = MatrixProductOperator.from_hamiltonian(total_ham, 8)
+
+    out = mpo2 - mpo1
+    expected = MatrixProductOperator.from_hamiltonian(ham2, 8)
+
+    assert np.allclose(out.to_dense_array(), expected.to_dense_array())
     return
 
 def test_multiply():
+    qc1 = QuantumCircuit(4)
+    qc1.h([0,1,2,3])
+    qc1.cx(0,1)
+    qc1.cx(2,3)
+    qc1.x([0,1,2,3])
+
+    qc2 = QuantumCircuit(4)
+    qc2.h([0,1,2,3])
+    qc2.cz(0,1)
+    qc2.cz(2,3)
+    qc2.y([0,1,2,3])
+
+    totalqc = qc1.compose(qc2)
+
+    mpo1 = MatrixProductOperator.from_qiskit_circuit(qc1, 8)
+    mpo2 = MatrixProductOperator.from_qiskit_circuit(qc2, 8)
+
+    out = mpo1 * mpo2
+    expected = MatrixProductOperator.from_qiskit_circuit(totalqc, 64)
+
+    assert np.allclose(out.to_dense_array(), expected.to_dense_array())
     return 
 
 def test_reshape():
+    mpo = MatrixProductOperator.from_arrays(TEST_ARRAYS)
+    mpo.reshape("rudl")
+
+    TEST_ARRAYS_RESHAPED = [np.moveaxis(TEST_ARRAY_1, [0,1,2], [1,0,2]), np.moveaxis(TEST_ARRAY_2, [0,1,2], [1,0,2])]
+    new_mpo = MatrixProductOperator.from_arrays(TEST_ARRAYS_RESHAPED)
+
+    for tidx in range(2):
+        assert np.allclose(mpo.tensors[tidx].data.todense(), new_mpo.tensors[tidx].data.todense())
+
     return 
 
 def test_move_orthogonality_centre():
+    ham = {"XYXY" : 0.8, "IZZZ" : -1.2, "XYIZ" : 0.2-1.1j}
+    mpo = MatrixProductOperator.from_hamiltonian(ham, 8)
+    mpo.move_orthogonality_centre(2)
+
+    t = mpo.tensors[0]
+    t.tensor_to_matrix([t.indices[1], t.indices[2]], [t.indices[0]])
+    t_mat = t.data.todense()
+    if t.dimensions[0] >= t.dimensions[1]:
+        id_mat = np.eye(t.dimensions[1])
+        assert np.allclose(id_mat, t_mat.conj().T @ t_mat)
+    else:
+        id_mat = np.eye(t.dimensions[0])
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T)
+
+    t = mpo.tensors[2]
+    t.tensor_to_matrix([t.indices[1], t.indices[2], t.indices[3]], [t.indices[0]])
+    t_mat = t.data.todense()
+    if t.dimensions[0] >= t.dimensions[1]:
+        id_mat = np.eye(t.dimensions[1])
+        assert np.allclose(id_mat, t_mat.conj().T @ t_mat)
+    else:
+        id_mat = np.eye(t.dimensions[0])
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T)
+
+    t = mpo.tensors[3]
+    t.tensor_to_matrix([t.indices[1], t.indices[2]], [t.indices[0]])
+    t_mat = t.data.todense()
+    if t.dimensions[0] >= t.dimensions[1]:
+        id_mat = np.eye(t.dimensions[1])
+        assert np.allclose(id_mat, t_mat.conj().T @ t_mat)
+    else:
+        id_mat = np.eye(t.dimensions[0])
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T)
+
     return 
 
 def test_project_to_subspace():
+    ham = {"XYZ" : 0.2+1.1j, "IXI" : 1.1-0.8j, "YYY" : -0.8-0.2j}
+    bs_list = ["101", "001"]
+    mpo = MatrixProductOperator.from_hamiltonian(ham, 8)
+    proj = MatrixProductOperator.projector_from_samples(bs_list, 8)
+    mpo = mpo.project_to_subspace(proj) 
+    mpo_dense = mpo.to_dense_array()
+
+    xmat = np.array([[0,1],[1,0]],dtype=complex)
+    ymat = np.array([[0,-1j],[1j,0]],dtype=complex)
+    zmat = np.array([[1,0],[0,-1]],dtype=complex)
+    idmat = np.array([[1,0],[0,1]],dtype=complex)
+    ham_mat = (0.2+1.1j)*np.kron(xmat, np.kron(ymat,zmat)) + (1.1-0.8j)*np.kron(idmat, np.kron(xmat,idmat)) + (-0.8-0.2j)*np.kron(ymat, np.kron(ymat,ymat))
+    proj_mat = np.zeros((8,8))
+    for bs in bs_list:
+        bs_int = int(bs,2)
+        proj_mat[bs_int][bs_int] = 1
+    expected = proj_mat @ ham_mat @ proj_mat 
+
+    assert np.allclose(expected, mpo_dense)
     return 
 
 def test_multiply_by_constant():
