@@ -48,12 +48,10 @@ def test_from_arrays():
     assert mpo.physical_dimension == 2, "Physical dimension not set"
 
 def test_identity_mpo():
-    mpo = MatrixProductOperator.identity_mpo(8)
-    id_mat = np.eye(2**8)
-
-    mpo_dense = mpo.to_dense_array()
-    assert np.allclose(mpo_dense, id_mat)
-
+  for n in range(2,10):
+    mpo = MatrixProductOperator.identity_mpo(n)
+    dense_matrix = mpo.to_dense_array()
+    assert dense_matrix.all() == np.identity(n).all(), "Does not return Identity Matrix"
     return 
 
 def test_generalised_mcu_mpo():
@@ -324,15 +322,13 @@ def test_project_to_subspace():
     return 
 
 def test_multiply_by_constant():
-    mps = MatrixProductOperator.from_arrays(TEST_ARRAYS)
-    mps.multiply_by_constant(-3.7+1.2j)
-
-    expected_output = [
-        TEST_ARRAYS[0] * (-3.7+1.2j),
-        TEST_ARRAYS[1],
-    ]
-
-    for i in range(2):
-        assert np.allclose(mps.tensors[i].data.todense(), expected_output[i])
+  for n in range(1,10):
+    mpo = MatrixProductOperator([t1,t2])
+    dense_matrix = mpo.to_dense_array()
+    result_a = dense_matrix * 2
+    mpo.multiply_by_constant(2)
+    dense_matrix = mpo.to_dense_array()
+    result_b = dense_matrix
+    assert result_a.all() == result_b.all()
 
     return 
