@@ -253,9 +253,6 @@ class MatrixProductState(TensorNetwork):
         new_data = sparse.moveaxis(new_data, [0,1], [1,0])
         arrays.append(new_data)
 
-        for a in arrays:
-            print(a.todense())
-
         output = MatrixProductState.from_arrays(arrays)
         return output
 
