@@ -325,8 +325,8 @@ def test_multiply_by_constant():
   for n in range(1,10):
     mpo = MatrixProductOperator([t1,t2])
     dense_matrix = mpo.to_dense_array()
-    result_a = dense_matrix * 2
-    mpo.multiply_by_constant(2)
+    result_a = dense_matrix * n
+    mpo.multiply_by_constant(n)
     dense_matrix = mpo.to_dense_array()
     result_b = dense_matrix
     assert result_a.all() == result_b.all()
