@@ -29,7 +29,7 @@ class Tensor:
             sparse_array = data
         self.data = sparse_array
         self.dimensions = data.shape
-        self.rank = len(data.shape)
+        self.rank = len(self.dimensions)
         self.indices = indices
         self.labels = labels
     

@@ -482,6 +482,8 @@ class MatrixProductOperator(TensorNetwork):
             mpo.contract_index(index)
 
         tensor = mpo.tensors[0]
+        print(tensor.rank)
+        print(tensor.indices)
         output_indices = [mpo.indices[2*i] for i in range(int(len(mpo.indices)/2))]
         input_indices = [mpo.indices[2*i+1] for i in range(int(len(mpo.indices)/2))]
         tensor.tensor_to_matrix(input_indices, output_indices)

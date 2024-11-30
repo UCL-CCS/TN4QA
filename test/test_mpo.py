@@ -147,7 +147,15 @@ def test_zero_reflection_mpo():
     return 
 
 def test_from_bitstring():
-    
+    bs = "01101001"
+    mpo = MatrixProductOperator.from_bitstring(bs)
+    mpo_dense = mpo.to_dense_array()
+
+    bs_int = int(bs, 2)
+    expected = np.zeros((2**8, 2**8))
+    expected[bs_int][bs_int] = 1
+
+    assert np.allclose(mpo_dense, expected)
     return 
 
 def test_projector_from_samples():

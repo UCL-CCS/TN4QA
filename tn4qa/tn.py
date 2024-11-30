@@ -295,6 +295,8 @@ class TensorNetwork:
         output_indices = [i for i in indices0 if i != idx] + [i for i in indices1 if i != idx]
         new_data = ctg.array_contract(arrays=[array0, array1], inputs=[indices0, indices1], output=output_indices, cache_expression=False)
         new_labels = [self.get_new_label()]
+        if len(new_data.shape) > len(output_indices):
+            new_data = new_data.reshape(new_data.shape[1:])
         new_tensor = Tensor(new_data, output_indices, new_labels)
 
         self.tensors.remove(tensors[0])
