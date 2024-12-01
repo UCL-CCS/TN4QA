@@ -4,7 +4,7 @@ from qiskit.circuit.library import PauliTwoDesign, ExcitationPreserving, RXGate,
 from qiskit_nature.second_q.circuit.library import UCCSD
 from qiskit_nature.second_q.mappers import JordanWignerMapper, BravyiKitaevMapper
 from typing import List
-from pyscf import scf
+from pyscf.gto import Mole
 
 def hea_ansatz(n_qubits : int, layers : int, sq_rotations : List[str], mq_gate : str) -> QuantumCircuit:
     """
@@ -59,7 +59,7 @@ def number_preserving_ansatz(n_qubits : int, layers : int, entanglement : str) -
     """
     return ExcitationPreserving(n_qubits, reps=layers, entanglement=entanglement).decompose()
 
-def uccsd_ansatz(scf_obj : scf, reps : int, encoding : str) -> QuantumCircuit:
+def uccsd_ansatz(scf_obj : Mole, reps : int, encoding : str) -> QuantumCircuit:
     """
     UCCSD ansatz.
     """
