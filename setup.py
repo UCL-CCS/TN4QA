@@ -13,9 +13,11 @@ setup(
         'qiskit',
         'qiskit_ibm_runtime',
         'qiskit-aer',
+        'qiskit-nature',
         'symmer',
         'cotengra',
         'kahypar',
-        'block2'
+        'block2',
+        'pyscf'
 	], 
 ) 
