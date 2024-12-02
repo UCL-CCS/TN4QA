@@ -10,8 +10,9 @@ from .tensor import Tensor
 from .tn import TensorNetwork
 
 # Qiskit quantum circuit integration
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, transpile
 from qiskit.converters import circuit_to_dag, dag_to_circuit
+from qiskit.circuit.library import UnitaryGate
 
 DataOptions : TypeAlias = Union[ndarray, SparseArray]
 
@@ -31,15 +32,14 @@ class MatrixProductOperator(TensorNetwork):
         self.num_sites = len(tensors)
         self.shape = shape
 
-        tn_dict = self.get_index_to_tensor_dict()
         internal_inds = self.get_internal_indices()
         external_inds = self.get_external_indices()
         bond_dims = []
         physical_dims = []
         for idx in internal_inds:
-            bond_dims.append(tn_dict[idx])
+            bond_dims.append(self.get_dimension_of_index(idx))
         for idx in external_inds:
-            physical_dims.append(tn_dict[idx])
+            physical_dims.append(self.get_dimension_of_index(idx))
         self.bond_dimension = max(bond_dims)
         self.physical_dimension = max(physical_dims)
 
@@ -129,44 +129,91 @@ class MatrixProductOperator(TensorNetwork):
         Returns:
             An MPO.
         """
+        unitary = unitary.todense() if isinstance(unitary, SparseArray) else unitary
+        unitary_gate = UnitaryGate(unitary)
+
+        first_mcu_qubit = min(zero_ctrls+one_ctrls+[target])
+        last_mcu_qubit = max(zero_ctrls+one_ctrls+[target])
+        mcu_qubits = list(range(first_mcu_qubit, last_mcu_qubit+1))
+
         tensors = []
 
-        first_indices = ["B1", "R1", "L1"]
-        first_labels = ["MPO_T1"]
-        if 1 in zero_ctrls:
-            first_tensor = Tensor.rank_3_copy_open(first_indices, first_labels)
-        elif 1 in one_ctrls:
-            first_tensor = Tensor.rank_3_copy(first_indices, first_labels)
-        elif 1 == target:
-            first_tensor = Tensor.rank_3_qiskit_gate(unitary, first_indices, first_labels)
-        else:
-            first_tensor = Tensor(np.array([[1,0],[0,1]],dtype=complex).reshape(1,2,2), first_indices, first_labels)
-        tensors.append(first_tensor)
-
-        for qidx in range(2, num_sites):
-            qidx_indices = [f"B{qidx-1}", f"D{qidx}", f"R{qidx}", f"L{qidx}"]
-            qidx_labels = [f"MPO_T{qidx}"]
-            if 1 in zero_ctrls:
-                qidx_tensor = Tensor.rank_4_copy_open(qidx_indices, qidx_labels)
-            elif 1 in one_ctrls:
-                qidx_tensor = Tensor.rank_4_copy(qidx_indices, qidx_labels)
-            elif 1 == target:
-                qidx_tensor = Tensor.rank_4_qiskit_gate(unitary, qidx_indices, qidx_labels)
+        for qidx in range(1, first_mcu_qubit):
+            if qidx == 1:
+                first_indices = ["B1", "R1", "L1"]
+                first_labels = ["MPO_T1"]
+                tensor = Tensor.from_array(np.array([[1,0],[0,1]], dtype=complex).reshape(1,2,2), first_indices, first_labels)
+                tensors.append(tensor)
             else:
-                qidx_tensor = Tensor(np.array([[1,0],[0,1]],dtype=complex).reshape(1,1,2,2), first_indices, first_labels)
-            tensors.append(qidx_tensor)
-                
-        last_indices = [f"U{num_sites-1}", f"R{num_sites}", f"L{num_sites}"]
-        last_labels = [f"MPO_T{num_sites}"]
-        if num_sites in zero_ctrls:
-            last_tensor = Tensor.rank_3_copy_open(last_indices, last_labels)
-        elif num_sites in one_ctrls:
-            last_tensor = Tensor.rank_3_copy(last_indices, last_labels)
-        elif num_sites == target:
-            last_tensor = Tensor.rank_3_qiskit_gate(unitary, last_indices, last_labels)
-        else:
-            last_tensor = Tensor(np.array([[1,0],[0,1]],dtype=complex).reshape(1,2,2), first_indices, first_labels)
-        tensors.append(last_tensor)
+                indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
+                labels = [f"MPO_T{qidx}"]
+                tensor = Tensor.from_array(np.array([[1,0],[0,1]], dtype=complex).reshape(1,1,2,2), indices, labels)
+                tensors.append(tensor)
+
+        for qidx in mcu_qubits:
+            if qidx == 1 or qidx == num_sites:
+                indices = [f"B{qidx}", f"R{qidx}", f"L{qidx}"] if qidx == 1 else [f"B{qidx-1}", f"R{qidx}", f"L{qidx}"]
+                labels = [f"MPO_T{qidx}"]
+                if qidx in zero_ctrls:
+                    tensor = Tensor.rank_3_copy_open(indices, labels)
+                elif qidx in one_ctrls:
+                    tensor = Tensor.rank_3_copy(indices, labels)
+                else:
+                    tensor = Tensor.rank_3_qiskit_gate(unitary_gate, indices, labels)
+                tensors.append(tensor)
+
+            elif qidx == first_mcu_qubit:
+                labels = [f"MPO_T{qidx}"]
+                if qidx in zero_ctrls:
+                    tensor = Tensor.rank_3_copy_open(labels=labels)
+                elif qidx in one_ctrls:
+                    tensor = Tensor.rank_3_copy(indices, labels)
+                else:
+                    tensor = Tensor.rank_3_qiskit_gate(unitary_gate, indices, labels)
+                tensor.data = sparse.reshape(tensor.data, (1,)+tensor.dimensions)
+                tensor.dimensions = (1,) + tensor.dimensions 
+                tensor.indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"] 
+                tensor.rank = 4
+                tensors.append(tensor)
+
+            elif qidx == last_mcu_qubit:
+                labels = [f"MPO_T{qidx}"]
+                if qidx in zero_ctrls:
+                    tensor = Tensor.rank_3_copy_open(labels=labels)
+                elif qidx in one_ctrls:
+                    tensor = Tensor.rank_3_copy(indices, labels)
+                else:
+                    tensor = Tensor.rank_3_qiskit_gate(unitary_gate, indices, labels)
+                tensor.data = sparse.reshape(tensor.data, (tensor.dimensions[0],) + (1,) + (tensor.dimensions[1], tensor.dimensions[2]))
+                tensor.dimensions = (tensor.dimensions[0],) + (1,) + (tensor.dimensions[1], tensor.dimensions[2])
+                tensor.indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"] 
+                tensor.rank = 4
+                tensors.append(tensor)
+
+            else:
+                indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"] 
+                labels = [f"MPO_T{qidx}"]
+                if qidx in zero_ctrls:
+                    tensor = Tensor.rank_4_copy_open(indices, labels)
+                elif qidx in one_ctrls:
+                    tensor = Tensor.rank_4_copy(indices, labels)
+                elif qidx == target:
+                    tensor = Tensor.rank_4_qiskit_gate(unitary_gate, indices, labels)
+                else:
+                    tensor = Tensor.from_array(np.eye(4).reshape(2,2,2,2), indices, labels)
+                tensors.append(tensor)
+
+        for qidx in range(last_mcu_qubit+1, num_sites+1):
+            if qidx == num_sites:
+                last_indices = [f"B{num_sites-1}", f"R{num_sites}", f"L{num_sites}"]
+                last_labels = [f"MPO_T{num_sites}"]
+                tensor = Tensor.from_array(np.array([[1,0],[0,1]], dtype=complex).reshape(1,2,2), last_indices, last_labels)
+                tensors.append(tensor)
+            else:
+                indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
+                labels = [f"MPO_T{qidx}"]
+                tensor = Tensor.from_array(np.array([[1,0],[0,1]], dtype=complex).reshape(1,1,2,2), indices, labels)
+                tensors.append(tensor)
 
         mpo = cls(tensors)
         return mpo
@@ -198,13 +245,13 @@ class MatrixProductOperator(TensorNetwork):
 
         num_sites = len(ps)
         for qidx in range(2, num_sites):
-            qidx_indices = [f"B{qidx-1}", f"D{qidx}", f"R{qidx}", f"L{qidx}"]
+            qidx_indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
             qidx_labels = [f"MPO_T{qidx}"]
             qidx_gate = pauli_dict[ps[qidx-1]].reshape(1,1,2,2)
             qidx_tensor = Tensor(qidx_gate, qidx_indices, qidx_labels)
             tensors.append(qidx_tensor)
         
-        last_indices = [f"U{num_sites-1}", f"R{num_sites}", f"L{num_sites}"]
+        last_indices = [f"B{num_sites-1}", f"R{num_sites}", f"L{num_sites}"]
         last_labels = [f"MPO_T{num_sites}"]  
         last_gate = pauli_dict[ps[-1]].reshape(1,2,2)
         last_tensor = Tensor(last_gate, last_indices, last_labels)
@@ -233,8 +280,8 @@ class MatrixProductOperator(TensorNetwork):
         for ps in pauli_strings[1:]:
             temp_mpo = cls.from_pauli_string(ps)
             temp_mpo.multiply_by_constant(ham[ps])
-            mpo = mpo * temp_mpo 
-            mpo.compress(max_bond)
+            mpo = mpo + temp_mpo 
+        mpo.compress(max_bond)
 
         return mpo
     
@@ -244,7 +291,7 @@ class MatrixProductOperator(TensorNetwork):
         Create an MPO for a circuit layer.
 
         Args:
-            layer: The quantum circuit layer (should only contain one and two qubit gates).
+            layer: The quantum circuit layer (should only contain one and two qubit gates with nearest neighbour inetractions).
             layer_number (optional): The layer number within a larger circuit. Default to 1.
         
         Returns:
@@ -252,7 +299,8 @@ class MatrixProductOperator(TensorNetwork):
         """
         tn = TensorNetwork.from_qiskit_layer(layer, layer_number)
         arrays = [0]*(layer.num_qubits)
-        for t in tn:
+        tensors = [t for t in tn.tensors]
+        for t in tensors:
             num_qubits = int(len(t.indices) / 2)
             if num_qubits == 2:
                 qidx_labels = [l for l in t.labels if l[0] == "Q"]
@@ -262,22 +310,33 @@ class MatrixProductOperator(TensorNetwork):
                 q2_indices = [t.indices[1], t.indices[3]]
 
                 new_index_name = "TEMP_INDEX"
-                new_labels = ["TEMP_LABEL_1", "TEMP_LABEL_2"]
+                new_labels = [["TEMP_LABEL_1"], ["TEMP_LABEL_2"]]
                 tn.svd(t, q1_indices, q2_indices, new_index_name=new_index_name, new_labels=new_labels)
+                
+                tensor0 = tn.get_tensors_from_label("TEMP_LABEL_1")[0]
+                tensor1 = tn.get_tensors_from_label("TEMP_LABEL_2")[0]
+                tensor0.labels.remove("TEMP_LABEL_1")
+                tensor1.labels.remove("TEMP_LABEL_2")
+                tensor0.reorder_indices(["TEMP_INDEX"] + q1_indices)
+                tensor1.reorder_indices(["TEMP_INDEX"] + q2_indices)
 
-                tensor0_data = tn.get_tensors_from_label(new_labels[0])[0].data 
-                tensor1_data = tn.get_tensors_from_label(new_labels[1])[0].data
+                tensor0_data = tensor0.data
+                tensor1_data = tensor1.data
 
-                if q1 == 0:
+                if int(q1) == 0:
                     tensor0_shape = tensor0_data.shape 
                 else:
                     tensor0_shape = (1,) + tensor0_data.shape 
-                tensor1_shape = (tensor1_data.shape[0],) + (1,) + (tensor1_data.shape[1],) + (tensor1_data.shape[2],)
+                
+                if int(q2) == layer.num_qubits - 1:
+                    tensor1_shape = tensor1_data.shape
+                else:
+                    tensor1_shape = (tensor1_data.shape[0],) + (1,) + (tensor1_data.shape[1],) + (tensor1_data.shape[2],)
 
                 tensor0_data = sparse.reshape(tensor0_data, tensor0_shape)
                 tensor1_data = sparse.reshape(tensor1_data, tensor1_shape)
-                arrays[q1] = tensor0_data
-                arrays[q2] = tensor1_data
+                arrays[int(q1)] = tensor0_data
+                arrays[int(q2)] = tensor1_data
 
             else:
                 qidx_labels = [l for l in t.labels if l[0] == "Q"]
@@ -285,13 +344,13 @@ class MatrixProductOperator(TensorNetwork):
 
                 data = t.data
 
-                if qidx == 0:
-                    new_shape = (1,) + t.shape 
+                if int(qidx) == 0 or int(qidx) == layer.num_qubits - 1:
+                    new_shape = (1,) + t.dimensions 
                 else:
-                    new_shape = (1,1,) + t.shape 
+                    new_shape = (1,1,) + t.dimensions 
 
                 data = sparse.reshape(data, new_shape)
-                arrays[qidx] = data
+                arrays[int(qidx)] = data
         
         mpo = cls.from_arrays(arrays)
         return mpo
@@ -309,30 +368,33 @@ class MatrixProductOperator(TensorNetwork):
             An MPO.
         """
         dag = circuit_to_dag(qc)
-        first_layer = dag.layers()[0]
-        mpo = cls.from_qiskit_layer(first_layer, layer_number=1)
+        all_layers = [l for l in dag.layers()]
+        first_layer = all_layers[0]
+        first_layer_as_circ = dag_to_circuit(first_layer['graph'])
+        mpo = cls.from_qiskit_layer(first_layer_as_circ, layer_number=1)
         layer_number = 2
-        for layer in dag.layers()[1:]:
+        for layer in all_layers[1:]:
             layer_as_circ = dag_to_circuit(layer['graph'])
             temp_mpo = cls.from_qiskit_layer(layer_as_circ, layer_number)
             mpo = mpo * temp_mpo
-            mpo.compress(max_bond)
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
         return mpo
     
-    @classmethod
-    def tnqem_mpo_construction(cls, qc : QuantumCircuit, max_bond : int) -> "MatrixProductOperator":
-        """
-        Create an MPO that performs TN-QEM for a given quantum circuit.
+    # @classmethod
+    # def tnqem_mpo_construction(cls, qc : QuantumCircuit, max_bond : int) -> "MatrixProductOperator":
+    #     """
+    #     Create an MPO that performs TN-QEM for a given quantum circuit.
 
-        Args:
-            qc: The quantum circuit.
-            max_bond: The maximum bond dimension allowed. 
+    #     Args:
+    #         qc: The quantum circuit.
+    #         max_bond: The maximum bond dimension allowed. 
         
-        Returns:
-            An MPO.
-        """
-        # TODO
-        return
+    #     Returns:
+    #         An MPO.
+    #     """
+    #     # TODO
+    #     return
     
     @classmethod
     def zero_reflection_mpo(cls, num_sites : int) -> "MatrixProductOperator":
@@ -350,7 +412,7 @@ class MatrixProductOperator(TensorNetwork):
             x_layer.x(idx)
         x_layer_mpo = cls.from_qiskit_layer(x_layer)
         
-        z_gate = np.array([[1,0],[0,1]])
+        z_gate = np.array([[1,0],[0,-1]])
         mcz_mpo = cls.generalised_mcu_mpo(num_sites, [], list(range(1,num_sites)), num_sites, z_gate)
 
         mpo = copy.deepcopy(x_layer_mpo)
@@ -384,7 +446,7 @@ class MatrixProductOperator(TensorNetwork):
             array = proj_0_rank4 if b == "0" else proj_1_rank4
             arrays.append(array)
         
-        last_array = proj_0_rank3 if bs[-1] == "0" else proj_1_rank4
+        last_array = proj_0_rank3 if bs[-1] == "0" else proj_1_rank3
         arrays.append(last_array)
 
         mpo = cls.from_arrays(arrays)
@@ -406,21 +468,25 @@ class MatrixProductOperator(TensorNetwork):
         for sample in samples[1:]:
             temp_mpo = cls.from_bitstring(sample)
             mpo = mpo + temp_mpo
-            mpo.compress(max_bond)
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
         return mpo
     
     def to_sparse_array(self) -> SparseArray:
         """
         Converts MPO to a sparse matrix.
         """
-        self.reshape()
-        internal_bonds = self.get_internal_indices()
-        for index in internal_bonds:
-            self.contract_index(index)
+        mpo = copy.deepcopy(self)
+        mpo.reshape()
+        internal_bonds = mpo.get_internal_indices()
 
-        tensor = self.tensors[0]
-        output_indices = self.indices[:self.num_sites]
-        input_indices = self.indices[self.num_sites:]
+        for index in internal_bonds:
+            mpo.contract_index(index)
+
+        tensor = mpo.tensors[0]
+        print(mpo.indices)
+        output_indices = [mpo.indices[2*i] for i in range(int(len(mpo.indices)/2))]
+        input_indices = [mpo.indices[2*i+1] for i in range(int(len(mpo.indices)/2))]
         tensor.tensor_to_matrix(input_indices, output_indices)
         
         return tensor.data
@@ -429,7 +495,8 @@ class MatrixProductOperator(TensorNetwork):
         """
         Converts MPO to a dense matrix.
         """
-        sparse_matrix = self.to_sparse_array()
+        mpo = copy.deepcopy(self)
+        sparse_matrix = mpo.to_sparse_array()
         dense_matrix = sparse_matrix.todense()
 
         return dense_matrix
@@ -442,39 +509,69 @@ class MatrixProductOperator(TensorNetwork):
         other.reshape()
         arrays = []
 
-        for t_idx in range(self.num_sites):
+        t1 = self.tensors[0]
+        t2 = other.tensors[0]
+
+        t1_data = t1.data
+        t2_data = t2.data
+        t1_dimensions = t1.dimensions
+        t2_dimensions = t2.dimensions
+
+        t1_data = sparse.moveaxis(t1_data, [0,1,2], [1,2,0])
+        t2_data = sparse.moveaxis(t2_data, [0,1,2], [1,2,0])
+        data1 = sparse.reshape(t1_data, (t1_dimensions[2], t1_dimensions[0]*t1_dimensions[1]))
+        data2 = sparse.reshape(t2_data, (t2_dimensions[2], t2_dimensions[0]*t2_dimensions[1]))
+
+        new_data = sparse.concatenate([data1, data2],axis=1)
+        new_data = sparse.moveaxis(new_data, [0,1], [1,0])
+        new_data = sparse.reshape(new_data, (t1_dimensions[0]+t2_dimensions[0], t1_dimensions[1], t1_dimensions[2]))
+        new_data = sparse.moveaxis(new_data, [0,1,2], [0,2,1])
+        arrays.append(new_data)
+
+        for t_idx in range(1, self.num_sites-1):
             t1 = self.tensors[t_idx]
             t2 = other.tensors[t_idx]
 
             t1_data = t1.data 
             t2_data = t2.data
-            if t_idx == 0:
-                t1_data = sparse.reshape(t1_data, (1, t1.dimensions[0], t1.dimensions[1], t1.dimensions[2]))
-                t2_data = sparse.reshape(t2_data, (1, t2.dimensions[0], t2.dimensions[1], t2.dimensions[2]))
-            if t_idx == self.num_sites-1:
-                t1_data = sparse.reshape(t1_data, (t1.dimensions[0], 1, t1.dimensions[1], t1.dimensions[2]))
-                t2_data = sparse.reshape(t2_data, (t2.dimensions[0], 1, t2.dimensions[1], t2.dimensions[2]))
+            t1_dimensions = t1.dimensions
+            t2_dimensions = t2.dimensions
 
-            data1 = sparse.moveaxis(t1.data, [0,1,2,3], [0,2,1,3])
-            data2 = sparse.moveaxis(t2.data, [0,1,2,3], [0,2,1,3])
-
-            data1 = sparse.reshape(data1, (t1.dimensions[0]*t1.dimensions[2], t1.dimensions[1]*t1.dimensions[3]))
-            data2 = sparse.reshape(data2, (t2.dimensions[0]*t2.dimensions[2], t2.dimensions[1]*t2.dimensions[3]))
+            data1 = sparse.moveaxis(t1_data, [0,1,2,3], [0,2,1,3])
+            data2 = sparse.moveaxis(t2_data, [0,1,2,3], [0,2,1,3])
+            
+            data1 = sparse.reshape(data1, (t1_dimensions[0]*t1_dimensions[2], t1_dimensions[1]*t1_dimensions[3]))
+            data2 = sparse.reshape(data2, (t2_dimensions[0]*t2_dimensions[2], t2_dimensions[1]*t2_dimensions[3]))
 
             zeros_top_right = sparse.COO.from_numpy(np.zeros((data1.shape[0], data2.shape[1])))
             zeros_bottom_left = sparse.COO.from_numpy(np.zeros((data2.shape[0], data1.shape[1])))
 
-            new_data = sparse.concatenate(sparse.concatenate([data1, zeros_top_right],axis=1), sparse.concatenate([zeros_bottom_left, data2],axis=1))
-            new_data = sparse.reshape(new_data, (t1.dimensions[0]*t2.dimensions[0], t1.dimensions[2], t1.dimensions[1]*t2.dimensions[1], t1.dimensions[3]))
+            new_data = sparse.concatenate([sparse.concatenate([data1, zeros_top_right],axis=1), sparse.concatenate([zeros_bottom_left, data2],axis=1)])
+            new_data = sparse.moveaxis(new_data, [0,1], [1,0])
+            new_data = sparse.reshape(new_data, (t1_dimensions[0]+t2_dimensions[0], t1_dimensions[2], t1_dimensions[1]+t2_dimensions[1], t1_dimensions[3]))
             new_data = sparse.moveaxis(new_data, [0,1,2,3], [0,2,1,3])
 
-            if t_idx == 0:
-                new_data = sparse.reshape(new_data, (new_data.shape[1], new_data.shape[2], new_data.shape[3]))
-            if t_idx == self.num_sites-1:
-                new_data = sparse.reshape(new_data, (new_data.shape[0], new_data.shape[2], new_data.shape[3]))
-
             arrays.append(new_data)
-        
+
+        t1 = self.tensors[-1]
+        t2 = other.tensors[-1]
+
+        t1_data = t1.data
+        t2_data = t2.data
+        t1_dimensions = t1.dimensions
+        t2_dimensions = t2.dimensions
+
+        t1_data = sparse.moveaxis(t1_data, [0,1,2], [1,2,0])
+        t2_data = sparse.moveaxis(t2_data, [0,1,2], [1,2,0])
+        data1 = sparse.reshape(t1_data, (t1_dimensions[2], t1_dimensions[0]*t1_dimensions[1]))
+        data2 = sparse.reshape(t2_data, (t2_dimensions[2], t2_dimensions[0]*t2_dimensions[1]))
+
+        new_data = sparse.concatenate([data1, data2],axis=1)
+        new_data = sparse.moveaxis(new_data, [0,1], [1,0])
+        new_data = sparse.reshape(new_data, (t1_dimensions[0]+t2_dimensions[0], t1_dimensions[1], t1_dimensions[2])) 
+        new_data = sparse.moveaxis(new_data, [0,1,2], [0,2,1])
+        arrays.append(new_data)
+
         output = MatrixProductOperator.from_arrays(arrays)
         return output
 
@@ -497,7 +594,7 @@ class MatrixProductOperator(TensorNetwork):
         t1 = self.tensors[0]
         t2 = other.tensors[0]
 
-        t1.indices = ["T1_DOWN", "T1_CONTRACT", "T1_LEFT"]
+        t1.indices = ["T1_DOWN", "TO_CONTRACT", "T1_LEFT"]
         t2.indices = ["T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
 
         tn = TensorNetwork([t1, t2])
@@ -512,7 +609,7 @@ class MatrixProductOperator(TensorNetwork):
             t1 = self.tensors[t_idx]
             t2 = other.tensors[t_idx]
 
-            t1.indices = ["T1_UP", "T1_DOWN", "T1_CONTRACT", "T1_LEFT"]
+            t1.indices = ["T1_UP", "T1_DOWN", "TO_CONTRACT", "T1_LEFT"]
             t2.indices = ["T2_UP", "T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
 
             tn = TensorNetwork([t1, t2])
@@ -527,7 +624,7 @@ class MatrixProductOperator(TensorNetwork):
         t1 = self.tensors[-1]
         t2 = other.tensors[-1]
 
-        t1.indices = ["T1_UP", "T1_CONTRACT", "T1_LEFT"]
+        t1.indices = ["T1_UP", "TO_CONTRACT", "T1_LEFT"]
         t2.indices = ["T2_UP", "T2_RIGHT", "TO_CONTRACT"]
 
         tn = TensorNetwork([t1, t2])
@@ -583,6 +680,8 @@ class MatrixProductOperator(TensorNetwork):
         """
         if not where:
             where = self.num_sites 
+
+        internal_indices = self.get_internal_indices()
         
         push_down = list(range(1, where))
         push_up = list(range(where, self.num_sites))[::-1]
@@ -590,25 +689,26 @@ class MatrixProductOperator(TensorNetwork):
         max_bond = self.bond_dimension
 
         for idx in push_down:
-            index = self.indices[idx]
+            index = internal_indices[idx-1]
             self.compress_index(index, max_bond)
         
         for idx in push_up:
-            index = self.indices[idx]
+            index = internal_indices[idx-1]
             self.compress_index(index, max_bond, reverse_direction=True)
 
         return
     
-    def project_to_subspace(self, projector : "MatrixProductOperator") -> None:
+    def project_to_subspace(self, projector : "MatrixProductOperator") -> "MatrixProductOperator":
         """
         Project the MPO to a subspace.
         
         Args:
             projector: The projector onto the subspace in MPO form.
         """
-        self = projector * self 
-        self = self * projector
-        return 
+        self_copy = copy.deepcopy(self)
+        mpo = projector * self_copy 
+        mpo = mpo * projector
+        return mpo
 
     def multiply_by_constant(self, const : complex) -> None:
         """

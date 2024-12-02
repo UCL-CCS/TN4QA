@@ -29,12 +29,12 @@ class Tensor:
             sparse_array = data
         self.data = sparse_array
         self.dimensions = data.shape
-        self.rank = len(data.shape)
+        self.rank = len(self.dimensions)
         self.indices = indices
         self.labels = labels
     
     @classmethod
-    def from_array(cls, array : DataOptions, index_prefix : str="B", labels : List[str]=["T1"]) -> "Tensor":
+    def from_array(cls, array : DataOptions, indices : List[str]=None, labels : List[str]=["T1"]) -> "Tensor":
         """
         Construct a tensor object from the array.
         
@@ -46,12 +46,17 @@ class Tensor:
         Returns:
             tensor: The Tensor object.
         """
+
         data = array
         if array.size == 0:  # Check if the array is empty
-          indices = []
+            indices = []
         else:
-          rank = len(array.shape)  # Use array.shape to calculate rank
-          indices = [index_prefix + str(d_idx + 1) for d_idx in range(rank)]
+            rank = len(array.shape)  # Use array.shape to calculate rank
+            if not indices:
+                index_prefix = "B"
+                indices = [index_prefix + str(d_idx + 1) for d_idx in range(rank)]
+            else:
+                indices = indices
         labels = labels
 
         tensor = cls(data, indices, labels)
@@ -203,7 +208,7 @@ class Tensor:
         data = Operator(gate).reverse_qargs().data.reshape(2,2)
         id_array = np.array([[1,0],[0,1]], dtype=complex).reshape(2,2)
         zero_array = np.array([[0,0],[0,0]], dtype=complex).reshape(2,2)
-        array = np.array([[id_array, zero_array], [zero_array,  data]]).reshape(2,2,2,2)
+        array = np.array([[id_array, zero_array], [zero_array,  -0.5*(data-id_array)]]).reshape(2,2,2,2)
         indices = indices
         labels = labels + [f"rank4{gate.name}"]
         tensor = cls(array, indices, labels)
@@ -334,7 +339,6 @@ class Tensor:
         """
         self.combine_indices(input_idxs, new_index_name="I1")
         self.combine_indices(output_idxs, new_index_name="O1")
-        print(self.data.todense())
         return 
 
     def multiply_by_constant(self, const : complex) -> None:

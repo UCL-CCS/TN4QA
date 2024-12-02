@@ -167,7 +167,7 @@ class MatrixProductState(TensorNetwork):
         return cls.from_arrays(arrays, shape="udp")
 
     @classmethod
-    def from_qiskit_circuit(cls, qc : QuantumCircuit, max_bond : int, input : "MatrixProductState"=None) -> "MatrixProductState":
+    def from_qiskit_circuit(cls, qc : QuantumCircuit, max_bond : int, input_mps : "MatrixProductState"=None) -> "MatrixProductState":
         """
         Create an MPS for the output of a Qiskit QuantumCircuit.
         
@@ -180,8 +180,11 @@ class MatrixProductState(TensorNetwork):
             An MPS.
         """
         qc_mpo = MatrixProductOperator.from_qiskit_circuit(qc, max_bond)
-        mps = cls.all_zero_mps(qc.num_qubits)
-        mps.apply_mpo(qc_mpo)
+        if not input_mps:
+            mps = cls.all_zero_mps(qc.num_qubits)
+        else:
+            mps = input_mps
+        mps = mps.apply_mpo(qc_mpo)
         return mps
 
     def __add__(self, other : "MatrixProductState") -> "MatrixProductState":
@@ -192,40 +195,65 @@ class MatrixProductState(TensorNetwork):
         other.reshape()
         arrays = []
 
-        for t_idx in range(self.num_sites):
+        t1 = self.tensors[0]
+        t2 = other.tensors[0]
+
+        t1_data = t1.data
+        t2_data = t2.data
+        t1_data = sparse.reshape(t1_data, (1, t1.dimensions[0], t1.dimensions[1]))
+        t2_data = sparse.reshape(t2_data, (1, t2.dimensions[0], t2.dimensions[1]))
+        t1_dimensions = (1, t1.dimensions[0], t1.dimensions[1])
+        t2_dimensions = (1, t2.dimensions[0], t2.dimensions[1])
+
+        data1 = sparse.reshape(t1_data, (t1_dimensions[0]*t1_dimensions[2], t1_dimensions[1]))
+        data2 = sparse.reshape(t2_data, (t2_dimensions[0]*t2_dimensions[2], t2_dimensions[1]))
+
+        new_data = sparse.concatenate([data1, data2],axis=1)
+        new_data = sparse.moveaxis(new_data, [0,1], [1,0])
+        arrays.append(new_data)
+
+        for t_idx in range(1, self.num_sites-1):
             t1 = self.tensors[t_idx]
             t2 = other.tensors[t_idx]
 
             t1_data = t1.data 
             t2_data = t2.data
-            if t_idx == 0:
-                t1_data = sparse.reshape(t1_data, (1, t1.dimensions[0], t1.dimensions[1]))
-                t2_data = sparse.reshape(t2_data, (1, t2.dimensions[0], t2.dimensions[1]))
-            if t_idx == self.num_sites-1:
-                t1_data = sparse.reshape(t1_data, (t1.dimensions[0], 1, t1.dimensions[1]))
-                t2_data = sparse.reshape(t2_data, (t2.dimensions[0], 1, t2.dimensions[1]))
+            t1_dimensions = t1.dimensions
+            t2_dimensions = t2.dimensions
 
-            data1 = sparse.moveaxis(t1.data, [0,1,2], [0,2,1])
-            data2 = sparse.moveaxis(t2.data, [0,1,2], [0,2,1])
+            data1 = sparse.moveaxis(t1_data, [0,1,2], [0,2,1])
+            data2 = sparse.moveaxis(t2_data, [0,1,2], [0,2,1])
 
-            data1 = sparse.reshape(data1, (t1.dimensions[0]*t1.dimensions[2], t1.dimensions[1]))
-            data2 = sparse.reshape(data2, (t2.dimensions[0]*t2.dimensions[2], t2.dimensions[1]))
+            data1 = sparse.reshape(data1, (t1_dimensions[0]*t1_dimensions[2], t1_dimensions[1]))
+            data2 = sparse.reshape(data2, (t2_dimensions[0]*t2_dimensions[2], t2_dimensions[1]))
 
             zeros_top_right = sparse.COO.from_numpy(np.zeros((data1.shape[0], data2.shape[1])))
             zeros_bottom_left = sparse.COO.from_numpy(np.zeros((data2.shape[0], data1.shape[1])))
 
-            new_data = sparse.concatenate(sparse.concatenate([data1, zeros_top_right],axis=1), sparse.concatenate([zeros_bottom_left, data2],axis=1))
-            new_data = sparse.reshape(new_data, (t1.dimensions[0]*t2.dimensions[0], t1.dimensions[2], t1.dimensions[1]*t2.dimensions[1]))
-            new_data = sparse.moveaxis(new_data, [0,1,2], [0,2,1])
-
-            if t_idx == 0:
-                new_data = sparse.reshape(new_data, (new_data.shape[1], new_data.shape[2]))
-            if t_idx == self.num_sites-1:
-                new_data = sparse.reshape(new_data, (new_data.shape[0], new_data.shape[1]))
+            new_data = sparse.concatenate([sparse.concatenate([data1, zeros_top_right],axis=1), sparse.concatenate([zeros_bottom_left, data2],axis=1)])
+            new_data = sparse.moveaxis(new_data, [0,1], [1,0])
+            new_data = sparse.reshape(new_data, (t1_dimensions[0]+t2_dimensions[0], t1_dimensions[1]+t2_dimensions[1], t1_dimensions[2]))
 
             arrays.append(new_data)
-        
-        output = MatrixProductOperator.from_arrays(arrays)
+
+        t1 = self.tensors[-1]
+        t2 = other.tensors[-1]
+
+        t1_data = t1.data
+        t2_data = t2.data
+        t1_data = sparse.reshape(t1_data, (t1.dimensions[0], 1, t1.dimensions[1]))
+        t2_data = sparse.reshape(t2_data, (t2.dimensions[0], 1, t2.dimensions[1]))
+        t1_dimensions = (t1.dimensions[0], 1, t1.dimensions[1])
+        t2_dimensions = (t2.dimensions[0], 1, t2.dimensions[1])
+
+        data1 = sparse.reshape(t1_data, (t1_dimensions[0]*t1_dimensions[2], t1_dimensions[1]))
+        data2 = sparse.reshape(t2_data, (t2_dimensions[0]*t2_dimensions[2], t2_dimensions[1]))
+
+        new_data = sparse.concatenate([data1, data2],axis=1)
+        new_data = sparse.moveaxis(new_data, [0,1], [1,0])
+        arrays.append(new_data)
+
+        output = MatrixProductState.from_arrays(arrays)
         return output
 
     def __sub__(self, other : "MatrixProductState") -> "MatrixProductState":
@@ -240,20 +268,17 @@ class MatrixProductState(TensorNetwork):
         """
         Convert the MPS to a sparse array.
         """
-        internal_bonds = self.get_internal_indices()
-        for index in internal_bonds:
-            self.contract_index(index)
-        
-        tensor = self.tensors[0]
-        indices = tensor.indices
-        tensor.tensor_to_matrix([], indices)
-        return tensor.data
+        mps = copy.deepcopy(self)
+        output = mps.contract_entire_network()
+        output.combine_indices(output.indices, output.indices[0])
+        return output.data
 
     def to_dense_array(self) -> ndarray:
         """
         Convert the MPS to a dense array.
         """
-        sparse_array = self.to_sparse_array()
+        mps = copy.deepcopy(self)
+        sparse_array = mps.to_sparse_array()
         dense_array = sparse_array.todense()
         return dense_array
 
@@ -315,6 +340,8 @@ class MatrixProductState(TensorNetwork):
         """
         if not where:
             where = self.num_sites 
+
+        internal_indices = self.get_internal_indices()
         
         push_down = list(range(1, where))
         push_up = list(range(where, self.num_sites))[::-1]
@@ -322,11 +349,11 @@ class MatrixProductState(TensorNetwork):
         max_bond = self.bond_dimension
 
         for idx in push_down:
-            index = self.indices[idx]
+            index = internal_indices[idx-1]
             self.compress_index(index, max_bond)
         
         for idx in push_up:
-            index = self.indices[idx]
+            index = internal_indices[idx-1]
             self.compress_index(index, max_bond, reverse_direction=True)
 
         return
@@ -348,7 +375,7 @@ class MatrixProductState(TensorNetwork):
         t1 = self.tensors[0]
         t2 = mpo.tensors[0]
 
-        t1.indices = ["T1_DOWN", "T1_CONTRACT"]
+        t1.indices = ["T1_DOWN", "TO_CONTRACT"]
         t2.indices = ["T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
 
         tn = TensorNetwork([t1, t2])
@@ -363,7 +390,7 @@ class MatrixProductState(TensorNetwork):
             t1 = self.tensors[t_idx]
             t2 = mpo.tensors[t_idx]
 
-            t1.indices = ["T1_UP", "T1_DOWN", "T1_CONTRACT"]
+            t1.indices = ["T1_UP", "T1_DOWN", "TO_CONTRACT"]
             t2.indices = ["T2_UP", "T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
 
             tn = TensorNetwork([t1, t2])
@@ -378,7 +405,7 @@ class MatrixProductState(TensorNetwork):
         t1 = self.tensors[-1]
         t2 = mpo.tensors[-1]
 
-        t1.indices = ["T1_UP", "T1_CONTRACT", "T1_LEFT"]
+        t1.indices = ["T1_UP", "TO_CONTRACT"]
         t2.indices = ["T2_UP", "T2_RIGHT", "TO_CONTRACT"]
 
         tn = TensorNetwork([t1, t2])
@@ -388,7 +415,6 @@ class MatrixProductState(TensorNetwork):
         tensor.combine_indices(["T1_UP", "T2_UP"], new_index_name="UP")
         tensor.reorder_indices(["UP", "T2_RIGHT"])
         arrays.append(tensor.data)
-
         mps = MatrixProductState.from_arrays(arrays)
         return mps
 
@@ -420,7 +446,7 @@ class MatrixProductState(TensorNetwork):
             tn.combine_indices([f"P{n+2}", f"B{n+1}_"], new_index_name=f"P{n+2}")
 
         tn.contract_index(f"P{self.num_sites}")
-        val = complex(tn.tensors[0].data)
+        val = complex(tn.tensors[0].data.flatten()[0])
 
         return val
 
@@ -430,82 +456,4 @@ class MatrixProductState(TensorNetwork):
         """
         norm = self.compute_inner_product(self).real
         self.multiply_by_constant(np.sqrt(1/norm))
-        return
-
-    def sample_configurations(self, num_samples : int) -> List[str]:
-        """
-        Randomly sample from the MPS.
-        
-        Args:
-            num_samples: The number of samples to take.
-        
-        Returns:
-            A list of strings (e.g. bitstrings for qubit MPS).
-        """
-        return
-
-    def to_staircase_circuit(self, max_layers : int, fidelity_target : float) -> QuantumCircuit:
-        """
-        Construct a Qiskit QuantumCircuit that prepares the MPS.
-        
-        Args:
-            max_layers: The maximum number of staircase layers to allow.
-            fidelity_target: The circuit will aim to reproduce the MPS with this fidelity.
-        
-        Returns:
-            A QuantumCircuit that prepares the MPS.
-        """
-        return
-    
-    def warmstart_ansatz_circuit(self, ansatz : QuantumCircuit, maxiter : int, fidelity_target : float) -> List[float]:
-        """
-        Use the MPS to warm-start a variational quantum circuit.
-        
-        Args:
-            ansatz: A parameterised quantum circuit.
-            maxiter: The maximum number of optimisation iterations.
-            fidelity_target: The fidelity target for optimisation.
-        
-        Returns:
-            A list of parameters to warm-start the given ansatz.
-        """
-        return
-
-    def to_preparation_mpo(self) -> MatrixProductOperator:
-        """
-        Create an MPO that prepares the MPS.
-        
-        Returns:
-            An MPO such that MPO|0> = MPS.
-        """
-        return
-
-    def perfect_amplitude_amplification(self, oracle : QuantumCircuit) -> None:
-        """
-        Amplify the good part of the MPS.
-        
-        Args:
-            oracle: A quantum circuit that marks the good states.
-        """
-        return
-
-    def perfect_amplitude_suppression(self, oracle : QuantumCircuit) -> None:
-        """
-        Amplify the bad part of the MPS.
-        
-        Args:
-            oracle: A quantum circuit that marks the good states.
-        """
-        return
-
-    def get_grovers_operator(self, oracle : QuantumCircuit) -> MatrixProductOperator:
-        """
-        Create an MPO representation of the Grovers operator.
-        
-        Args:
-            oracle: A quantum circuit that marks the good states.
-        
-        Returns:
-            The MPO representation of the Grovers operator.
-        """
         return

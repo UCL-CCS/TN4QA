@@ -79,7 +79,7 @@ class TensorNetwork:
                     index_prefixes[qidxs[0]]+"N"+str(wire_counts[str(qidxs[0])]+1), 
                     index_prefixes[qidxs[0]]+"N"+str(wire_counts[str(qidxs[0])])
                 ]
-                labels = [f"TN_T{tensor_number}", f"L{layer_number}", f"Q{qidxs[0]}"]
+                labels = [f"L{layer_number}", f"Q{qidxs[0]}"]
                 wire_counts[str(qidxs[0])] += 1
             else:
                 indices = [
@@ -88,7 +88,7 @@ class TensorNetwork:
                     index_prefixes[qidxs[0]]+"N"+str(wire_counts[str(qidxs[0])]),
                     index_prefixes[qidxs[1]]+"N"+str(wire_counts[str(qidxs[1])])
                 ]
-                labels = [f"TN_T{tensor_number}", f"L{layer_number}", f"Q{qidxs[0]}", f"Q{qidxs[1]}"]
+                labels = [f"L{layer_number}", f"Q{qidxs[0]}", f"Q{qidxs[1]}"]
                 wire_counts[str(qidxs[0])] += 1
                 wire_counts[str(qidxs[1])] += 1
             
@@ -100,7 +100,7 @@ class TensorNetwork:
         for qidx in unused_qubits:
             array = np.array([[1,0],[0,1]], dtype=complex).reshape(2,2)
             indices = [f"QW{qidx}"+"N"+str(layer_number), f"QW{qidx}"+"N"+str(layer_number-1)]
-            labels = [f"TN_T{tensor_number}", f"L{layer_number}", f"Q{qidx}", f"Q{qidx}"]
+            labels = [f"L{layer_number}", f"Q{qidx}"]
             tensor = Tensor(array, indices, labels)
             tensors.append(tensor)
             tensor_number += 1
@@ -293,9 +293,10 @@ class TensorNetwork:
         indices0, indices1 = tensors[0].indices, tensors[1].indices
 
         output_indices = [i for i in indices0 if i != idx] + [i for i in indices1 if i != idx]
-        
         new_data = ctg.array_contract(arrays=[array0, array1], inputs=[indices0, indices1], output=output_indices, cache_expression=False)
         new_labels = [self.get_new_label()]
+        if len(new_data.shape) > len(output_indices):
+            new_data = new_data.reshape(new_data.shape[1:])
         new_tensor = Tensor(new_data, output_indices, new_labels)
 
         self.tensors.remove(tensors[0])
@@ -314,9 +315,10 @@ class TensorNetwork:
             idx: The index to compress.
             max_bond: The maximum bond dimension for this index.
         """
-        tensors = self.get_tensors_from_index_name(idx)
         if reverse_direction:
-            tensors = tensors[::-1]
+            tensors = self.get_tensors_from_index_name(idx)[::-1]
+        else:
+            tensors = self.get_tensors_from_index_name(idx)
 
         array0, array1 = tensors[0].data, tensors[1].data
         indices0, indices1 = tensors[0].indices, tensors[1].indices
@@ -330,16 +332,15 @@ class TensorNetwork:
         input_idxs = [i for i in indices0 if i != idx]
         output_idxs = [i for i in indices1 if i != idx]
         temp_tensor.tensor_to_matrix(input_idxs, output_idxs)
-        if max_bond >= min(temp_tensor.data.shape):
-            return 
-        u, s, vh = svd(temp_tensor.data.todense(), full_matrices=True)      
-        new_data0 = sparse.COO.from_numpy(vh[:max_bond, :])
-        new_data1 = sparse.COO.from_numpy(u[:, :max_bond] * s[:max_bond])
+        u, s, vh = svd(temp_tensor.data.todense(), full_matrices=True)    
+        bond_dim = min([max_bond, temp_tensor.data.shape[0], temp_tensor.data.shape[1]])  
+        new_data0 = sparse.COO.from_numpy(vh[:bond_dim, :])
+        new_data1 = sparse.COO.from_numpy(u[:, :bond_dim] * s[:bond_dim])
 
         idx_pos0 = indices0.index(idx)
         idx_pos1 = indices1.index(idx)
-        new_dims0 = (max_bond,) + dims0[:idx_pos0] + dims0[idx_pos0+1:]
-        new_dims1 = dims1[:idx_pos1] + dims1[idx_pos1+1:] + (max_bond,)
+        new_dims0 = (bond_dim,) + dims0[:idx_pos0] + dims0[idx_pos0+1:]
+        new_dims1 = dims1[:idx_pos1] + dims1[idx_pos1+1:] + (bond_dim,)
         new_indices0 = [idx] + indices0[:idx_pos0] + indices0[idx_pos0+1:] 
         new_indices1 = indices1[:idx_pos1] + indices1[idx_pos1+1:] + [idx]
 
@@ -384,13 +385,13 @@ class TensorNetwork:
         for idx in tn_dict:
             still_exists = False
             if len(tn_dict[idx]) > 0:
-                still_exists == True
+                still_exists = True
             if not still_exists:
                 self.indices.remove(idx)
         
         return tensors
 
-    def add_tensor(self, tensor : Tensor) -> None:
+    def add_tensor(self, tensor : Tensor, position : int=None) -> None:
         """
         Add a tensor to the network.
         
@@ -399,7 +400,10 @@ class TensorNetwork:
         """
         unique_label = self.get_new_label("TN_T")
         tensor.labels.append(unique_label)
-        self.tensors.append(tensor)
+        if not position:
+            self.tensors.append(tensor)
+        else:
+            self.tensors.insert(position, tensor)
         for idx in tensor.indices:
             if idx not in self.indices:
                 self.indices.append(idx)
@@ -489,7 +493,7 @@ class TensorNetwork:
         self.indices = self.get_all_indices()
         return
     
-    def svd(self, tensor : Tensor, input_indices : List[str], output_indices : List[str], max_bond : int=None, new_index_name : str=None, new_labels : List[str]=None) -> None:
+    def svd(self, tensor : Tensor, input_indices : List[str], output_indices : List[str], max_bond : int=None, new_index_name : str=None, new_labels : List[List[str]]=None) -> None:
         """
         Perform an SVD on a tensor.
         
@@ -500,6 +504,7 @@ class TensorNetwork:
             max_bond: The maximum bond dimension allwoed. 
             new_index_name (optional): What to call the resulting new index.
         """
+        original_position = self.tensors.index(tensor)
         original_labels = tensor.labels
         original_input_dims = [tensor.get_dimension_of_index(x) for x in input_indices]
         original_output_dims = [tensor.get_dimension_of_index(x) for x in output_indices]
@@ -516,9 +521,11 @@ class TensorNetwork:
         if not new_index_name:
             new_index_name = self.new_index_name()
 
-        if not new_labels:
-            tensor0_labels = [self.get_new_label("TN_T")]
-            tensor1_labels = [self.get_new_label("TN_T")]
+        tensor0_labels = [self.get_new_label("TN_T")]
+        tensor1_labels = [self.get_new_label("TN_T")]
+        if new_labels:
+            tensor0_labels = tensor0_labels + new_labels[0]
+            tensor1_labels = tensor1_labels + new_labels[1]
         
         tensor0_indices = [new_index_name] + input_indices
         tensor1_indices = output_indices + [new_index_name]
@@ -532,10 +539,9 @@ class TensorNetwork:
         tensor0 = Tensor(tensor0_data, tensor0_indices, tensor0_labels)
         tensor1 = Tensor(tensor1_data, tensor1_indices, tensor1_labels)
 
-        self.pop_tensors_by_label(original_labels)
-        self.add_tensor(tensor0)
-        self.add_tensor(tensor1)
-
+        _ = self.pop_tensors_by_label(original_labels)
+        self.add_tensor(tensor0, original_position)
+        self.add_tensor(tensor1, original_position+1)
         return
     
     def compress(self, max_bond : int) -> None:
