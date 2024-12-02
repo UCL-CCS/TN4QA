@@ -17,47 +17,47 @@ def test_constructor():
     tensors = [t1,t2,t3]
     mps = MatrixProductState(tensors)
 
-    assert mps.name == "MPS"
-    assert mps.shape == "udp"
-    assert mps.physical_dimension == 2
-    assert mps.bond_dimension == 6
-    assert mps.num_sites == 3
-    assert all(x in mps.indices for x in ["B1", "B2", "P1", "P2", "P3"])
+    assert mps.name == "MPS", "MPS name does not match input."
+    assert mps.shape == "udp", "MPS shape does not match input."
+    assert mps.physical_dimension == 2, "MPS physical dimension does not match input."
+    assert mps.bond_dimension == 6, "MPS bond dimension does not match input."
+    assert mps.num_sites == 3, "MPS num sites does not match input."
+    assert all(x in mps.indices for x in ["B1", "B2", "P1", "P2", "P3"]), "MPS indices do not match input."
 
     return 
 
 def test_from_arrays():
     mps = MatrixProductState.from_arrays(TEST_ARRAYS)
 
-    assert mps.name == "MPS"
-    assert mps.shape == "udp"
-    assert mps.physical_dimension == 2
-    assert mps.bond_dimension == 6
-    assert mps.num_sites == 3
-    assert all(x in mps.indices for x in ["B1", "B2", "P1", "P2", "P3"])
+    assert mps.name == "MPS", "MPS name should default to MPS."
+    assert mps.shape == "udp", "MPS shape should default to udp."
+    assert mps.physical_dimension == 2, "MPS physical dimension does not match input."
+    assert mps.bond_dimension == 6, "MPS bond dimension does not match input."
+    assert mps.num_sites == 3, "MPS num sites does not match input."
+    assert all(x in mps.indices for x in ["B1", "B2", "P1", "P2", "P3"]), "MPS indices do not match input."
 
     return 
 
 def test_all_zero_mps():
     mps = MatrixProductState.all_zero_mps(8)
 
-    assert mps.num_sites == 8
-    assert mps.bond_dimension == 1
-    assert mps.physical_dimension == 2
+    assert mps.num_sites == 8, "MPS num sites does not match input."
+    assert mps.bond_dimension == 1, "MPS bond dimension should be 1."
+    assert mps.physical_dimension == 2, "MPS physical dimension should be 2."
     for tensor in mps.tensors:
-        assert np.array_equal(tensor.data.todense().flatten(), np.array([1,0]))
+        assert np.array_equal(tensor.data.todense().flatten(), np.array([1,0])), "All MPS tensors should be |0>."
     
     return 
 
 def test_random_mps():
     mps = MatrixProductState.random_mps(12, 8, 2)
 
-    assert mps.num_sites == 12
-    assert mps.physical_dimension == 2
-    assert mps.bond_dimension == 8
-    assert len(mps.indices) == 23
-    assert all(x in mps.indices for x in ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11", "P12"])
-    assert all(x in mps.indices for x in ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10", "B11"])
+    assert mps.num_sites == 12, "MPS num sites does not match input."
+    assert mps.physical_dimension == 2, "MPS physical dimension does not match input."
+    assert mps.bond_dimension == 8, "MPS bond dimension does not match input."
+    assert len(mps.indices) == 23, "MPS num indices incorrect."
+    assert all(x in mps.indices for x in ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11", "P12"]), "MPS indices generated incorrectly."
+    assert all(x in mps.indices for x in ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10", "B11"]), "MPS indices generated incorrectly."
 
     return 
 
@@ -66,7 +66,7 @@ def test_random_quantum_state_mps():
     contracted_mps = np.einsum(mps.tensors[0].data.todense(), [0,1], np.einsum(mps.tensors[1].data.todense(), [0,2,3], mps.tensors[2].data.todense(), [2,4], [0,3,4]), [0,3,4], [1,3,4]).reshape(1,8)
     inner_prod = np.dot(contracted_mps, contracted_mps.conj().T)
 
-    assert np.isclose(inner_prod, 1.0)
+    assert np.isclose(inner_prod, 1.0), "MPS random quantum state is not normalised."
 
     return 
 
@@ -75,11 +75,11 @@ def test_equal_superposition_mps():
     contracted_mps = np.einsum(mps.tensors[0].data.todense(), [0,1], np.einsum(mps.tensors[1].data.todense(), [0,2,3], mps.tensors[2].data.todense(), [2,4], [0,3,4]), [0,3,4], [1,3,4]).reshape(1,8)
     inner_prod = np.dot(contracted_mps, contracted_mps.conj().T)
 
-    assert np.isclose(inner_prod, 1.0)
+    assert np.isclose(inner_prod, 1.0), "MPS equal superposition state is not normalised."
 
     expected_state = np.array([[np.sqrt(1/2), np.sqrt(1/2)]])
     for tensor in mps.tensors:
-        assert np.allclose(tensor.data.todense().flatten(), expected_state)
+        assert np.allclose(tensor.data.todense().flatten(), expected_state), "MPS tensors should all be |+>."
 
     return 
 
@@ -91,7 +91,7 @@ def test_from_qiskit_circuit_1():
 
     expected_state = np.array([[np.sqrt(1/2), np.sqrt(1/2)]])
     for tensor in mps.tensors:
-        assert np.allclose(tensor.data.todense().flatten(), expected_state)
+        assert np.allclose(tensor.data.todense().flatten(), expected_state), "MPS tensors should all be |+>."
 
 def test_from_qiskit_circuit_2():
     qc = QuantumCircuit(6)
@@ -105,10 +105,10 @@ def test_from_qiskit_circuit_2():
     output_data = output.data.todense()
     print(output_data)
 
-    assert np.isclose(output_data[0], np.sqrt(1/2))
-    assert np.isclose(output_data[63], np.sqrt(1/2))
+    assert np.isclose(output_data[0], np.sqrt(1/2)), "Amplitude of all 0 state incorrect."
+    assert np.isclose(output_data[63], np.sqrt(1/2)), "Amplitude of all 1 state incorrect."
     for i in range(1, 63):
-        assert np.isclose(output_data[i], 0.0)
+        assert np.isclose(output_data[i], 0.0), "Amplitude of all other states should be 0.."
 
     return 
 
@@ -120,9 +120,9 @@ def test_add():
     contracted.combine_indices(["P1", "P2", "P3", "P4"])
     output_data = contracted.data.todense()
 
-    assert np.isclose(output_data[0], 1.25)
+    assert np.isclose(output_data[0], 1.25), "Amplitude of all 0 state should be 1.25."
     for i in range(1, 16):
-        assert np.isclose(output_data[i], 0.25)
+        assert np.isclose(output_data[i], 0.25), "Amplitude of all other states should be 0.25"
 
     return 
 
@@ -134,9 +134,9 @@ def test_subtract():
     contracted.combine_indices(["P1", "P2", "P3", "P4"])
     output_data = contracted.data.todense()
 
-    assert np.isclose(output_data[0], -0.75)
+    assert np.isclose(output_data[0], -0.75), "Amplitude of all 0 state should be -0.75."
     for i in range(1, 16):
-        assert np.isclose(output_data[i], 0.25)
+        assert np.isclose(output_data[i], 0.25), "Amplitude of all other states should be 0."
 
     return 
 
@@ -144,7 +144,7 @@ def test_to_sparse_array():
     mps = MatrixProductState.from_arrays(TEST_ARRAYS)
     sparse_array = mps.to_sparse_array()
 
-    assert np.allclose(sparse_array.todense().flatten(), CONTRACTED_TEST_ARRAY.flatten())
+    assert np.allclose(sparse_array.todense().flatten(), CONTRACTED_TEST_ARRAY.flatten()), "Sparse array does not match input arrays."
 
     return 
 
@@ -152,7 +152,7 @@ def test_to_dense_array():
     mps = MatrixProductState.from_arrays(TEST_ARRAYS)
     sparse_array = mps.to_dense_array()
     
-    assert np.allclose(sparse_array.flatten(), CONTRACTED_TEST_ARRAY.flatten())
+    assert np.allclose(sparse_array.flatten(), CONTRACTED_TEST_ARRAY.flatten()), "Dense array does not match input arrays."
 
     return 
 
@@ -167,7 +167,7 @@ def test_reshape():
     ]
 
     for i in range(3):
-        assert np.allclose(mps.tensors[i].data.todense(), expected_output[i])
+        assert np.allclose(mps.tensors[i].data.todense(), expected_output[i]), "Data reshaped incorrectly."
     
     return 
 
@@ -182,7 +182,7 @@ def test_multiply_by_constant():
     ]
 
     for i in range(3):
-        assert np.allclose(mps.tensors[i].data.todense(), expected_output[i])
+        assert np.allclose(mps.tensors[i].data.todense(), expected_output[i]), "Multiply by constant does not match expected."
 
     return 
 
@@ -196,7 +196,7 @@ def test_dagger():
 
     expected_output = CONTRACTED_TEST_ARRAY.conj().T
 
-    assert np.allclose(output_data.flatten(), expected_output.flatten())
+    assert np.allclose(output_data.flatten(), expected_output.flatten()), "Dagger does not match expected."
 
     return 
 
@@ -204,35 +204,38 @@ def test_move_orthogonality_centre():
     mps = MatrixProductState.random_mps(4, 4, 2)
     mps.move_orthogonality_centre(2)
 
+    # First tensor should be unitary
     t = mps.tensors[0]
     t.tensor_to_matrix([t.indices[1]], [t.indices[0]])
     t_mat = t.data.todense()
     if t.dimensions[0] >= t.dimensions[1]:
         id_mat = np.eye(t.dimensions[1])
-        assert np.allclose(id_mat, t_mat.conj().T @ t_mat)
+        assert np.allclose(id_mat, t_mat.conj().T @ t_mat), "First tensor is not unitary."
     else:
         id_mat = np.eye(t.dimensions[0])
-        assert np.allclose(id_mat, t_mat @ t_mat.conj().T)
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "First tensor is not unitary."
 
+    # Third tensor should be unitary
     t = mps.tensors[2]
     t.tensor_to_matrix([t.indices[1], t.indices[2]], [t.indices[0]])
     t_mat = t.data.todense()
     if t.dimensions[0] >= t.dimensions[1]:
         id_mat = np.eye(t.dimensions[1])
-        assert np.allclose(id_mat, t_mat.conj().T @ t_mat)
+        assert np.allclose(id_mat, t_mat.conj().T @ t_mat), "Third tensor is not unitary."
     else:
         id_mat = np.eye(t.dimensions[0])
-        assert np.allclose(id_mat, t_mat @ t_mat.conj().T)
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Third tensor is not unitary."
 
+    # Final tensor should be unitary
     t = mps.tensors[3]
     t.tensor_to_matrix([t.indices[1]], [t.indices[0]])
     t_mat = t.data.todense()
     if t.dimensions[0] >= t.dimensions[1]:
         id_mat = np.eye(t.dimensions[1])
-        assert np.allclose(id_mat, t_mat.conj().T @ t_mat)
+        assert np.allclose(id_mat, t_mat.conj().T @ t_mat), "Last tensor is not unitary"
     else:
         id_mat = np.eye(t.dimensions[0])
-        assert np.allclose(id_mat, t_mat @ t_mat.conj().T)
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Last tensor is not unitary."
 
     return 
 
@@ -246,7 +249,7 @@ def test_apply_mpo_1():
     expected_output = np.array([0]*16, dtype=complex)
     expected_output[0] = 1
 
-    assert np.allclose(output, expected_output)
+    assert np.allclose(output, expected_output), "Output MPS does not match expected."
 
     return 
 
@@ -265,7 +268,7 @@ def test_apply_mpo_2():
 
     print(output)
 
-    assert np.allclose(output, expected_output, atol=0.1)
+    assert np.allclose(output, expected_output, atol=0.1), "Output MPS does not match expected."
 
     return
 
@@ -278,10 +281,10 @@ def test_compute_inner_product():
     prod3 = mps1.compute_inner_product(mps2)
     prod4 = mps2.compute_inner_product(mps1)
 
-    assert np.isclose(prod1, 1.0)
-    assert np.isclose(prod2, 1.0)
-    assert np.isclose(prod3, np.sqrt(1/2**5))
-    assert np.isclose(prod4, np.sqrt(1/2**5))
+    assert np.isclose(prod1, 1.0), "Inner product of quantum state with itself should be 1."
+    assert np.isclose(prod2, 1.0), 'Inner product of quantum state with itself should be 1.'
+    assert np.isclose(prod3, np.sqrt(1/2**5)), "Inner product does not match expected."
+    assert np.isclose(prod4, np.sqrt(1/2**5)), "Inner product does not match expected."
 
     return 
 
@@ -290,5 +293,5 @@ def test_normalise():
     mps.normalise() 
 
     prod = mps.compute_inner_product(mps)
-    assert np.isclose(prod, 1.0)
+    assert np.isclose(prod, 1.0), "Norm after normalise should be 1."
     
