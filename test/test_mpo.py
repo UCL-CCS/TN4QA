@@ -287,7 +287,7 @@ def test_move_orthogonality_centre():
         assert np.allclose(id_mat, t_mat.conj().T @ t_mat), "Tensor 0 is not left-orthogonal after moving orthogonality centre"
     else:
         id_mat = np.eye(t.dimensions[0])
-        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Tensor 0 is not left-orthogonal after moving orthogonality centre"
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Tensor 0 is not right-orthogonal after moving orthogonality centre"
 
     t = mpo.tensors[2]
     t.tensor_to_matrix([t.indices[1], t.indices[2], t.indices[3]], [t.indices[0]])
@@ -297,7 +297,7 @@ def test_move_orthogonality_centre():
         assert np.allclose(id_mat, t_mat.conj().T @ t_mat), "Tensor 2 is not left-orthogonal after moving orthogonality centre"
     else:
         id_mat = np.eye(t.dimensions[0])
-        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Tensor 2 is not left-orthogonal after moving orthogonality centre"
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Tensor 2 is not right-orthogonal after moving orthogonality centre"
 
     t = mpo.tensors[3]
     t.tensor_to_matrix([t.indices[1], t.indices[2]], [t.indices[0]])
@@ -307,7 +307,7 @@ def test_move_orthogonality_centre():
         assert np.allclose(id_mat, t_mat.conj().T @ t_mat), "Tensor 3 is not left-orthogonal after moving orthogonality centre"
     else:
         id_mat = np.eye(t.dimensions[0])
-        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Tensor 3 is not left-orthogonal after moving orthogonality centre"
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Tensor 3 is not right-orthogonal after moving orthogonality centre"
 
     return 
 
