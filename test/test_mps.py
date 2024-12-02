@@ -210,10 +210,10 @@ def test_move_orthogonality_centre():
     t_mat = t.data.todense()
     if t.dimensions[0] >= t.dimensions[1]:
         id_mat = np.eye(t.dimensions[1])
-        assert np.allclose(id_mat, t_mat.conj().T @ t_mat), "First tensor is not unitary."
+        assert np.allclose(id_mat, t_mat.conj().T @ t_mat), "Tensor 1 is not left-orthogonal after moving orthogonality centre"
     else:
         id_mat = np.eye(t.dimensions[0])
-        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "First tensor is not unitary."
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Tensor 1 is not right-orthogonal after moving orthogonality centre"
 
     # Third tensor should be unitary
     t = mps.tensors[2]
@@ -221,10 +221,10 @@ def test_move_orthogonality_centre():
     t_mat = t.data.todense()
     if t.dimensions[0] >= t.dimensions[1]:
         id_mat = np.eye(t.dimensions[1])
-        assert np.allclose(id_mat, t_mat.conj().T @ t_mat), "Third tensor is not unitary."
+        assert np.allclose(id_mat, t_mat.conj().T @ t_mat), "Tensor 3 is not left-orthogonal after moving orthogonality centre"
     else:
         id_mat = np.eye(t.dimensions[0])
-        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Third tensor is not unitary."
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Tensor 3 is not right-orthogonal after moving orthogonality centre"
 
     # Final tensor should be unitary
     t = mps.tensors[3]
@@ -232,10 +232,10 @@ def test_move_orthogonality_centre():
     t_mat = t.data.todense()
     if t.dimensions[0] >= t.dimensions[1]:
         id_mat = np.eye(t.dimensions[1])
-        assert np.allclose(id_mat, t_mat.conj().T @ t_mat), "Last tensor is not unitary"
+        assert np.allclose(id_mat, t_mat.conj().T @ t_mat), "Tensor 4 is not left-orthogonal after moving orthogonality centre"
     else:
         id_mat = np.eye(t.dimensions[0])
-        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Last tensor is not unitary."
+        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), "Tensor 4 is not left-orthogonal after moving orthogonality centre"
 
     return 
 
