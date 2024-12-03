@@ -4,7 +4,7 @@ from typing import List, Union
 import numpy as np
 from numpy.linalg import svd
 import sparse
-from .tensor import Tensor
+from tn4qa.tensor import Tensor
 
 # Contraction path finding is offloaded to Cotengra
 import cotengra as ctg
@@ -561,7 +561,7 @@ class TensorNetwork:
             self.compress_index(index, max_bond)
         return
 
-    def parse_tn_output(tn_output):
+    def parse_tn_output(self, tn_output):
         """
         Parse the textual representation of the tensor networks.
         Extracts tensors and their connections.
@@ -571,7 +571,7 @@ class TensorNetwork:
             list: List of tensors and their indices
         """
         tensors = []
-        for line in mpo_output.split("\n"):
+        for line in tn_output.split("\n"):
             if line.startswith("Tensor with shape"):
                 # Extract tensor indices
                 indices_match = re.search(r"indices\s\[(.*?)\]", line)
@@ -580,7 +580,7 @@ class TensorNetwork:
                     tensors.append(indices)
         return tensors
 
-    def build_graph_from_tensors(tensors):
+    def build_graph_from_tensors(self, parsed_tensors):
         """
         Build a directed graph from the list of tensors and their indices.
         Args:
@@ -589,20 +589,27 @@ class TensorNetwork:
             networkx.DiGraph: Directed graph representing the tensor network
         """
         G = nx.DiGraph()
-        for i, indices in enumerate(tensors):
+        for i, indices in enumerate(parsed_tensors):
+            # print(i, indices)
             tensor_name = f"Tensor_{i + 1}"
             G.add_node(tensor_name)
         
             # Add edges for bottom connections and dangling indices
             for idx in indices:
-                if idx.startswith('B') and i < len(tensors) - 1:
-                    next_tensor = f"Tensor_{i + 2}"
-                    G.add_edge(tensor_name, next_tensor, label=idx)
-                elif idx.startswith(('R', 'L')):
-                    G.add_edge(tensor_name, idx, label=idx)
+                connected_tensors = self.get_tensors_from_index_name(idx)
+                if len(connected_tensors) == 2:
+                    i,j = self.tensors.index(connected_tensors[0]), self.tensors.index(connected_tensors[1])
+                    first_tensor = f"Tensor_{i + 1}"
+                    second_tensor = f"Tensor_{j + 1}"
+                    G.add_edge(first_tensor, second_tensor, label=idx)
+                else:
+                    i = self.tensors.index(connected_tensors[0])
+                    first_tensor = f"Tensor_{i + 1}"
+                    G.add_edge(first_tensor, idx, label=idx)
+                
         return G
 
-    def draw(tn, node_size, x_len, y_len):
+    def draw(self, node_size, x_len, y_len):
         """
         Visualise the tensor network using matplotlib and networkx.
         Args:
@@ -612,10 +619,10 @@ class TensorNetwork:
             y_len (int): Length of the y-axis
         """
         # Define the tensor output
-        tn_output = f"""\{tn}
+        tn_output = f"""\{self}
         """
         # Parse the output
-        parsed_tensors = self.parse_mpo_output(mpo_output)
+        parsed_tensors = self.parse_tn_output(tn_output)
 
         # Build the graph
         G = self.build_graph_from_tensors(parsed_tensors)
