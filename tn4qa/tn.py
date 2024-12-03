@@ -14,6 +14,11 @@ from qiskit import QuantumCircuit
 from qiskit_aer.noise import NoiseModel
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 
+# Visualisation purposes
+import re
+import matplotlib.pyplot as plt
+import networkx as nx
+
 class TensorNetwork:
     def __init__(self, tensors : List[Tensor], name : str="TN") -> "TensorNetwork":
         """
@@ -555,3 +560,99 @@ class TensorNetwork:
         for index in internal_indices:
             self.compress_index(index, max_bond)
         return
+
+    def parse_tn_output(tn_output):
+        """
+        Parse the textual representation of the tensor networks.
+        Extracts tensors and their connections.
+        Args:
+            TensorNetwork 
+        Returns:
+            list: List of tensors and their indices
+        """
+        tensors = []
+        for line in mpo_output.split("\n"):
+            if line.startswith("Tensor with shape"):
+                # Extract tensor indices
+                indices_match = re.search(r"indices\s\[(.*?)\]", line)
+                if indices_match:
+                    indices = indices_match.group(1).replace("'", "").split(", ")
+                    tensors.append(indices)
+        return tensors
+
+    def build_graph_from_tensors(tensors):
+        """
+        Build a directed graph from the list of tensors and their indices.
+        Args:
+            tensors (list): List of tensors and their indices
+        Returns:
+            networkx.DiGraph: Directed graph representing the tensor network
+        """
+        G = nx.DiGraph()
+        for i, indices in enumerate(tensors):
+            tensor_name = f"Tensor_{i + 1}"
+            G.add_node(tensor_name)
+        
+            # Add edges for bottom connections and dangling indices
+            for idx in indices:
+                if idx.startswith('B') and i < len(tensors) - 1:
+                    next_tensor = f"Tensor_{i + 2}"
+                    G.add_edge(tensor_name, next_tensor, label=idx)
+                elif idx.startswith(('R', 'L')):
+                    G.add_edge(tensor_name, idx, label=idx)
+        return G
+
+    def draw(tn, node_size, x_len, y_len):
+        """
+        Visualise the tensor network using matplotlib and networkx.
+        Args:
+            tn (TensorNetwork)
+            node_size (int): Size of the nodes in the plot
+            x_len (int): Length of the x-axis
+            y_len (int): Length of the y-axis
+        """
+        # Define the tensor output
+        tn_output = f"""\{tn}
+        """
+        # Parse the output
+        parsed_tensors = self.parse_mpo_output(mpo_output)
+
+        # Build the graph
+        G = self.build_graph_from_tensors(parsed_tensors)
+
+        # Define positions for tensors and dangling indices
+        pos = {}
+        vertical_spacing = 1.0
+        horizontal_spacing = 1.0
+
+        # Assign positions for tensor nodes
+        tensors = [node for node in G.nodes if node.startswith("Tensor")]
+        for i, tensor in enumerate(tensors):
+            pos[tensor] = (0, -i * vertical_spacing)
+
+        # Assign positions for dangling indices
+        for edge in G.edges(data=True):
+            if edge[1].startswith('R'):
+                pos[edge[1]] = (pos[edge[0]][0] + horizontal_spacing, pos[edge[0]][1])
+            elif edge[1].startswith('L'):
+                pos[edge[1]] = (pos[edge[0]][0] - horizontal_spacing, pos[edge[0]][1])
+
+        # Draw the graph
+        plt.figure(figsize=(x_len, y_len))
+
+        # Separate tensor and index nodes
+        tensor_nodes = [node for node in G.nodes if node.startswith("Tensor")]
+
+        # Draw nodes
+        nx.draw_networkx_nodes(G, pos, nodelist=tensor_nodes, node_size=node_size, node_color="hotpink", label="Tensors")
+
+        # Draw edges
+        nx.draw_networkx_edges(G, pos, edge_color="gray", arrows=False)
+
+        # Add edge labels
+        edge_labels = nx.get_edge_attributes(G, 'label')
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color="red", font_size=8)
+
+        # Title and axis
+        plt.title("Tensor Network Visualisation", fontsize=14)
+        plt.show()
