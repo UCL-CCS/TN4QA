@@ -11,6 +11,7 @@ from pyscf import scf
 from scipy.sparse.linalg import eigs 
 import sparse
 import copy
+import numpy as np
 
 class FermionDMRG:
 
@@ -149,7 +150,7 @@ class QubitDMRG:
         Convert the Hamiltonian to an MPO for DMRG.
         """
         # mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, self.max_mpo_bond)
-        mpo = hamiltonian_to_mpo(self.hamiltonian)
+        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian)
         # if mpo.bond_dimension > self.max_mpo_bond:
         #     mpo.compress(self.max_mpo_bond)
 
