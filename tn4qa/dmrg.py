@@ -298,11 +298,12 @@ class QubitDMRG:
             e = self.sweep("F")
             e = self.sweep("B")
         
-        self.mps = self.remove_trivial_tensors_mps(self.mps)
-        self.mpo = self.remove_trivial_tensors_mpo(self.mpo)
+        energy = e.real / 16 # Trivial end tensors mean we overcount the energy by factor of 2*4*2
+        # self.mps = self.remove_trivial_tensors_mps(self.mps)
+        # self.mpo = self.remove_trivial_tensors_mpo(self.mpo)
 
-        tn = self.construct_expectation_value_tn()
-        energy = tn.contract_entire_network().real
+        # tn = self.construct_expectation_value_tn()
+        # energy = tn.contract_entire_network().real
 
         return (energy, self.mps)
     
