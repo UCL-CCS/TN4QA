@@ -474,28 +474,6 @@ class MatrixProductOperator(TensorNetwork):
             if mpo.bond_dimension > max_bond:
                 mpo.compress(max_bond)
         return mpo
-    
-    @classmethod
-    def from_block2_mpo(self, block2_mpo : block2) -> "MatrixProductOperator":
-        """
-        Construct an MPO from a Block2 MPO object.
-        
-        Args:
-            block2_mpo: The block2 MPO object.
-        
-        Returns:
-            The MPO.
-        """
-        return
-    
-    def to_block2_mpo(self) -> block2:
-        """
-        Convert MPO into a Block2 MPO.
-        
-        Returns:
-            A Block2 MPO.
-        """ 
-        return 
   
     def to_sparse_array(self) -> SparseArray:
         """

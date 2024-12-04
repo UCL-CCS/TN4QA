@@ -190,28 +190,6 @@ class MatrixProductState(TensorNetwork):
         mps = mps.apply_mpo(qc_mpo)
         return mps
     
-    @classmethod
-    def from_block2_mps(self, block2_mps : block2) -> "MatrixProductState":
-        """
-        Construct an MPS from a Block2 MPS object.
-        
-        Args:
-            block2_mps: The block2 MPS object.
-        
-        Returns:
-            The MPS.
-        """
-        return
-
-    def to_block2_mps(self) -> block2:
-        """
-        Convert MPS into a Block2 MPS.
-        
-        Returns:
-            A Block2 MPS.
-        """
-        return
-    
     def __add__(self, other : "MatrixProductState") -> "MatrixProductState":
         """
         Defines MPS addition.

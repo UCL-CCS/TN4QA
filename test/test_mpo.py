@@ -5,7 +5,6 @@ from tn4qa.tensor import Tensor
 from tn4qa.mpo import MatrixProductOperator
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import Operator
-from qiskit.circuit.random import random_circuit
 
 np.random.seed(999)
 
