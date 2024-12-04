@@ -1,11 +1,16 @@
 from typing import Tuple 
-from .mps import MatrixProductState
-from .mpo import MatrixProductOperator
+from tn4qa.mps import MatrixProductState
+from tn4qa.mpo import MatrixProductOperator
+from tn4qa.tensor import Tensor
+from tn4qa.tn import TensorNetwork
 from pyblock2.driver.core import DMRGDriver, SymmetryTypes
 from pyblock2._pyscf.ao2mo import integrals as itg
 import psutil
 import block2
 from pyscf import scf
+from scipy.sparse.linalg import eigs 
+import sparse
+import copy
 
 class FermionDMRG:
 
@@ -120,6 +125,8 @@ class QubitDMRG:
         self.num_sites = len(list(hamiltonian.keys())[0])
         self.max_mpo_bond = max_mpo_bond
         self.max_mps_bond = max_mps_bond
+        self.mps = self.set_initial_state()
+        self.mpo = self.set_hamiltonian_mpo()
 
         return
     
@@ -133,15 +140,147 @@ class QubitDMRG:
         if not mps:
             mps = MatrixProductState.random_quantum_state_mps(self.num_sites, self.max_mps_bond)
 
+        mps = self.add_trivial_tensors_mps(mps)
+
         return mps
     
     def set_hamiltonian_mpo(self) -> MatrixProductOperator:
         """
         Convert the Hamiltonian to an MPO for DMRG.
         """
-        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, self.max_mpo_bond)
+        # mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, self.max_mpo_bond)
+        mpo = hamiltonian_to_mpo(self.hamiltonian)
+        # if mpo.bond_dimension > self.max_mpo_bond:
+        #     mpo.compress(self.max_mpo_bond)
+
+        mpo = self.add_trivial_tensors_mpo(mpo)
 
         return mpo
+    
+    def add_trivial_tensors_mps(self, mps : MatrixProductState) -> MatrixProductState:
+        """
+        Add trivial tensors to MPS.
+        """ 
+        mps.tensors[0].data = sparse.reshape(mps.tensors[0].data, (1,)+mps.tensors[0].dimensions)
+        mps.tensors[-1].data = sparse.reshape(mps.tensors[-1].data, (mps.tensors[-1].dimensions[0], 1, mps.tensors[-1].dimensions[1]))
+
+        trivial_array = sparse.COO.from_numpy(np.array([1,1], dtype=complex).reshape(1,2))
+        all_arrays = [trivial_array] + [mps.tensors[i].data for i in range(self.num_sites)] + [trivial_array]
+        mps = MatrixProductState.from_arrays(all_arrays)
+        return mps
+    
+    def add_trivial_tensors_mpo(self, mpo : MatrixProductOperator) -> MatrixProductOperator:
+        """
+        Add trivial tensors to MPO.
+        """
+        mpo.tensors[0].data = sparse.reshape(mpo.tensors[0].data, (1,)+mpo.tensors[0].dimensions)
+        mpo.tensors[-1].data = sparse.reshape(mpo.tensors[-1].data, (mpo.tensors[-1].dimensions[0], 1, mpo.tensors[-1].dimensions[1], mpo.tensors[-1].dimensions[2]))
+        
+        trivial_array = sparse.COO.from_numpy(np.array([[1,1],[1,1]], dtype=complex).reshape(1,2,2))
+        all_arrays = [trivial_array] + [mpo.tensors[i].data for i in range(self.num_sites)] + [trivial_array]
+        mpo = MatrixProductOperator.from_arrays(all_arrays)
+        return mpo
+    
+    def remove_trivial_tensors_mps(self, mps : MatrixProductState) -> MatrixProductState:
+        """
+        Remove trivial tensors from MPS.
+        """
+        first_array = sparse.reshape(mps.tensors[1].data, (mps.tensors[1].dimensions[1], mps.tensors[1].dimensions[2]))
+        middle_arrays = [mps.tensors[i].data for i in range(2, self.num_sites-1)]
+        last_array = sparse.reshape(mps.tensors[-2].data, (mps.tensors[-2].dimensions[0], mps.tensors[-2].dimensions[2]))
+        mps = MatrixProductState.from_arrays([first_array] + middle_arrays + [last_array])
+        return mps
+    
+    def remove_trivial_tensors_mpo(self, mpo : MatrixProductOperator) -> MatrixProductOperator:
+        """
+        Remove trivial tensors from MPS.
+        """ 
+        first_array = sparse.reshape(mpo.tensors[1].data, (mpo.tensors[1].dimensions[1], mpo.tensors[1].dimensions[2], mpo.tensors[1].dimensions[3]))
+        middle_arrays = [mpo.tensors[i].data for i in range(2, self.num_sites-1)]
+        last_array = sparse.reshape(mpo.tensors[-2].data, (mpo.tensors[-2].dimensions[0], mpo.tensors[-2].dimensions[2], mpo.tensors[-2].dimensions[3]))
+        mpo = MatrixProductOperator.from_arrays([first_array] + middle_arrays + [last_array])
+        return mpo
+    
+    def construct_expectation_value_tn(self) -> TensorNetwork:
+        """
+        Construct <mps | mpo | mps>.
+        """
+        mps = copy.deepcopy(self.mps)
+        mps_dag = copy.deepcopy(self.mps)
+        mps_dag.dagger()
+        mpo = copy.deepcopy(self.mpo)
+
+        num_sites = len(mps.tensors)
+
+        mps.tensors[0].indices = ["b1", "p1"]
+        mps_dag.tensors[0].indices = ["bdag1", "pdag1"]
+        mpo.tensors[0].indices = ["hb1", "p1", "pdag1"]
+
+        for idx in range(1, num_sites-1):
+            mps.tensors[idx].indices = [f"b{idx}", f"b{idx+1}", f"p{idx+1}"]
+            mps_dag.tensors[idx].indices = [f"bdag{idx}", f"bdag{idx+1}", f"pdag{idx+1}"]
+            mpo.tensors[idx].indices = [f"hb{idx}", f"hb{idx+1}", f"p{idx+1}", f"pdag{idx+1}"]
+
+        mps.tensors[-1].indices = [f"b{num_sites-1}", f"p{num_sites}"]
+        mps_dag.tensors[-1].indices = [f"bdag{num_sites-1}", f"pdag{num_sites}"]
+        mpo.tensors[-1].indices = [f"hb{num_sites-1}", f"p{num_sites}", f"pdag{num_sites}"]
+
+        all_tensors = mps.tensors + mps_dag.tensors + mpo.tensors 
+        tn = TensorNetwork(all_tensors)
+        return tn
+    
+    def get_environment_tensor(self, site_idx : int) -> Tensor:
+        """
+        Return the environment matrix of the Hamiltonian at given site.
+        
+        Args:
+            site_idx: The site index.
+        
+        Returns:
+            A Tensor object with indices [udag, pdag, ddag, u, p, d]
+        """
+        tn = self.construct_expectation_value_tn()
+        tn.pop_tensors_by_label([f"MPS_T{site_idx}"])
+        env_tensor = tn.contract_entire_network()
+        env_tensor.reorder_indices([f"bdag{site_idx-1}", f"pdag{site_idx}", f"bdag{site_idx}", f"b{site_idx-1}", f"p{site_idx}", f"b{site_idx}"])
+        env_tensor.indices = ["udag", "pdag", "ddag", "u", "p", "d"]
+
+        return env_tensor
+    
+    def sweep(self, direction : str) -> float:
+        """
+        Perform one DMRG sweep.
+        
+        Args:
+            direction: Either "F" (forward) or "B" (backward)
+
+        Return:
+            The current groundstate energy estimate.
+        """
+        sites = list(range(2, self.num_sites+2))
+        if direction == "B": sites = sites[::-1]
+
+        for site in sites:
+            env_tensor = self.get_environment_tensor(site)
+            env_tensor.tensor_to_matrix(["u", "p", "d"], ["udag", "pdag", "ddag"])
+            w, v = eigs(env_tensor.data, k=1, which="SR")
+            eigval = w[0]
+            eigvec = sparse.COO.from_numpy(v[:, 0]) # This is the new optimal value at site i
+            if site == 2:
+                new_data = sparse.reshape(eigvec, (1, 2, self.max_mps_bond))
+            elif site == self.num_sites+1:
+                new_data = sparse.reshape(eigvec, (self.max_mps_bond, 2, 1))
+            else:
+                new_data = sparse.reshape(eigvec, (self.max_mps_bond, 2, self.max_mps_bond))
+            new_data = sparse.moveaxis(new_data, [0,1,2], [0,2,1])
+
+            original_indices = self.mps.tensors[site-1].indices
+            original_labels = self.mps.tensors[site-1].labels
+            self.mps.pop_tensors_by_label(original_labels)
+            new_t = Tensor(new_data, original_indices, original_labels)
+            self.mps.add_tensor(new_t, site-1)
+        
+        return eigval
 
     def run(self, maxiter : int) -> Tuple[float, MatrixProductState]:
         """
@@ -154,7 +293,15 @@ class QubitDMRG:
         Returns:
             A tuple of the DMRG energy and the DMRG state.
         """
-        initial_state = self.set_initial_state()
-        ham_mpo = self.set_hamiltonian_mpo()
+        for _ in range(maxiter):
+            e = self.sweep("F")
+            e = self.sweep("B")
+        
+        self.mps = self.remove_trivial_tensors_mps(self.mps)
+        self.mpo = self.remove_trivial_tensors_mpo(self.mpo)
 
-        return
+        tn = self.construct_expectation_value_tn()
+        energy = tn.contract_entire_network().real
+
+        return (energy, self.mps)
+    
