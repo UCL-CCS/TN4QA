@@ -14,9 +14,6 @@ from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.circuit.library import UnitaryGate
 
-# Block2 integration
-import block2
-
 DataOptions : TypeAlias = Union[ndarray, SparseArray]
 
 class MatrixProductOperator(TensorNetwork):

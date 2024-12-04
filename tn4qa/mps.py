@@ -13,9 +13,6 @@ from .mpo import MatrixProductOperator
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
 
-# Block2 integration
-import block2
-
 DataOptions : TypeAlias = Union[ndarray, SparseArray]
 
 class MatrixProductState(TensorNetwork):
