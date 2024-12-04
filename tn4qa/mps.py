@@ -203,14 +203,15 @@ class MatrixProductState(TensorNetwork):
         """
         return
 
-    def to_block2_mpo(self) -> block2:
+    def to_block2_mps(self) -> block2:
         """
         Convert MPS into a Block2 MPS.
         
         Returns:
             A Block2 MPS.
         """
-
+        return
+    
     def __add__(self, other : "MatrixProductState") -> "MatrixProductState":
         """
         Defines MPS addition.

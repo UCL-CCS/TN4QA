@@ -494,8 +494,9 @@ class MatrixProductOperator(TensorNetwork):
         
         Returns:
             A Block2 MPO.
-        """
-    
+        """ 
+        return 
+  
     def to_sparse_array(self) -> SparseArray:
         """
         Converts MPO to a sparse matrix.
