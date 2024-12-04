@@ -8,6 +8,7 @@ import sparse
 from sparse import SparseArray
 from .tensor import Tensor 
 from .tn import TensorNetwork
+from .utils import _update_array
 
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
@@ -65,7 +66,7 @@ class MatrixProductOperator(TensorNetwork):
         first_indices[right_idx_pos] = "R1"
         first_indices[left_idx_pos] = "L1"
         first_indices[down_idx_pos] = "B1"
-        first_tensor = Tensor(arrays[0], first_indices, ["MPS_T1"])
+        first_tensor = Tensor(arrays[0], first_indices, ["MPO_T1"])
         tensors.append(first_tensor)
 
         right_idx_pos = shape.index("r")
@@ -79,7 +80,7 @@ class MatrixProductOperator(TensorNetwork):
             indices_k[left_idx_pos] = f"L{a_idx+1}"
             indices_k[up_idx_pos] = f"B{a_idx}"
             indices_k[down_idx_pos] = f"B{a_idx+1}"
-            tensor_k = Tensor(a, indices_k, [f"MPS_T{a_idx+1}"])
+            tensor_k = Tensor(a, indices_k, [f"MPO_T{a_idx+1}"])
             tensors.append(tensor_k)
 
         last_shape = shape.replace("d", "")
@@ -90,7 +91,7 @@ class MatrixProductOperator(TensorNetwork):
         last_indices[right_idx_pos] = f"R{len(arrays)}"
         last_indices[left_idx_pos] = f"L{len(arrays)}"
         last_indices[up_idx_pos] = f"B{len(arrays)-1}"
-        last_tensor = Tensor(arrays[-1], last_indices, [f"MPS_T{len(arrays)}"])
+        last_tensor = Tensor(arrays[-1], last_indices, [f"MPO_T{len(arrays)}"])
         tensors.append(last_tensor)
 
         mpo = cls(tensors, shape)
@@ -261,7 +262,7 @@ class MatrixProductOperator(TensorNetwork):
         return mpo
 
     @classmethod
-    def from_hamiltonian(cls, ham : dict, max_bond : int) -> "MatrixProductOperator":
+    def from_hamiltonian_adder(cls, ham : dict[str, complex], max_bond : int) -> "MatrixProductOperator":
         """
         Create an MPO for a Hamiltonian.
 
@@ -280,10 +281,74 @@ class MatrixProductOperator(TensorNetwork):
         for ps in pauli_strings[1:]:
             temp_mpo = cls.from_pauli_string(ps)
             temp_mpo.multiply_by_constant(ham[ps])
-            mpo = mpo + temp_mpo 
-        mpo.compress(max_bond)
+            mpo = mpo + temp_mpo
+        if mpo.bond_dimension > max_bond: 
+            mpo.compress(max_bond)
 
         return mpo
+
+    @classmethod
+    def from_hamiltonian(cls, ham_dict : dict[str, complex], max_bond : int) -> "MatrixProductOperator":
+        """
+        Create an MPO for a Hamiltonian.
+
+        Args:
+            ham: The dict representation of the Hamiltonian {pauli_string : weight}.
+            max_bond: The maximum bond dimension allowed.
+        
+        Returns:
+            An MPO.
+        """
+        num_qubits = len(list(ham_dict.keys())[0])
+        num_ham_terms = len(ham_dict.keys())
+
+        first_array_coords: list[list[int]] = [[], [], []]
+        middle_array_coords: list[list[list[int]]] = [
+            [[], [], [], []] for _ in range(1, num_qubits - 1)
+        ]
+        last_array_coords: list[list[int]] = [[], [], []]
+        first_array_data: list[complex] = []
+        middle_array_data: list[list[complex]] = [[] for _ in range(1, num_qubits - 1)]
+        last_array_data: list[complex] = []
+
+        for p_string_idx, (p_string, weight) in enumerate(ham_dict.items()):
+
+            # First Term
+            _update_array(
+                first_array_coords, first_array_data, weight, p_string_idx, p_string[0]
+            )
+
+            # Middle Terms
+            for p_idx in range(1, num_qubits - 1):
+                p = p_string[p_idx]
+                _update_array(
+                    middle_array_coords[p_idx - 1],
+                    middle_array_data[p_idx - 1],
+                    1,
+                    p_string_idx,
+                    p,
+                    offset=True,
+                )
+
+            # Final Term
+            _update_array(last_array_coords, last_array_data, 1, p_string_idx, p_string[-1])
+
+        first_array = sparse.COO(
+            first_array_coords, first_array_data, shape=(num_ham_terms, 2, 2)
+        )
+        middle_arrays = [
+            sparse.COO(
+                middle_array_coords[i - 1],
+                middle_array_data[i - 1],
+                shape=(num_ham_terms, num_ham_terms, 2, 2),
+            )
+            for i in range(1, num_qubits - 1)
+        ]
+        last_array = sparse.COO(
+            last_array_coords, last_array_data, shape=(num_ham_terms, 2, 2)
+        )
+
+        return MatrixProductOperator.from_arrays([first_array] + middle_arrays + [last_array])
     
     @classmethod 
     def from_qiskit_layer(cls, layer : QuantumCircuit, layer_number : int=1) -> "MatrixProductOperator":
