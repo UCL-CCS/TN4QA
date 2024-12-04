@@ -149,8 +149,7 @@ class QubitDMRG:
         """
         Convert the Hamiltonian to an MPO for DMRG.
         """
-        # mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, self.max_mpo_bond)
-        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian)
+        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, self.max_mpo_bond)
         # if mpo.bond_dimension > self.max_mpo_bond:
         #     mpo.compress(self.max_mpo_bond)
 
