@@ -15,11 +15,12 @@ def test_constructor_sparse():
     sparse_array = sparse.COO.from_numpy(TEST_ARRAY)
     tensor = Tensor(sparse_array, ["INDEX_1", "INDEX_2", "INDEX_3", "INDEX_4"], ["LABEL_1"])
 
-    assert np.allclose(TEST_ARRAY, tensor.data.todense())
-    assert tensor.indices[0] == "INDEX_1" and tensor.indices[1] == "INDEX_2" and tensor.indices[2] == "INDEX_3" and tensor.indices[3] == "INDEX_4"
-    assert tensor.labels[0] == "LABEL_1"
-    assert tensor.rank == 4
-    assert tensor.dimensions == (2,2,2,3)
+    # Test all properties have been passed on appropriately
+    assert np.allclose(TEST_ARRAY, tensor.data.todense()), "Tensor data does not match input array."
+    assert tensor.indices[0] == "INDEX_1" and tensor.indices[1] == "INDEX_2" and tensor.indices[2] == "INDEX_3" and tensor.indices[3] == "INDEX_4", "Tensor indices do not match input indices."
+    assert tensor.labels[0] == "LABEL_1", "Tensor labels do not match input labels."
+    assert tensor.rank == 4, "Tensor rank does not match input array."
+    assert tensor.dimensions == (2,2,2,3), "Tensor dimensions do not match input array."
 
     return 
 
@@ -27,11 +28,12 @@ def test_constructor_numpy():
     x_mat = TEST_ARRAY
     tensor = Tensor(x_mat, ["INDEX_1", "INDEX_2", "INDEX_3", "INDEX_4"], ["LABEL_1"])
 
-    assert np.allclose(TEST_ARRAY, tensor.data.todense())
-    assert tensor.indices[0] == "INDEX_1" and tensor.indices[1] == "INDEX_2" and tensor.indices[2] == "INDEX_3" and tensor.indices[3] == "INDEX_4"
-    assert tensor.labels[0] == "LABEL_1"
-    assert tensor.rank == 4
-    assert tensor.dimensions == (2,2,2,3)
+    # Test all properties have been passed on appropriately
+    assert np.allclose(TEST_ARRAY, tensor.data.todense()), "Tensor data does not match input array."
+    assert tensor.indices[0] == "INDEX_1" and tensor.indices[1] == "INDEX_2" and tensor.indices[2] == "INDEX_3" and tensor.indices[3] == "INDEX_4", "Tensor indices do not match input indices."
+    assert tensor.labels[0] == "LABEL_1", "Tensor labels do not match input labels."
+    assert tensor.rank == 4, "Tensor rank does not match input array."
+    assert tensor.dimensions == (2,2,2,3), "Tensor dimensions do not match input array."
 
     return
 
@@ -241,19 +243,19 @@ def test_new_index_name():
     tensor = Tensor(TEST_ARRAY, ["B1", "B2", "B3"], ["Label1"])
     new_index = tensor.new_index_name("B", 1)
 
-    assert new_index == "B4"
+    assert new_index == "B4", "New index created incorrectly."
     
 def test_get_dimension_of_index():
     tensor = Tensor(TEST_ARRAY, ["I1", "I2", "I3", "I4"], ["Label1"])
     dim = tensor.get_dimension_of_index("I2")
 
-    assert dim == TEST_ARRAY.shape[1]
+    assert dim == TEST_ARRAY.shape[1], "Dimension of index incorrect."
 
 def test_get_total_dimension_of_indices():
     tensor = Tensor(TEST_ARRAY, ["I1", "I2", "I3", "I4"], ["Label1"])
     total_dim = tensor.get_total_dimension_of_indices(["I1", "I2"])
 
-    assert total_dim == TEST_ARRAY.shape[0] * TEST_ARRAY.shape[1]
+    assert total_dim == TEST_ARRAY.shape[0] * TEST_ARRAY.shape[1], "Total dimenions of indices incorrect."
     
 def test_combine_indices():
     tensor = Tensor(TEST_ARRAY, ["I1", "I2", "I3", "I4"], ["Label1"])
@@ -298,4 +300,4 @@ def test_multiply_by_constant():
     tensor = Tensor(TEST_ARRAY, ["I1", "I2", "I3", "I4"], ["Label1"])
     tensor.multiply_by_constant(2)
 
-    assert np.allclose(tensor.data.todense(), TEST_ARRAY * 2)
+    assert np.allclose(tensor.data.todense(), TEST_ARRAY * 2), "Multiply by constant incorrect."
