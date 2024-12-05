@@ -55,7 +55,7 @@ class TensorNetwork:
         Defines addition for tensor networks.
         """
         all_tensors = self.tensors + other.tensors 
-        tn = TensorNetwork(all_tensors)
+        tn = TensorNetwork(all_tensors, name=self.name)
         return tn
     
     @classmethod
@@ -110,7 +110,7 @@ class TensorNetwork:
             tensors.append(tensor)
             tensor_number += 1
         
-        tn = TensorNetwork(tensors)
+        tn = TensorNetwork(tensors, name="QuantumCircuit")
         return tn
 
     @classmethod
@@ -590,7 +590,6 @@ class TensorNetwork:
         """
         G = nx.DiGraph()
         for i, indices in enumerate(parsed_tensors):
-            # print(i, indices)
             tensor_name = f"Tensor_{i + 1}"
             G.add_node(tensor_name)
         
@@ -598,15 +597,14 @@ class TensorNetwork:
             for idx in indices:
                 connected_tensors = self.get_tensors_from_index_name(idx)
                 if len(connected_tensors) == 2:
-                    i,j = self.tensors.index(connected_tensors[0]), self.tensors.index(connected_tensors[1])
+                    i, j = [self.tensors.index(t) for t in connected_tensors]
                     first_tensor = f"Tensor_{i + 1}"
                     second_tensor = f"Tensor_{j + 1}"
                     G.add_edge(first_tensor, second_tensor, label=idx)
                 else:
-                    i = self.tensors.index(connected_tensors[0])
-                    first_tensor = f"Tensor_{i + 1}"
+                    first_tensor = tensor_name
                     G.add_edge(first_tensor, idx, label=idx)
-                
+
         return G
 
     def draw(self, node_size, x_len, y_len):
@@ -639,11 +637,9 @@ class TensorNetwork:
 
         # Assign positions for dangling indices
         for edge in G.edges(data=True):
-            if edge[1].startswith('R'):
-                pos[edge[1]] = (pos[edge[0]][0] + horizontal_spacing, pos[edge[0]][1])
-            elif edge[1].startswith('L'):
-                pos[edge[1]] = (pos[edge[0]][0] - horizontal_spacing, pos[edge[0]][1])
-
+            if not edge[1].startswith("Tensor"):
+                if edge[1] not in pos:
+                    pos[edge[1]] = (pos[edge[0]][0] + horizontal_spacing, pos[edge[0]][1])
         # Draw the graph
         plt.figure(figsize=(x_len, y_len))
 
