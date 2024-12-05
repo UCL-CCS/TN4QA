@@ -570,14 +570,15 @@ class TensorNetwork:
         Returns:
             list: List of tensors and their indices
         """
-        tensors = []
-        for line in tn_output.split("\n"):
-            if line.startswith("Tensor with shape"):
-                # Extract tensor indices
-                indices_match = re.search(r"indices\s\[(.*?)\]", line)
-                if indices_match:
-                    indices = indices_match.group(1).replace("'", "").split(", ")
-                    tensors.append(indices)
+        tensors = self.tensors
+        # tensors = []
+        # for line in tn_output.split("\n"):
+        #     if line.startswith("Tensor with shape"):
+        #         # Extract tensor indices
+        #         indices_match = re.search(r"indices\s\[(.*?)\]", line)
+        #         if indices_match:
+        #             indices = indices_match.group(1).replace("'", "").split(", ")
+        #             tensors.append(indices)
         return tensors
 
     def build_graph_from_tensors(self, parsed_tensors):
@@ -589,7 +590,8 @@ class TensorNetwork:
             networkx.DiGraph: Directed graph representing the tensor network
         """
         G = nx.DiGraph()
-        for i, indices in enumerate(parsed_tensors):
+        for i, tensor in enumerate(parsed_tensors):
+            indices = tensor.indices
             tensor_name = f"Tensor_{i + 1}"
             G.add_node(tensor_name)
         
@@ -631,9 +633,12 @@ class TensorNetwork:
         horizontal_spacing = 1.0
 
         # Assign positions for tensor nodes
-        tensors = [node for node in G.nodes if node.startswith("Tensor")]
-        for i, tensor in enumerate(tensors):
-            pos[tensor] = (0, -i * vertical_spacing)
+        nodes = [node for node in G.nodes if node.startswith("Tensor")]
+        for i, node in enumerate(nodes):
+            tensor_labels = parsed_tensors[i].labels 
+            layer_number = #### There will be a label Lx where x is the layer number
+            qubit_wire = #### There will be a label Qx where x is the qubit number
+            pos[node] = (i * layer_number, -i * qubit_wire)
 
         # Assign positions for dangling indices
         for edge in G.edges(data=True):
