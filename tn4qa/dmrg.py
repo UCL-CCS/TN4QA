@@ -260,6 +260,8 @@ class QubitDMRG:
         sites = list(range(2, self.num_sites+2))
         if direction == "B": sites = sites[::-1]
 
+        # self.mps.move_orthogonality_centre(1)
+
         for site in sites:
             env_tensor = self.get_environment_tensor(site)
             env_tensor.tensor_to_matrix(["u", "p", "d"], ["udag", "pdag", "ddag"])

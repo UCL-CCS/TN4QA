@@ -50,7 +50,7 @@ class TensorNetwork:
         Defines addition for tensor networks.
         """
         all_tensors = self.tensors + other.tensors 
-        tn = TensorNetwork(all_tensors)
+        tn = TensorNetwork(all_tensors, name=self.name)
         return tn
     
     @classmethod
@@ -105,7 +105,7 @@ class TensorNetwork:
             tensors.append(tensor)
             tensor_number += 1
         
-        tn = TensorNetwork(tensors)
+        tn = TensorNetwork(tensors, name="QuantumCircuit")
         return tn
 
     @classmethod

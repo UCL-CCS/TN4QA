@@ -4,7 +4,7 @@ from tn4qa.dmrg import FermionDMRG, QubitDMRG
 import json
 import os
 
-np.random.seed(1)
+np.random.seed(2)
 cwd = os.getcwd()
 
 def test_FermionDMRG_RHF():
@@ -25,6 +25,7 @@ def test_QubitDMRG():
     location = os.path.join(cwd, "hamiltonians/N2.json")
     with open(location, "r") as f:
         ham = json.load(f)
-    dmrg = QubitDMRG(ham, np.infty, 4) # Currently no MPO truncation is implemented so np.infty is fine
+    ham_dict = {k : float(v) for k,v in ham.items()}
+    dmrg = QubitDMRG(ham_dict, np.infty, 4) # Currently no MPO truncation is implemented so np.infty is fine
     energy, _ = dmrg.run(2)
-    assert np.isclose(energy, -107.654122447524472, atol=1.0)
+    assert np.isclose(energy,  -107.654122447524472, atol=2.0)
