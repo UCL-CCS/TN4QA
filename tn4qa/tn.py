@@ -636,8 +636,8 @@ class TensorNetwork:
         nodes = [node for node in G.nodes if node.startswith("Tensor")]
         for i, node in enumerate(nodes):
             tensor_labels = parsed_tensors[i].labels 
-            layer_number = #### There will be a label Lx where x is the layer number
-            qubit_wire = #### There will be a label Qx where x is the qubit number
+            layer_number = [l for l in tensor_labels if l[0] == "L"][0][1:] 
+            qubit_wire = [l for l in tensor_labels i l[0] == "Q"][0][1:]
             pos[node] = (layer_number * horizontal_spacing, qubit_wire * vertical_spacing)
 
         # Assign positions for dangling indices
