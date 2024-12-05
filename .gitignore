@@ -156,3 +156,6 @@ cython_debug/
 
 # Scratch space
 tmp/
+
+# Misc.
+.DS_Store
