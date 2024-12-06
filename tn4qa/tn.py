@@ -14,13 +14,11 @@ from qiskit import QuantumCircuit
 from qiskit_aer.noise import NoiseModel
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 
-# Visualisation purposes
-import re
-import matplotlib.pyplot as plt
-import networkx as nx
+# Visualisation
+from .visualisation import draw_arbitrary_tn, draw_quantum_circuit
 
 class TensorNetwork:
-    def __init__(self, tensors : List[Tensor], name : str="TN") -> "TensorNetwork":
+    def __init__(self, tensors : List[Tensor], name : str="TN", count_from : int=1) -> "TensorNetwork":
         """
         Constructor for the TensorNetwork class.
         
@@ -32,7 +30,7 @@ class TensorNetwork:
             A tensor network.
         """
         self.name = name
-        i = 1
+        i = count_from
         for t in tensors:
             t.labels.append(f"TN_T{i}")
             i += 1
@@ -110,7 +108,7 @@ class TensorNetwork:
             tensors.append(tensor)
             tensor_number += 1
         
-        tn = TensorNetwork(tensors, name="QuantumCircuit")
+        tn = TensorNetwork(tensors, name="QuantumCircuit", count_from=1+num_qubits*(layer_number-1))
         return tn
 
     @classmethod
@@ -133,6 +131,7 @@ class TensorNetwork:
         for layer in all_layers[1:]:
             layer_as_circ = dag_to_circuit(layer['graph'])
             tn = tn + TensorNetwork.from_qiskit_layer(layer_as_circ, layer_number)
+            layer_number += 1
         return tn
 
     @classmethod
@@ -561,106 +560,12 @@ class TensorNetwork:
             self.compress_index(index, max_bond)
         return
 
-    def parse_tn_output(self, tn_output):
+    def draw(self, node_size : int=None, x_len : int=None, y_len : int=None):
         """
-        Parse the textual representation of the tensor networks.
-        Extracts tensors and their connections.
-        Args:
-            TensorNetwork 
-        Returns:
-            list: List of tensors and their indices
+        Add docstring
         """
-        tensors = self.tensors
-        # tensors = []
-        # for line in tn_output.split("\n"):
-        #     if line.startswith("Tensor with shape"):
-        #         # Extract tensor indices
-        #         indices_match = re.search(r"indices\s\[(.*?)\]", line)
-        #         if indices_match:
-        #             indices = indices_match.group(1).replace("'", "").split(", ")
-        #             tensors.append(indices)
-        return tensors
-
-    def build_graph_from_tensors(self, parsed_tensors):
-        """
-        Build a directed graph from the list of tensors and their indices.
-        Args:
-            tensors (list): List of tensors and their indices
-        Returns:
-            networkx.DiGraph: Directed graph representing the tensor network
-        """
-        G = nx.DiGraph()
-        for i, tensor in enumerate(parsed_tensors):
-            indices = tensor.indices
-            tensor_name = f"Tensor_{i + 1}"
-            G.add_node(tensor_name)
+        if self.name == "QuantumCircuit":
+            draw_quantum_circuit(self, node_size, x_len, y_len)
         
-            # Add edges for bottom connections and dangling indices
-            for idx in indices:
-                connected_tensors = self.get_tensors_from_index_name(idx)
-                if len(connected_tensors) == 2:
-                    i, j = [self.tensors.index(t) for t in connected_tensors]
-                    first_tensor = f"Tensor_{i + 1}"
-                    second_tensor = f"Tensor_{j + 1}"
-                    G.add_edge(first_tensor, second_tensor, label=idx)
-                else:
-                    first_tensor = tensor_name
-                    G.add_edge(first_tensor, idx, label=idx)
-
-        return G
-
-    def draw(self, node_size, x_len, y_len):
-        """
-        Visualise the tensor network using matplotlib and networkx.
-        Args:
-            tn (TensorNetwork)
-            node_size (int): Size of the nodes in the plot
-            x_len (int): Length of the x-axis
-            y_len (int): Length of the y-axis
-        """
-        # Define the tensor output
-        tn_output = f"""\{self}
-        """
-        # Parse the output
-        parsed_tensors = self.parse_tn_output(tn_output)
-
-        # Build the graph
-        G = self.build_graph_from_tensors(parsed_tensors)
-
-        # Define positions for tensors and dangling indices
-        pos = {}
-        vertical_spacing = 1.0
-        horizontal_spacing = 1.0
-
-        # Assign positions for tensor nodes
-        nodes = [node for node in G.nodes if node.startswith("Tensor")]
-        for i, node in enumerate(nodes):
-            tensor_labels = parsed_tensors[i].labels 
-            layer_number = [l for l in tensor_labels if l[0] == "L"][0][1:] 
-            qubit_wire = [l for l in tensor_labels if l[0] == "Q"][0][1:]
-            pos[node] = (layer_number * horizontal_spacing, qubit_wire * vertical_spacing)
-
-        # Assign positions for dangling indices
-        for edge in G.edges(data=True):
-            if not edge[1].startswith("Tensor"):
-                if edge[1] not in pos:
-                    pos[edge[1]] = (pos[edge[0]][0] + horizontal_spacing, pos[edge[0]][1])
-        # Draw the graph
-        plt.figure(figsize=(x_len, y_len))
-
-        # Separate tensor and index nodes
-        tensor_nodes = [node for node in G.nodes if node.startswith("Tensor")]
-
-        # Draw nodes
-        nx.draw_networkx_nodes(G, pos, nodelist=tensor_nodes, node_size=node_size, node_color="hotpink", label="Tensors")
-
-        # Draw edges
-        nx.draw_networkx_edges(G, pos, edge_color="gray", arrows=False)
-
-        # Add edge labels
-        edge_labels = nx.get_edge_attributes(G, 'label')
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color="red", font_size=8)
-
-        # Title and axis
-        plt.title("Tensor Network Visualisation", fontsize=14)
-        plt.show()
+        else:
+            draw_arbitrary_tn(self)
