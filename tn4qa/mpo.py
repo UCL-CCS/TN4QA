@@ -14,6 +14,9 @@ from qiskit import QuantumCircuit, transpile
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.circuit.library import UnitaryGate
 
+# Visualisation
+from .visualisation import draw_mpo
+
 DataOptions : TypeAlias = Union[ndarray, SparseArray]
 
 class MatrixProductOperator(TensorNetwork):
@@ -720,3 +723,9 @@ class MatrixProductOperator(TensorNetwork):
         tensor = self.tensors[0]
         tensor.multiply_by_constant(const)
         return
+
+    def draw(self):
+        """
+        Add docstring
+        """
+        draw_mpo(self)
