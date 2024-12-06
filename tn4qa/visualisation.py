@@ -102,10 +102,19 @@ def draw_quantum_circuit(qc_tn : TensorNetwork, node_size : int=None, x_len : in
     plt.show()
 
 def draw_mpo(mpo):
+    """
+    Visualise MPO
+    """
     return 
 
 def draw_mps(mps):
+    """
+    Visualise MPS
+    """
     return 
 
 def draw_arbitrary_tn(tn):
+    """
+    Doesn't try to place tensors anywhere in particular, uses default layout / networkx draw_spring
+    """
     return
