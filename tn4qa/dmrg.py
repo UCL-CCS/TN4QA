@@ -260,20 +260,21 @@ class QubitDMRG:
         sites = list(range(2, self.num_sites+2))
         if direction == "B": sites = sites[::-1]
 
-        # self.mps.move_orthogonality_centre(1)
-
         for site in sites:
+            self.mps.move_orthogonality_centre(site)
+            original_dims = self.mps.tensors[site-1].dimensions
             env_tensor = self.get_environment_tensor(site)
             env_tensor.tensor_to_matrix(["u", "p", "d"], ["udag", "pdag", "ddag"])
             w, v = eigs(env_tensor.data, k=1, which="SR")
             eigval = w[0]
             eigvec = sparse.COO.from_numpy(v[:, 0]) # This is the new optimal value at site i
-            if site == 2:
-                new_data = sparse.reshape(eigvec, (1, 2, self.max_mps_bond))
-            elif site == self.num_sites+1:
-                new_data = sparse.reshape(eigvec, (self.max_mps_bond, 2, 1))
-            else:
-                new_data = sparse.reshape(eigvec, (self.max_mps_bond, 2, self.max_mps_bond))
+            # if site == 2:
+            #     new_data = sparse.reshape(eigvec, (1, 2, self.max_mps_bond))
+            # elif site == self.num_sites+1:
+            #     new_data = sparse.reshape(eigvec, (self.max_mps_bond, 2, 1))
+            # else:
+            #     new_data = sparse.reshape(eigvec, (self.max_mps_bond, 2, self.max_mps_bond))
+            new_data = sparse.reshape(eigvec, original_dims)
             new_data = sparse.moveaxis(new_data, [0,1,2], [0,2,1])
 
             original_indices = self.mps.tensors[site-1].indices
@@ -281,6 +282,7 @@ class QubitDMRG:
             self.mps.pop_tensors_by_label(original_labels)
             new_t = Tensor(new_data, original_indices, original_labels)
             self.mps.add_tensor(new_t, site-1)
+
         
         return eigval
 
@@ -300,11 +302,6 @@ class QubitDMRG:
             e = self.sweep("B")
         
         energy = e.real / 16 # Trivial end tensors mean we overcount the energy by factor of 2*4*2
-        # self.mps = self.remove_trivial_tensors_mps(self.mps)
-        # self.mpo = self.remove_trivial_tensors_mpo(self.mpo)
-
-        # tn = self.construct_expectation_value_tn()
-        # energy = tn.contract_entire_network().real
 
         return (energy, self.mps)
     
