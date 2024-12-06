@@ -275,8 +275,38 @@ def draw_mps(mps, node_size: int = None, x_len: int = None, y_len: int = None):
     plt.show()
     
 
-def draw_arbitrary_tn(tn):
+def draw_arbitrary_tn(tn, node_size: int = None, x_len: int = None, y_len: int = None):
     """
-    Doesn't try to place tensors anywhere in particular, uses default layout / networkx draw_spring
+    Visualise an arbitrary tensor network using a default layout from NetworkX.
+
+    Args:
+        tn: A TensorNetwork object containing tensors and indices.
+        node_size (int): Size of the nodes in the plot.
+        x_len (int): Length of the x-axis.
+        y_len (int): Length of the y-axis.
     """
-    return
+    # Build the graph from the tensor network
+    G = build_graph_from_tensor_network(tn)
+
+    # Use default spring layout for positioning
+    pos = nx.spring_layout(G)
+
+    # Draw the graph
+    plt.figure(figsize=(x_len, y_len))
+
+    # Draw nodes
+    nx.draw_networkx_nodes(G, pos, node_size=node_size, node_color="hotpink", label="Tensors")
+
+    # Draw edges
+    nx.draw_networkx_edges(G, pos, edge_color="gray", arrows=False)
+
+    # Add node labels
+    nx.draw_networkx_labels(G, pos, font_size=10, font_color="black")
+
+    # Add edge labels
+    edge_labels = nx.get_edge_attributes(G, 'label')
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color="red", font_size=8)
+
+    # Title and axis
+    plt.title("Arbitrary Tensor Network Visualisation", fontsize=14)
+    plt.show()
