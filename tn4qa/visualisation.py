@@ -98,7 +98,7 @@ def build_graph_from_MPS(mps) -> DiGraph:
     return G
 
 
-def draw_quantum_circuit(qc_tn : TensorNetwork, node_size : int=None, x_len : int=None, y_len : int=None):
+def draw_quantum_circuit(qc_tn : TensorNetwork, node_size : int | None = None, x_len : int | None = None, y_len : int | None = None):
     """
     Visualise a tensor network representing a quantum circuit using matplotlib and networkx.
 
@@ -162,7 +162,7 @@ def draw_quantum_circuit(qc_tn : TensorNetwork, node_size : int=None, x_len : in
     plt.show()
 
 
-def draw_mpo(mpo, node_size: int = None, x_len: int = None, y_len: int = None):
+def draw_mpo(mpo, node_size: int | None = None, x_len: int | None = None, y_len: int | None = None):
     """
     Visualise the MPO.
     
@@ -219,7 +219,7 @@ def draw_mpo(mpo, node_size: int = None, x_len: int = None, y_len: int = None):
     plt.title("MPO Visualisation", fontsize=14)
     plt.show()
 
-def draw_mps(mps, node_size: int = None, x_len: int = None, y_len: int = None):
+def draw_mps(mps, node_size: int | None = None, x_len: int | None = None, y_len: int | None = None):
     """
     Visualise the MPS.
     
@@ -275,7 +275,7 @@ def draw_mps(mps, node_size: int = None, x_len: int = None, y_len: int = None):
     plt.show()
     
 
-def draw_arbitrary_tn(tn, node_size: int = None, x_len: int = None, y_len: int = None):
+def draw_arbitrary_tn(tn, node_size: int | None = None, x_len: int | None = None, y_len: int | None = None):
     """
     Visualise an arbitrary tensor network using a default layout from NetworkX.
 
