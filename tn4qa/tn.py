@@ -395,7 +395,7 @@ class TensorNetwork:
         
         return tensors
 
-    def add_tensor(self, tensor : Tensor, position : int=None) -> None:
+    def add_tensor(self, tensor : Tensor, position : int | None = None) -> None:
         """
         Add a tensor to the network.
         
@@ -483,7 +483,7 @@ class TensorNetwork:
             return new_indices[0]
         return new_indices
 
-    def combine_indices(self, idxs : List[str], new_index_name : str=None) -> None:
+    def combine_indices(self, idxs : List[str], new_index_name : str | None = None) -> None:
         """
         Combine two or more indices within the network. Only valid when all indices are between the same two tensors.
         
@@ -497,7 +497,7 @@ class TensorNetwork:
         self.indices = self.get_all_indices()
         return
     
-    def svd(self, tensor : Tensor, input_indices : List[str], output_indices : List[str], max_bond : int=None, new_index_name : str=None, new_labels : List[List[str]]=None) -> None:
+    def svd(self, tensor : Tensor, input_indices : List[str], output_indices : List[str], max_bond : int | None = None, new_index_name : str | None = None, new_labels : List[List[str]] | None = None) -> None:
         """
         Perform an SVD on a tensor.
         
@@ -560,7 +560,7 @@ class TensorNetwork:
             self.compress_index(index, max_bond)
         return
 
-    def draw(self, node_size : int=None, x_len : int=None, y_len : int=None):
+    def draw(self, node_size : int | None = None, x_len : int | None = None, y_len : int | None = None):
         """
         Add docstring
         """
