@@ -10,7 +10,7 @@ from .tensor import Tensor
 from .tn import TensorNetwork
 
 # Qiskit quantum circuit integration
-from qiskit import QuantumCircuit, transpile
+from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.circuit.library import UnitaryGate
 
@@ -724,8 +724,16 @@ class MatrixProductOperator(TensorNetwork):
         tensor.multiply_by_constant(const)
         return
 
-    def draw(self):
+    def draw(self, node_size : int | None = None, x_len : int | None = None, y_len : int | None = None):
         """
-        Add docstring
+        Visualise tensor network.
+
+        Args:
+            node_size: Size of nodes in figure (optional)
+            x_len: Figure width (optional)
+            y_len: Figure height (optional)
+        
+        Returns:
+            Displays plot.
         """
-        draw_mpo(self)
+        draw_mpo(self, node_size, x_len, y_len)

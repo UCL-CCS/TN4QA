@@ -371,4 +371,3 @@ def draw_arbitrary_tn(
     # Title and axis
     plt.title("Arbitrary Tensor Network Visualisation", fontsize=14)
     plt.show()
-

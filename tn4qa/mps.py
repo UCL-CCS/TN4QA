@@ -461,8 +461,16 @@ class MatrixProductState(TensorNetwork):
         self.multiply_by_constant(np.sqrt(1/norm))
         return
 
-    def draw(self):
+    def draw(self, node_size : int | None = None, x_len : int | None = None, y_len : int | None = None):
         """
-        Add docstring
+        Visualise MPS.
+
+        Args:
+            node_size: Size of nodes in figure (optional)
+            x_len: Figure width (optional)
+            y_len: Figure height (optional)
+        
+        Returns:
+            Displays plot.
         """
-        draw_mps(self)
+        draw_mps(self, node_size, x_len, y_len)
