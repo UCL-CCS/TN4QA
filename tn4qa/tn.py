@@ -4,7 +4,7 @@ from typing import List, Union
 import numpy as np
 from numpy.linalg import svd
 import sparse
-from tn4qa.tensor import Tensor
+from .tensor import Tensor
 
 # Contraction path finding is offloaded to Cotengra
 import cotengra as ctg
@@ -562,7 +562,15 @@ class TensorNetwork:
 
     def draw(self, node_size : int | None = None, x_len : int | None = None, y_len : int | None = None):
         """
-        Add docstring
+        Visualise tensor network.
+
+        Args:
+            node_size: Size of nodes in figure (optional)
+            x_len: Figure width (optional)
+            y_len: Figure height (optional)
+        
+        Returns:
+            Displays plot.
         """
         if self.name == "QuantumCircuit":
             draw_quantum_circuit(self, node_size, x_len, y_len)
