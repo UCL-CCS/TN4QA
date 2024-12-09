@@ -299,11 +299,12 @@ class TensorNetwork:
             new_data = new_data.reshape(new_data.shape[1:])
         new_tensor = Tensor(new_data, output_indices, new_labels)
 
+        pos = self.tensors.index(tensors[0])
         self.tensors.remove(tensors[0])
         self.tensors.remove(tensors[1])
         self.indices.remove(idx)
 
-        self.tensors.append(new_tensor)
+        self.add_tensor(new_tensor, pos)
 
         return
 

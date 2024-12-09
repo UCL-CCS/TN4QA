@@ -331,20 +331,31 @@ class MatrixProductState(TensorNetwork):
             t.data = sparse.COO.conj(t.data)
         return 
 
-    def move_orthogonality_centre(self, where : int=None) -> None:
+    def move_orthogonality_centre(self, where : int=None, current : int=None) -> None:
         """
         Move the orthogonality centre of the MPS.
         
         Args:
             where (optional): Defaults to the last tensor.
+            current (optional): Where the orthogonality centre is currently (if known)
         """
         if not where:
             where = self.num_sites 
 
         internal_indices = self.get_internal_indices()
         
-        push_down = list(range(1, where))
-        push_up = list(range(where, self.num_sites))[::-1]
+        if current == where:
+            return
+        
+        if not current:
+            push_down = list(range(1, where))
+            push_up = list(range(where, self.num_sites))[::-1]
+        elif current < where:
+            push_down = list(range(current, where))
+            push_up = []
+        else:
+            push_down = []
+            push_up = list(range(where, current))[::-1]
 
         max_bond = self.bond_dimension
 

@@ -164,7 +164,7 @@ class QubitDMRG:
         mps.tensors[0].data = sparse.reshape(mps.tensors[0].data, (1,)+mps.tensors[0].dimensions)
         mps.tensors[-1].data = sparse.reshape(mps.tensors[-1].data, (mps.tensors[-1].dimensions[0], 1, mps.tensors[-1].dimensions[1]))
 
-        trivial_array = sparse.COO.from_numpy(np.array([1,1], dtype=complex).reshape(1,2))
+        trivial_array = sparse.COO.from_numpy(np.array([np.sqrt(1/2),np.sqrt(1/2)], dtype=complex).reshape(1,2))
         all_arrays = [trivial_array] + [mps.tensors[i].data for i in range(self.num_sites)] + [trivial_array]
         mps = MatrixProductState.from_arrays(all_arrays)
         return mps
@@ -176,7 +176,7 @@ class QubitDMRG:
         mpo.tensors[0].data = sparse.reshape(mpo.tensors[0].data, (1,)+mpo.tensors[0].dimensions)
         mpo.tensors[-1].data = sparse.reshape(mpo.tensors[-1].data, (mpo.tensors[-1].dimensions[0], 1, mpo.tensors[-1].dimensions[1], mpo.tensors[-1].dimensions[2]))
         
-        trivial_array = sparse.COO.from_numpy(np.array([[1,1],[1,1]], dtype=complex).reshape(1,2,2))
+        trivial_array = sparse.COO.from_numpy(np.array([[1/2, 1/2],[1/2, 1/2]], dtype=complex).reshape(1,2,2))
         all_arrays = [trivial_array] + [mpo.tensors[i].data for i in range(self.num_sites)] + [trivial_array]
         mpo = MatrixProductOperator.from_arrays(all_arrays)
         return mpo
@@ -185,20 +185,48 @@ class QubitDMRG:
         """
         Remove trivial tensors from MPS.
         """
-        first_array = sparse.reshape(mps.tensors[1].data, (mps.tensors[1].dimensions[1], mps.tensors[1].dimensions[2]))
-        middle_arrays = [mps.tensors[i].data for i in range(2, self.num_sites-1)]
-        last_array = sparse.reshape(mps.tensors[-2].data, (mps.tensors[-2].dimensions[0], mps.tensors[-2].dimensions[2]))
-        mps = MatrixProductState.from_arrays([first_array] + middle_arrays + [last_array])
+        zero_array = sparse.COO.from_numpy(np.array([1,0], dtype=complex).reshape(2,))
+        zero_tensor_top = Tensor(zero_array, ["P1"], ["ZERO"])
+        zero_tensor_bottom = Tensor(zero_array, [f"P{self.num_sites+2}"], ["ZERO"])
+        self.mps.add_tensor(zero_tensor_top)
+        self.mps.add_tensor(zero_tensor_bottom)
+        self.mps.contract_index("P1")
+        self.mps.contract_index(f"P{self.num_sites+2}")
+        self.mps.contract_index("B1")
+        self.mps.contract_index(f"B{self.num_sites+1}")
+        arrays = []
+        for idx in range(2, self.num_sites+2):
+            arrays.append(self.mps.get_tensors_from_index_name(f"P{idx}")[0].data)
+        mps = MatrixProductState.from_arrays(arrays)
+        mps.multiply_by_constant(2)
+
         return mps
     
     def remove_trivial_tensors_mpo(self, mpo : MatrixProductOperator) -> MatrixProductOperator:
         """
         Remove trivial tensors from MPS.
         """ 
-        first_array = sparse.reshape(mpo.tensors[1].data, (mpo.tensors[1].dimensions[1], mpo.tensors[1].dimensions[2], mpo.tensors[1].dimensions[3]))
-        middle_arrays = [mpo.tensors[i].data for i in range(2, self.num_sites-1)]
-        last_array = sparse.reshape(mpo.tensors[-2].data, (mpo.tensors[-2].dimensions[0], mpo.tensors[-2].dimensions[2], mpo.tensors[-2].dimensions[3]))
-        mpo = MatrixProductOperator.from_arrays([first_array] + middle_arrays + [last_array])
+        zero_array = sparse.COO.from_numpy(np.array([1,0], dtype=complex).reshape(2,))
+        zero_tensor_top_right = Tensor(zero_array, ["R1"], ["ZERO"])
+        zero_tensor_bottom_right = Tensor(zero_array, [f"R{self.num_sites+2}"], ["ZERO"])
+        zero_tensor_top_left = Tensor(zero_array, ["L1"], ["ZERO"])
+        zero_tensor_bottom_left = Tensor(zero_array, [f"L{self.num_sites+2}"], ["ZERO"])
+        self.mpo.add_tensor(zero_tensor_top_right)
+        self.mpo.add_tensor(zero_tensor_bottom_right)
+        self.mpo.add_tensor(zero_tensor_top_left)
+        self.mpo.add_tensor(zero_tensor_bottom_left)
+        self.mpo.contract_index("R1")
+        self.mpo.contract_index(f"R{self.num_sites+2}")
+        self.mpo.contract_index("L1")
+        self.mpo.contract_index(f"L{self.num_sites+2}")
+        self.mpo.contract_index("B1")
+        self.mpo.contract_index(f"B{self.num_sites+1}")
+        arrays = []
+        for idx in range(2, self.num_sites+2):
+            arrays.append(self.mpo.get_tensors_from_index_name(f"R{idx}")[0].data)
+        mpo = MatrixProductOperator.from_arrays(arrays)
+        mpo.multiply_by_constant(4)
+
         return mpo
     
     def construct_expectation_value_tn(self) -> TensorNetwork:
@@ -258,10 +286,18 @@ class QubitDMRG:
             The current groundstate energy estimate.
         """
         sites = list(range(2, self.num_sites+2))
-        if direction == "B": sites = sites[::-1]
+        if direction == "B":
+            sites = sites[::-1]
+            self.mps.move_orthogonality_centre(self.num_sites+1, 2) # First non-trivial site
+        else:
+            self.mps.move_orthogonality_centre(2, self.num_sites+1) # First non-trivial site
 
         for site in sites:
-            self.mps.move_orthogonality_centre(site)
+            if site != 2 and direction == "F":
+                self.mps.move_orthogonality_centre(site, site-1)
+            if site != self.num_sites and direction == "B":
+                self.mps.move_orthogonality_centre(site, site+1)
+
             original_dims = self.mps.tensors[site-1].dimensions
             env_tensor = self.get_environment_tensor(site)
             env_tensor.tensor_to_matrix(["u", "p", "d"], ["udag", "pdag", "ddag"])
@@ -293,8 +329,24 @@ class QubitDMRG:
         for _ in range(maxiter):
             e = self.sweep("F")
             e = self.sweep("B")
-        
-        energy = e.real / 4 # Trivial end tensors mean we overcount the energy by factor of 4
 
+        self.mps = self.remove_trivial_tensors_mps(self.mps)
+        self.mpo = self.remove_trivial_tensors_mpo(self.mpo)
+        tn = self.construct_expectation_value_tn()
+        energy = tn.contract_entire_network().real
+
+        assert np.isclose(energy, e.real)
+        
         return (energy, self.mps)
-    
+
+import os 
+import json
+
+cwd = os.getcwd()
+location = os.path.join(cwd, "../hamiltonians/HeH.json")
+with open(location, "r") as f:
+    ham = json.load(f)
+ham_dict = {k : float(v[0]) for k,v in ham.items()}
+dmrg = QubitDMRG(ham_dict, np.infty, 4) # Currently no MPO truncation is implemented so np.infty is fine
+energy, _ = dmrg.run(2)
+assert np.isclose(energy, -2.8625885726691855, atol=1.0)
