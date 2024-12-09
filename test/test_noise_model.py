@@ -3,6 +3,7 @@ from tn4qa.noise_model.device_characterisation import get_coupling_map, generate
 import pytest
 import json
 import numpy as np
+from collections import Counter
 
 nqubits = 20
 with open("test/data/qexa-calibration-data-2024-10-15.json", "r") as f:
@@ -46,12 +47,26 @@ def test_build_noise_data():
     return
 
 
+def test_match_coupling_noise_data():
+    coupling_map = get_coupling_map(nqubits, data)
+    noise_data = generate_noise_data(nqubits, data)
+    map_from_noise_data = []
+    for qubit, qubit_dict in noise_data.items():
+        for second_qubit in qubit_dict['gates_2q']:
+            assert [int(qubit), int(second_qubit)] in coupling_map, f"Couple of qubits ({qubit}, {second_qubit}) in noise_data but not in coupling_map."
+    for couple in coupling_map:
+        assert str(couple[0]) in noise_data, f"Qubit {couple[0]} in coupling_map but not in noise_data."
+        assert str(couple[1]) in noise_data[str(couple[0])]['gates_2q'], f"Couple of qubits ({couple[0],couple[1]}) in coupling_map but not noise_data"
+    
+    return
+
 
 
 
 if __name__ == "__main__":
     test_get_coupling_map()
     test_build_noise_data()
+    test_match_coupling_noise_data()
 
 
 
