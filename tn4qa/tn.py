@@ -14,8 +14,11 @@ from qiskit import QuantumCircuit
 from qiskit_aer.noise import NoiseModel
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 
+# Visualisation
+from .visualisation import draw_arbitrary_tn, draw_quantum_circuit
+
 class TensorNetwork:
-    def __init__(self, tensors : List[Tensor], name : str="TN") -> "TensorNetwork":
+    def __init__(self, tensors : List[Tensor], name : str="TN", count_from : int=1) -> "TensorNetwork":
         """
         Constructor for the TensorNetwork class.
         
@@ -27,7 +30,7 @@ class TensorNetwork:
             A tensor network.
         """
         self.name = name
-        i = 1
+        i = count_from
         for t in tensors:
             t.labels.append(f"TN_T{i}")
             i += 1
@@ -50,7 +53,7 @@ class TensorNetwork:
         Defines addition for tensor networks.
         """
         all_tensors = self.tensors + other.tensors 
-        tn = TensorNetwork(all_tensors)
+        tn = TensorNetwork(all_tensors, name=self.name)
         return tn
     
     @classmethod
@@ -105,7 +108,7 @@ class TensorNetwork:
             tensors.append(tensor)
             tensor_number += 1
         
-        tn = TensorNetwork(tensors)
+        tn = TensorNetwork(tensors, name="QuantumCircuit", count_from=1+num_qubits*(layer_number-1))
         return tn
 
     @classmethod
@@ -128,6 +131,7 @@ class TensorNetwork:
         for layer in all_layers[1:]:
             layer_as_circ = dag_to_circuit(layer['graph'])
             tn = tn + TensorNetwork.from_qiskit_layer(layer_as_circ, layer_number)
+            layer_number += 1
         return tn
 
     @classmethod
@@ -391,7 +395,7 @@ class TensorNetwork:
         
         return tensors
 
-    def add_tensor(self, tensor : Tensor, position : int=None) -> None:
+    def add_tensor(self, tensor : Tensor, position : int | None = None) -> None:
         """
         Add a tensor to the network.
         
@@ -479,7 +483,7 @@ class TensorNetwork:
             return new_indices[0]
         return new_indices
 
-    def combine_indices(self, idxs : List[str], new_index_name : str=None) -> None:
+    def combine_indices(self, idxs : List[str], new_index_name : str | None = None) -> None:
         """
         Combine two or more indices within the network. Only valid when all indices are between the same two tensors.
         
@@ -493,7 +497,7 @@ class TensorNetwork:
         self.indices = self.get_all_indices()
         return
     
-    def svd(self, tensor : Tensor, input_indices : List[str], output_indices : List[str], max_bond : int=None, new_index_name : str=None, new_labels : List[List[str]]=None) -> None:
+    def svd(self, tensor : Tensor, input_indices : List[str], output_indices : List[str], max_bond : int | None = None, new_index_name : str | None = None, new_labels : List[List[str]] | None = None) -> None:
         """
         Perform an SVD on a tensor.
         
@@ -555,3 +559,21 @@ class TensorNetwork:
         for index in internal_indices:
             self.compress_index(index, max_bond)
         return
+
+    def draw(self, node_size : int | None = None, x_len : int | None = None, y_len : int | None = None):
+        """
+        Visualise tensor network.
+
+        Args:
+            node_size: Size of nodes in figure (optional)
+            x_len: Figure width (optional)
+            y_len: Figure height (optional)
+        
+        Returns:
+            Displays plot.
+        """
+        if self.name == "QuantumCircuit":
+            draw_quantum_circuit(self, node_size, x_len, y_len)
+        
+        else:
+            draw_arbitrary_tn(self)

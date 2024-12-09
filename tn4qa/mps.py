@@ -13,6 +13,9 @@ from .mpo import MatrixProductOperator
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
 
+# Visualisation
+from .visualisation import draw_mps
+
 DataOptions : TypeAlias = Union[ndarray, SparseArray]
 
 class MatrixProductState(TensorNetwork):
@@ -457,3 +460,17 @@ class MatrixProductState(TensorNetwork):
         norm = self.compute_inner_product(self).real
         self.multiply_by_constant(np.sqrt(1/norm))
         return
+
+    def draw(self, node_size : int | None = None, x_len : int | None = None, y_len : int | None = None):
+        """
+        Visualise MPS.
+
+        Args:
+            node_size: Size of nodes in figure (optional)
+            x_len: Figure width (optional)
+            y_len: Figure height (optional)
+        
+        Returns:
+            Displays plot.
+        """
+        draw_mps(self, node_size, x_len, y_len)
