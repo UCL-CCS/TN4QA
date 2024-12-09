@@ -5,7 +5,7 @@ from networkx import DiGraph
 import numpy as np
 
 
-def build_graph_from_tensor_network(tn: "TensorNetwork") -> DiGraph:
+def build_graph_from_tensor_network(tn: "TensorNetwork") -> DiGraph: # type: ignore
     """
     Build a directed graph from the list of tensors and their indices.
 
@@ -42,7 +42,7 @@ def build_graph_from_tensor_network(tn: "TensorNetwork") -> DiGraph:
     return G
 
 
-def build_graph_from_MPO(mpo: "MatrixProductOperator") -> DiGraph:
+def build_graph_from_MPO(mpo: "MatrixProductOperator") -> DiGraph: # type: ignore
     """
     Build a directed graph from the list of tensors and their indices.
 
@@ -71,7 +71,7 @@ def build_graph_from_MPO(mpo: "MatrixProductOperator") -> DiGraph:
     return G
 
 
-def build_graph_from_MPS(mps: "MatrixProductState") -> DiGraph:
+def build_graph_from_MPS(mps: "MatrixProductState") -> DiGraph: # type: ignore
     """
     Build a directed graph from the list of tensors and their indices.
 
@@ -102,7 +102,7 @@ def build_graph_from_MPS(mps: "MatrixProductState") -> DiGraph:
 
 
 def draw_quantum_circuit(
-    qc_tn: "TensorNetwork",
+    qc_tn: "TensorNetwork", # type: ignore
     node_size: int | None = None,
     x_len: int | None = None,
     y_len: int | None = None,
@@ -186,7 +186,7 @@ def draw_quantum_circuit(
 
 
 def draw_mpo(
-    mpo: "MatrixProductOperator",
+    mpo: "MatrixProductOperator", # type: ignore
     node_size: int | None = None,
     x_len: int | None = None,
     y_len: int | None = None,
@@ -258,7 +258,7 @@ def draw_mpo(
 
 
 def draw_mps(
-    mps: "MatrixProcuctState",
+    mps: "MatrixProcuctState", # type: ignore
     node_size: int | None = None,
     x_len: int | None = None,
     y_len: int | None = None,
@@ -328,7 +328,7 @@ def draw_mps(
 
 
 def draw_arbitrary_tn(
-    tn: "TensorNetwork",
+    tn: "TensorNetwork", # type: ignore
     node_size: int | None = None,
     x_len: int | None = None,
     y_len: int | None = None,
