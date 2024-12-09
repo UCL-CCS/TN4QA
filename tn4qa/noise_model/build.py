@@ -1,5 +1,6 @@
 from collections import defaultdict
 from typing import Any
+import logging
 import numpy as np
 from qiskit_aer.noise import (
     NoiseModel,
@@ -7,7 +8,10 @@ from qiskit_aer.noise import (
     depolarizing_error,
     thermal_relaxation_error,
 )
-from device_characterisation import get_coupling_map, generate_noise_data
+from tn4qa.noise_model.device_characterisation import get_coupling_map, generate_noise_data
+
+logger = logging.getLogger(__name__)
+
 
 def _add_readout_noise(
     num_qubits: int,
