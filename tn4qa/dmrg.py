@@ -1,8 +1,8 @@
 from typing import Tuple 
-from tn4qa.mps import MatrixProductState
-from tn4qa.mpo import MatrixProductOperator
-from tn4qa.tensor import Tensor
-from tn4qa.tn import TensorNetwork
+from .mps import MatrixProductState
+from .mpo import MatrixProductOperator
+from .tensor import Tensor
+from .tn import TensorNetwork
 from pyblock2.driver.core import DMRGDriver, SymmetryTypes
 from pyblock2._pyscf.ao2mo import integrals as itg
 import psutil
@@ -338,15 +338,3 @@ class QubitDMRG:
         assert np.isclose(energy, e.real)
         
         return (energy, self.mps)
-
-import os 
-import json
-
-cwd = os.getcwd()
-location = os.path.join(cwd, "../hamiltonians/HeH.json")
-with open(location, "r") as f:
-    ham = json.load(f)
-ham_dict = {k : float(v[0]) for k,v in ham.items()}
-dmrg = QubitDMRG(ham_dict, np.infty, 4) # Currently no MPO truncation is implemented so np.infty is fine
-energy, _ = dmrg.run(2)
-assert np.isclose(energy, -2.8625885726691855, atol=1.0)
