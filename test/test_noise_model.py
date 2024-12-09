@@ -1,5 +1,5 @@
 from tn4qa.noise_model.device_characterisation import get_coupling_map, generate_noise_data
-from tn4qa.noise_model.build import build_noise_inversion_channels
+from tn4qa.noise_model.build import build_noise_inversion_channels, get_noise_model
 
 import pytest
 import json
@@ -11,6 +11,7 @@ nqubits = 20
 with open("test/data/qexa-calibration-data-2024-10-15.json", "r") as f:
     data = json.load(f)
 gate_duration_ns_1q = 20
+basis_gates = ["cz", "id", "r"]
 
 
 def test_get_coupling_map():
@@ -104,11 +105,25 @@ def test_build_noise_inversion_channels():
     
     return
 
+
+def test_noise_model():
+    noise_model = get_noise_model(nqubits, basis_gates, data)
+    assert set(noise_model.basis_gates) == set(basis_gates), "Basis gates set must correspond to the one given in input."
+    assert set(noise_model.noise_instructions) == set(basis_gates + ["measure"]), "Instructions with noise are all the basis set gates + measurement."
+    assert noise_model.noise_qubits == [i for i in range(nqubits)], f"All qubits from 0 to {nqubits} must be regarded as noisy."
+    #print(noise_model)
+
+
+
+
+
+
 if __name__ == "__main__":
     test_get_coupling_map()
     test_build_noise_data()
     test_match_coupling_noise_data()
     test_build_noise_inversion_channels()
+    test_noise_model()
 
 
 
