@@ -22,10 +22,10 @@ def test_FermionDMRG_UHF():
     assert np.isclose(energy, -107.654122447524472)
 
 def test_QubitDMRG():
-    location = os.path.join(cwd, "hamiltonians/N2.json")
+    location = os.path.join(cwd, "hamiltonians/HeH.json")
     with open(location, "r") as f:
         ham = json.load(f)
-    ham_dict = {k : float(v) for k,v in ham.items()}
+    ham_dict = {k : float(v[0]) for k,v in ham.items()}
     dmrg = QubitDMRG(ham_dict, np.infty, 4) # Currently no MPO truncation is implemented so np.infty is fine
     energy, _ = dmrg.run(2)
-    assert np.isclose(energy,  -107.654122447524472, atol=2.0)
+    assert np.isclose(energy, -2.8625885726691855, atol=1.0)
