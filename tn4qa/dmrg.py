@@ -110,7 +110,8 @@ class QubitDMRG:
     def __init__(self, 
                  hamiltonian : dict[str, complex],
                  max_mpo_bond : int,
-                 max_mps_bond : int
+                 max_mps_bond : int,
+                 method : str = "one-site",
                  ) -> "QubitDMRG":
         """
         Constructor for the QubitDMRG class.
@@ -119,6 +120,7 @@ class QubitDMRG:
             hamiltonian: A dict of the form {pauli_string : weight}.
             max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             max_mps_bond: The maximum bond to use for MPS during DMRG.
+            method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "two-site".
         
         Returns:
             The QubitDMRG object.
@@ -133,6 +135,7 @@ class QubitDMRG:
         self.right_block_cache = []
         self.left_block, self.right_block = self.initialise_blocks()
         self.energy = np.infty
+        self.method = method
 
         return
     
@@ -234,7 +237,7 @@ class QubitDMRG:
 
         return mpo
     
-    def get_perturbation_term(self, site : int, sweep_direction : str) -> Tensor:
+    def get_perturbation_term(self, sweep_direction : str) -> SparseArray:
         """
         Get the perturbation term required to escape local minima.
         
@@ -245,10 +248,11 @@ class QubitDMRG:
         Returns:
             The perturbation term.
         """
+        site = len(self.left_block_cache)+1
         if sweep_direction == "F":
             left_block_array = copy.deepcopy(self.left_block.data) # Indices ["Ldag", "Lham", "Lmps"]
-            site_array = copy.deepcopy(self.mps.tensors[site+1].data) # Indices ["B_i", "B_i+1", "P_i+1"]
-            ham_array = copy.deepcopy(self.mpo.tensors[site+1].data) # Indices ["B_i", "B_i+1", "R_i+1", "L_i+1"]
+            site_array = copy.deepcopy(self.mps.tensors[site].data) # Indices ["B_i", "B_i+1", "P_i+1"]
+            ham_array = copy.deepcopy(self.mpo.tensors[site].data) # Indices ["B_i", "B_i+1", "R_i+1", "L_i+1"]
             
             left_block_tensor = Tensor(left_block_array, ["Ldag", "TEMP1", "TEMP2"], ["LEFTBLOCK"])
             site_tensor = Tensor(site_array, ["TEMP2", "B1", "P1"], ["SITE"])
@@ -261,8 +265,8 @@ class QubitDMRG:
 
         else:
             right_block_array = copy.deepcopy(self.right_block.data) # Indices ["Rdag", "Rham", "Rmps"]
-            site_array = copy.deepcopy(self.mps.tensors[site+1].data) # Indices ["B_i", "B_i+1", "P_i+1"]
-            ham_array = copy.deepcopy(self.mpo.tensors[site+1].data) # Indices ["B_i", "B_i+1", "R_i+1", "L_i+1"]
+            site_array = copy.deepcopy(self.mps.tensors[site].data) # Indices ["B_i", "B_i+1", "P_i+1"]
+            ham_array = copy.deepcopy(self.mpo.tensors[site].data) # Indices ["B_i", "B_i+1", "R_i+1", "L_i+1"]
             
             right_block_tensor = Tensor(right_block_array, ["Rdag", "TEMP1", "TEMP2"], ["RIGHTBLOCK"])
             site_tensor = Tensor(site_array, ["B1", "TEMP2", "P1"], ["SITE"])
@@ -271,9 +275,9 @@ class QubitDMRG:
             tn = TensorNetwork([right_block_tensor, site_tensor, ham_tensor], name="PERTURBATION")
             perturbation = tn.contract_entire_network()
             perturbation.combine_indices(["B1", "B2"], "B")
-            perturbation.reorder_indices(["P", "Ldag", "B"])
+            perturbation.reorder_indices(["P", "B", "Rdag"])
     
-        return perturbation
+        return perturbation.data
     
     def initialise_left_block(self) -> Tensor:
         """
@@ -433,13 +437,99 @@ class QubitDMRG:
 
         return 
     
-    def perturb_local_tensor(self):
+    def perturb_left_sweep(self) -> None:
         """
-        Perturb the local tensor to escape local minima.
+        Perturb the local tensor during a left sweep to escape local minima.
         """
+        current_site = len(self.left_block_cache)+1
+        perturbation = self.get_perturbation_term("F")
+
+        local_tensor = self.mps.tensors[current_site]
+        original_indices = local_tensor.indices 
+        original_labels = local_tensor.labels
+        local_tensor.reorder_indices([f"P{current_site+1}", f"B{current_site}", f"B{current_site+1}"])
+        new_data = sparse.concatenate([local_tensor.data, perturbation], axis=2)
+        new_data = sparse.moveaxis(new_data, [0,1,2], [2,0,1])
+        new_local_tensor = Tensor(new_data, original_indices, original_labels)
+
+        next_tensor = self.mps.tensors[current_site+1]
+        next_indices = next_tensor.indices 
+        next_labels = next_tensor.labels
+        next_tensor.reorder_indices([f"P{current_site+2}", f"B{current_site+1}", f"B{current_site+2}"])
+        zeros = sparse.COO.from_numpy(np.zeros((next_tensor.dimensions[0], perturbation.shape[2], next_tensor.dimensions[2]), dtype=complex))
+        new_next_data = sparse.concatenate([next_tensor.data, zeros], axis=1)
+        new_next_data = sparse.moveaxis(new_next_data, [0,1,2], [2,0,1])
+        new_next_tensor = Tensor(new_next_data, next_indices, next_labels)
+
+        self.mps.pop_tensors_by_label(original_labels)
+        self.mps.add_tensor(new_local_tensor, current_site)
+        self.mps.pop_tensors_by_label(next_labels)
+        self.mps.add_tensor(new_next_tensor, current_site+1)
+
         return
     
-    def sweep_left(self):
+    def perturb_right_sweep(self) -> None:
+        """
+        Perturb the local tensor during a right sweep to escape local minima.
+        """
+        current_site = len(self.left_block_cache)+1
+        perturbation = self.get_perturbation_term("B")
+
+        local_tensor = self.mps.tensors[current_site]
+        original_indices = local_tensor.indices 
+        original_labels = local_tensor.labels
+        local_tensor.reorder_indices([f"P{current_site+1}", f"B{current_site}", f"B{current_site+1}"])
+        new_data = sparse.concatenate([local_tensor.data, perturbation], axis=1)
+        new_data = sparse.moveaxis(new_data, [0,1,2], [2,0,1])
+        new_local_tensor = Tensor(new_data, original_indices, original_labels)
+
+        next_tensor = self.mps.tensors[current_site-1]
+        next_indices = next_tensor.indices 
+        next_labels = next_tensor.labels
+        next_tensor.reorder_indices([f"P{current_site}", f"B{current_site-1}", f"B{current_site}"])
+        zeros = sparse.COO.from_numpy(np.zeros((next_tensor.dimensions[0], next_tensor.dimensions[1], perturbation.shape[1]), dtype=complex))
+        new_next_data = sparse.concatenate([next_tensor.data, zeros], axis=2)
+        new_next_data = sparse.moveaxis(new_next_data, [0,1,2], [2,0,1])
+        new_next_tensor = Tensor(new_next_data, next_indices, next_labels)
+
+        self.mps.pop_tensors_by_label(original_labels)
+        self.mps.add_tensor(new_local_tensor, current_site)
+        self.mps.pop_tensors_by_label(next_labels)
+        self.mps.add_tensor(new_next_tensor, current_site-1)
+
+        return
+    
+    def sweep_left_subspace_expansion(self):
+        """
+        Perform a left sweep.
+        """
+        sites = list(range(1, self.num_sites+1))
+        for site in sites:
+            self.optimise_local_tensor()
+            if site != self.num_sites:
+                self.perturb_left_sweep()
+            max_bond = 1 if site == 1 else self.max_mps_bond
+            self.mps.compress_index(f"B{site}", max_bond)
+            if site != self.num_sites:
+                self.update_blocks_left_sweep()
+        return 
+    
+    def sweep_right_subspace_expansion(self):
+        """
+        Perform a right sweep.
+        """
+        sites = list(range(1, self.num_sites+1))[::-1]
+        for site in sites:
+            self.optimise_local_tensor()
+            if site != 1:
+                self.perturb_right_sweep()
+            max_bond = 1 if site == self.num_sites else self.max_mps_bond
+            self.mps.compress_index(f"B{site+1}", max_bond)
+            if site != 1:
+                self.update_blocks_right_sweep()
+        return 
+    
+    def sweep_left_one_site(self):
         """
         Perform a left sweep.
         """
@@ -450,7 +540,29 @@ class QubitDMRG:
                 self.update_blocks_left_sweep()
         return 
     
-    def sweep_right(self):
+    def sweep_right_one_site(self):
+        """
+        Perform a right sweep.
+        """
+        sites = list(range(1, self.num_sites+1))[::-1]
+        for site in sites:
+            self.optimise_local_tensor()
+            if site != 1:
+                self.update_blocks_right_sweep()
+        return 
+    
+    def sweep_left_two_site(self):
+        """
+        Perform a left sweep.
+        """
+        sites = list(range(1, self.num_sites+1))
+        for site in sites:
+            self.optimise_local_tensor()
+            if site != self.num_sites:
+                self.update_blocks_left_sweep()
+        return 
+    
+    def sweep_right_two_site(self):
         """
         Perform a right sweep.
         """
@@ -472,9 +584,18 @@ class QubitDMRG:
         Returns:
             A tuple of the DMRG energy and the DMRG state.
         """
-        for _ in range(maxiter):
-            self.sweep_left()
-            self.sweep_right()
+        if self.method == "subspace-expansion":
+            for _ in range(maxiter):
+                self.sweep_left_subspace_expansion()
+                self.sweep_right_subspace_expansion()
+        elif self.method == "one-site":
+            for _ in range(maxiter):
+                self.sweep_left_one_site()
+                self.sweep_right_one_site() 
+        elif self.method == "two-site":
+            for _ in range(maxiter):
+                self.sweep_left_two_site()
+                self.sweep_right_two_site() 
 
         self.mps = self.remove_trivial_tensors_mps(self.mps)
         self.mpo = self.remove_trivial_tensors_mpo(self.mpo)

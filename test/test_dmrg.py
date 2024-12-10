@@ -68,5 +68,5 @@ def test_timings():
 
     dict = {"HeH" : {"Time" : times[0], "Energy" : energies[0]}, "LiH" : {"Time" : times[1], "Energy" : energies[1]}, "N2" : {"Time" : times[2], "Energy" : energies[2]}}
 
-    with open("better_strategy_1.json", "w") as f:
+    with open("one_site_method.json", "w") as f:
         json.dump(dict, f)
