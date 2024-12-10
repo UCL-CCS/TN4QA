@@ -10,6 +10,7 @@ import block2
 from pyscf import scf
 from scipy.sparse.linalg import eigs 
 import sparse
+from sparse import SparseArray
 import copy
 import numpy as np
 
@@ -128,6 +129,10 @@ class QubitDMRG:
         self.max_mps_bond = max_mps_bond
         self.mps = self.set_initial_state()
         self.mpo = self.set_hamiltonian_mpo()
+        self.left_block_cache = []
+        self.right_block_cache = []
+        self.left_block, self.right_block = self.initialise_blocks()
+        self.energy = np.infty
 
         return
     
@@ -229,91 +234,232 @@ class QubitDMRG:
 
         return mpo
     
-    def construct_expectation_value_tn(self) -> TensorNetwork:
+    def get_perturbation_term(self, site : int, sweep_direction : str) -> Tensor:
         """
-        Construct <mps | mpo | mps>.
-        """
-        mps = copy.deepcopy(self.mps)
-        mps_dag = copy.deepcopy(self.mps)
-        mps_dag.dagger()
-        mpo = copy.deepcopy(self.mpo)
-
-        num_sites = len(mps.tensors)
-
-        mps.tensors[0].indices = ["b1", "p1"]
-        mps_dag.tensors[0].indices = ["bdag1", "pdag1"]
-        mpo.tensors[0].indices = ["hb1", "p1", "pdag1"]
-
-        for idx in range(1, num_sites-1):
-            mps.tensors[idx].indices = [f"b{idx}", f"b{idx+1}", f"p{idx+1}"]
-            mps_dag.tensors[idx].indices = [f"bdag{idx}", f"bdag{idx+1}", f"pdag{idx+1}"]
-            mpo.tensors[idx].indices = [f"hb{idx}", f"hb{idx+1}", f"p{idx+1}", f"pdag{idx+1}"]
-
-        mps.tensors[-1].indices = [f"b{num_sites-1}", f"p{num_sites}"]
-        mps_dag.tensors[-1].indices = [f"bdag{num_sites-1}", f"pdag{num_sites}"]
-        mpo.tensors[-1].indices = [f"hb{num_sites-1}", f"p{num_sites}", f"pdag{num_sites}"]
-
-        all_tensors = mps.tensors + mps_dag.tensors + mpo.tensors 
-        tn = TensorNetwork(all_tensors)
-        return tn
-    
-    def get_environment_tensor(self, site_idx : int) -> Tensor:
-        """
-        Return the environment matrix of the Hamiltonian at given site.
+        Get the perturbation term required to escape local minima.
         
         Args:
-            site_idx: The site index.
-        
+            site: The site index for the perturbation term.
+            sweep_direction: Either "F" or "B".
+            
         Returns:
-            A Tensor object with indices [udag, pdag, ddag, u, p, d]
+            The perturbation term.
         """
-        tn = self.construct_expectation_value_tn()
-        tn.pop_tensors_by_label([f"MPS_T{site_idx}"])
-        env_tensor = tn.contract_entire_network()
-        env_tensor.reorder_indices([f"bdag{site_idx-1}", f"pdag{site_idx}", f"bdag{site_idx}", f"b{site_idx-1}", f"p{site_idx}", f"b{site_idx}"])
-        env_tensor.indices = ["udag", "pdag", "ddag", "u", "p", "d"]
+        if sweep_direction == "F":
+            left_block_array = copy.deepcopy(self.left_block.data) # Indices ["Ldag", "Lham", "Lmps"]
+            site_array = copy.deepcopy(self.mps.tensors[site+1].data) # Indices ["B_i", "B_i+1", "P_i+1"]
+            ham_array = copy.deepcopy(self.mpo.tensors[site+1].data) # Indices ["B_i", "B_i+1", "R_i+1", "L_i+1"]
+            
+            left_block_tensor = Tensor(left_block_array, ["Ldag", "TEMP1", "TEMP2"], ["LEFTBLOCK"])
+            site_tensor = Tensor(site_array, ["TEMP2", "B1", "P1"], ["SITE"])
+            ham_tensor = Tensor(ham_array, ["TEMP1", "B2", "P", "P1"], ["HAM"])
 
-        return env_tensor
+            tn = TensorNetwork([left_block_tensor, site_tensor, ham_tensor], name="PERTURBATION")
+            perturbation = tn.contract_entire_network()
+            perturbation.combine_indices(["B1", "B2"], "B")
+            perturbation.reorder_indices(["P", "Ldag", "B"])
+
+        else:
+            right_block_array = copy.deepcopy(self.right_block.data) # Indices ["Rdag", "Rham", "Rmps"]
+            site_array = copy.deepcopy(self.mps.tensors[site+1].data) # Indices ["B_i", "B_i+1", "P_i+1"]
+            ham_array = copy.deepcopy(self.mpo.tensors[site+1].data) # Indices ["B_i", "B_i+1", "R_i+1", "L_i+1"]
+            
+            right_block_tensor = Tensor(right_block_array, ["Rdag", "TEMP1", "TEMP2"], ["RIGHTBLOCK"])
+            site_tensor = Tensor(site_array, ["B1", "TEMP2", "P1"], ["SITE"])
+            ham_tensor = Tensor(ham_array, ["B2", "TEMP1", "P", "P1"], ["HAM"])
+
+            tn = TensorNetwork([right_block_tensor, site_tensor, ham_tensor], name="PERTURBATION")
+            perturbation = tn.contract_entire_network()
+            perturbation.combine_indices(["B1", "B2"], "B")
+            perturbation.reorder_indices(["P", "Ldag", "B"])
     
-    def sweep(self, direction : str) -> float:
+        return perturbation
+    
+    def initialise_left_block(self) -> Tensor:
         """
-        Perform one DMRG sweep.
+        Initialise the left block of the DMRG routine.
+        """
+        dag = copy.deepcopy(self.mps.tensors[0].data.conj()) 
+        ham = copy.deepcopy(self.mpo.tensors[0].data)
+        mps = copy.deepcopy(self.mps.tensors[0].data)
+
+        dag_tensor = Tensor(dag, ["Ldag", "TEMP1"], ["DAG"])
+        ham_tensor = Tensor(ham, ["Lham", "TEMP1", "TEMP2"], ["HAM"])
+        mps_tensor = Tensor(mps, ["Lmps", "TEMP2"], ["MPS"])
+
+        tn = TensorNetwork([dag_tensor, ham_tensor, mps_tensor])
+        left_block = tn.contract_entire_network()
+        left_block.reorder_indices(["Ldag", "Lham", "Lmps"])
+        left_block.labels.append("LEFT_OF_SITE_1")
+
+        return left_block
+    
+    def initialise_blocks(self) -> Tuple[Tensor]:
+        """
+        Initialise the left and right blocks of the DMRG routine.
+        """
+        # Set up the rightmost block
+        dag = copy.deepcopy(self.mps.tensors[-1].data.conj()) 
+        ham = copy.deepcopy(self.mpo.tensors[-1].data)
+        mps = copy.deepcopy(self.mps.tensors[-1].data)
+        dag_tensor = Tensor(dag, ["Rdag", "TEMP1"], ["DAG"])
+        ham_tensor = Tensor(ham, ["Rham", "TEMP1", "TEMP2"], ["HAM"])
+        mps_tensor = Tensor(mps, ["Rmps", "TEMP2"], ["MPS"])
+        tn = TensorNetwork([dag_tensor, ham_tensor, mps_tensor])
+        right_block = tn.contract_entire_network()
+        right_block.reorder_indices(["Rdag", "Rham", "Rmps"])
+        right_block.labels.append(f"RIGHT_OF_SITE_{self.num_sites}")
+        self.right_block_cache.append(right_block)
+        
+        for i in list(range(2, self.num_sites+1))[::-1]:
+            self.mps.move_orthogonality_centre(i, i+1)
+            dag = copy.deepcopy(self.mps.tensors[i].data.conj())
+            ham = copy.deepcopy(self.mpo.tensors[i].data)
+            mps = copy.deepcopy(self.mps.tensors[i].data)
+            temp_right_block = copy.deepcopy(right_block)
+            temp_right_block.indices = ["TEMP1", "TEMP3", "TEMP5"]
+            dag_tensor = Tensor(dag, ["Rdag", "TEMP1", "TEMP2"], ["DAG"])
+            ham_tensor = Tensor(ham, ["Rham", "TEMP3", "TEMP2", "TEMP4"], ["HAM"])
+            mps_tensor = Tensor(mps, ["Rmps", "TEMP5", "TEMP4"], ["MPS"])
+            tn = TensorNetwork([temp_right_block, dag_tensor, ham_tensor, mps_tensor])
+            right_block = tn.contract_entire_network()
+            right_block.reorder_indices(["Rdag", "Rham", "Rmps"])
+            right_block.labels.append(f"RIGHT_OF_SITE_{i-1}")
+            self.right_block_cache.append(right_block)
+
+        left_block = self.initialise_left_block()
+        self.right_block_cache.pop()
+
+        return left_block, right_block
+    
+    def update_blocks_left_sweep(self) -> None:
+        """
+        Update the blocks after each local optimisation.
+        """
+        current_site = len(self.left_block_cache)+1
+        self.left_block_cache.append(self.left_block)
+        self.mps.move_orthogonality_centre(current_site+2, current_site+1)
+        left_block = copy.deepcopy(self.left_block)
+
+        mps = copy.deepcopy(self.mps.tensors[current_site].data)
+        ham = copy.deepcopy(self.mpo.tensors[current_site].data)
+        dag = copy.deepcopy(self.mps.tensors[current_site].data.conj())
+
+        left_block.indices = ["TEMP1", "TEMP2", "TEMP3"]
+        mps_tensor = Tensor(mps, ["TEMP3", "Lmps", "TEMP5"], ["MPS"])
+        ham_tensor = Tensor(ham, ["TEMP2", "Lham", "TEMP4", "TEMP5"], ["HAM"])
+        dag_tensor = Tensor(dag, ["TEMP1", "Ldag", "TEMP4"], ["DAG"])
+
+        tn = TensorNetwork([left_block, mps_tensor, ham_tensor, dag_tensor])
+        self.left_block = tn.contract_entire_network()
+        self.left_block.reorder_indices(["Ldag", "Lham", "Lmps"])
+        self.left_block.labels.append(f"LEFT_OF_SITE_{current_site+1}")
+
+        self.right_block = copy.deepcopy(self.right_block_cache[-1])
+        self.right_block_cache.pop()
+
+        return
+    
+    def update_blocks_right_sweep(self) -> None:
+        """
+        Update the blocks after each local optimisation.
+        """
+        current_site = self.num_sites-len(self.right_block_cache)
+        self.right_block_cache.append(self.right_block)
+        self.mps.move_orthogonality_centre(current_site, current_site+1)
+        right_block = copy.deepcopy(self.right_block)
+
+        mps = copy.deepcopy(self.mps.tensors[current_site].data)
+        ham = copy.deepcopy(self.mpo.tensors[current_site].data)
+        dag = copy.deepcopy(self.mps.tensors[current_site].data.conj())
+
+        right_block.indices = ["TEMP1", "TEMP2", "TEMP3"]
+        mps_tensor = Tensor(mps, ["Rmps", "TEMP3", "TEMP5"], ["MPS"])
+        ham_tensor = Tensor(ham, ["Rham", "TEMP2", "TEMP4", "TEMP5"], ["HAM"])
+        dag_tensor = Tensor(dag, ["Rdag", "TEMP1", "TEMP4"], ["DAG"])
+
+        tn = TensorNetwork([right_block, mps_tensor, ham_tensor, dag_tensor])
+        self.right_block = tn.contract_entire_network()
+        self.right_block.reorder_indices(["Rdag", "Rham", "Rmps"])
+        self.right_block.labels.append(f"RIGHT_OF_SITE_{current_site-1}")
+
+        self.left_block = copy.deepcopy(self.left_block_cache[-1])
+        self.left_block_cache.pop()
+
+        return
+    
+    def construct_effective_matrix(self) -> SparseArray:
+        """
+        Construct the effective matrix for a step of DMRG.
+        """
+        left_block = copy.deepcopy(self.left_block)
+        right_block = copy.deepcopy(self.right_block)
+        current_site = len(self.left_block_cache)+1
+        ham = copy.deepcopy(self.mpo.tensors[current_site].data)
+        ham_tensor = Tensor(ham, ["Lham", "Rham", "pdag", "p"], ["HAM"])
+
+        tn = TensorNetwork([ham_tensor, right_block, left_block])
+        tensor = tn.contract_entire_network()
+        tensor.reorder_indices(["Ldag", "pdag", "Rdag", "Lmps", "p", "Rmps"])
+        tensor.indices = ["udag", "pdag", "ddag", "u", "p", "d"]
+
+        tensor.tensor_to_matrix(["u", "p", "d"], ["udag", "pdag", "ddag"])
+
+        return tensor.data
+
+    def optimise_local_tensor(self) -> None:
+        """
+        Optimise the local tensor at the current site.
         
         Args:
-            direction: Either "F" (forward) or "B" (backward)
-
-        Return:
-            The current groundstate energy estimate.
+            site: The site index.
         """
-        sites = list(range(2, self.num_sites+2))
-        if direction == "B":
-            sites = sites[::-1]
-            self.mps.move_orthogonality_centre(self.num_sites+1, 2) # First non-trivial site
-        else:
-            self.mps.move_orthogonality_centre(2, self.num_sites+1) # First non-trivial site
+        site = len(self.left_block_cache)+1
+        original_dims = self.mps.tensors[site].dimensions
+        effective_matrix = self.construct_effective_matrix()
+        w, v = eigs(effective_matrix, k=1, which="SR")
+        eigval = w[0]
+        eigvec = sparse.COO.from_numpy(v[:, 0]) # This is the new optimal value at site i
+        new_data = sparse.reshape(eigvec, (original_dims[0], original_dims[2], original_dims[1]))
+        new_data = sparse.moveaxis(new_data, [0,1,2], [0,2,1])
 
+        original_indices = self.mps.tensors[site].indices
+        original_labels = self.mps.tensors[site].labels
+        self.mps.pop_tensors_by_label(original_labels)
+        new_t = Tensor(new_data, original_indices, original_labels)
+        self.mps.add_tensor(new_t, site)
+
+        self.energy = eigval.real
+
+        return 
+    
+    def perturb_local_tensor(self):
+        """
+        Perturb the local tensor to escape local minima.
+        """
+        return
+    
+    def sweep_left(self):
+        """
+        Perform a left sweep.
+        """
+        sites = list(range(1, self.num_sites+1))
         for site in sites:
-            if site != 2 and direction == "F":
-                self.mps.move_orthogonality_centre(site, site-1)
-            if site != self.num_sites and direction == "B":
-                self.mps.move_orthogonality_centre(site, site+1)
-
-            original_dims = self.mps.tensors[site-1].dimensions
-            env_tensor = self.get_environment_tensor(site)
-            env_tensor.tensor_to_matrix(["u", "p", "d"], ["udag", "pdag", "ddag"])
-            w, v = eigs(env_tensor.data, k=1, which="SR")
-            eigval = w[0]
-            eigvec = sparse.COO.from_numpy(v[:, 0]) # This is the new optimal value at site i
-            new_data = sparse.reshape(eigvec, (original_dims[0], original_dims[2], original_dims[1]))
-            new_data = sparse.moveaxis(new_data, [0,1,2], [0,2,1])
-
-            original_indices = self.mps.tensors[site-1].indices
-            original_labels = self.mps.tensors[site-1].labels
-            self.mps.pop_tensors_by_label(original_labels)
-            new_t = Tensor(new_data, original_indices, original_labels)
-            self.mps.add_tensor(new_t, site-1)
-        
-        return eigval
+            self.optimise_local_tensor()
+            if site != self.num_sites:
+                self.update_blocks_left_sweep()
+        return 
+    
+    def sweep_right(self):
+        """
+        Perform a right sweep.
+        """
+        sites = list(range(1, self.num_sites+1))[::-1]
+        for site in sites:
+            self.optimise_local_tensor()
+            if site != 1:
+                self.update_blocks_right_sweep()
+        return 
 
     def run(self, maxiter : int) -> Tuple[float, MatrixProductState]:
         """
@@ -327,14 +473,10 @@ class QubitDMRG:
             A tuple of the DMRG energy and the DMRG state.
         """
         for _ in range(maxiter):
-            e = self.sweep("F")
-            e = self.sweep("B")
+            self.sweep_left()
+            self.sweep_right()
 
         self.mps = self.remove_trivial_tensors_mps(self.mps)
         self.mpo = self.remove_trivial_tensors_mpo(self.mpo)
-        tn = self.construct_expectation_value_tn()
-        energy = tn.contract_entire_network().real
-
-        assert np.isclose(energy, e.real)
         
-        return (energy, self.mps)
+        return (self.energy, self.mps)
