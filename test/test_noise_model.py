@@ -11,7 +11,9 @@ nqubits = 20
 with open("test/data/qexa-calibration-data-2024-10-15.json", "r") as f:
     data = json.load(f)
 gate_duration_ns_1q = 20
-basis_gates = ["cz", "id", "r"]
+basis_gates_1q = ["id", "r"]
+basis_gates_2q = ["cz"]
+basis_gates = basis_gates_1q + basis_gates_2q
 
 
 def test_get_coupling_map():
@@ -108,11 +110,23 @@ def test_build_noise_inversion_channels():
 
 def test_noise_model():
     noise_model = get_noise_model(nqubits, basis_gates, data)
+    coupling_map = get_coupling_map(nqubits, data)
     assert set(noise_model.basis_gates) == set(basis_gates), "Basis gates set must correspond to the one given in input."
     assert set(noise_model.noise_instructions) == set(basis_gates + ["measure"]), "Instructions with noise are all the basis set gates + measurement."
     assert noise_model.noise_qubits == [i for i in range(nqubits)], f"All qubits from 0 to {nqubits} must be regarded as noisy."
-    #print(noise_model)
-
+    noise_model_dict = noise_model.to_dict()
+    noise_qubits_list = noise_model.to_dict()["errors"]
+    # FIXME: we don't always have coherent error on 'r'!
+    # TODO: Test should be generalized to different basis gates for different devices
+    assert isinstance(noise_qubits_list, list) and len(noise_qubits_list) == nqubits*3+len(coupling_map), "Noise model should have one dict for every qubit and every error 1-qubit error, for every couple of interacting qubit and for every measurement."
+    for i, error_dict in enumerate(noise_qubits_list):
+        #print([noise_qubits_list[i]["operations"] == [gate] for gate in basis_gates])
+        assert any([noise_qubits_list[i]["operations"] == [gate] for gate in basis_gates + ["measure"]]), "Error model for a gate not present in the basis gates list (+ measurement)."
+        if len(noise_qubits_list[i]["gate_qubits"][0]) == 1:
+            assert 0 <= noise_qubits_list[i]["gate_qubits"][0][0] < nqubits, "Qubit number out of range."
+        else:
+            assert list(noise_qubits_list[i]["gate_qubits"][0]) in coupling_map, "Couple of qubits not connected on the device."
+        
 
 
 
