@@ -76,6 +76,8 @@ def _add_coherent_noise(
             continue
         coherent_error_1q = depolarizing_error(p_coherent_error_1q, 1)
         if isinstance(target, NoiseModel):
+            # NOTE: Qiskit returns a warning message since 'r' already has 
+            # an error (thermal relaxation)
             target.add_quantum_error(coherent_error_1q, ["r"], [qidx])
         else:
             coherent_error_1q_mat = coherent_error_1q.to_quantumchannel().data
@@ -114,7 +116,6 @@ def _add_two_qubit_noise(
         logger.debug("q%dq%d", q1, q2)
         error_rate = noise_data[str(q1)]["gates_2q"][str(q2)]
         coherent_error_2q = depolarizing_error(error_rate, 2)
-
         if isinstance(target, NoiseModel):
             target.add_quantum_error(coherent_error_2q, ["cz"], [q1, q2])
         else:
