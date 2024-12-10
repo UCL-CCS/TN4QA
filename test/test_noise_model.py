@@ -127,17 +127,7 @@ def test_noise_model():
         else:
             assert list(noise_qubits_list[i]["gate_qubits"][0]) in coupling_map, "Couple of qubits not connected on the device."
         
-
-
-
-
-
-if __name__ == "__main__":
-    test_get_coupling_map()
-    test_build_noise_data()
-    test_match_coupling_noise_data()
-    test_build_noise_inversion_channels()
-    test_noise_model()
+    return
 
 
 
