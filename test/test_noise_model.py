@@ -9,13 +9,15 @@ import numpy as np
 from collections import Counter
 from qiskit_aer.noise import thermal_relaxation_error, depolarizing_error
 
-nqubits = 20
-with open("test/data/qexa-calibration-data-2024-10-15.json", "r") as f:
-    data = json.load(f)
-gate_duration_ns_1q = 20
-basis_gates_1q = ["id", "r"]
-basis_gates_2q = ["cz"]
-basis_gates = basis_gates_1q + basis_gates_2q
+@pytest.fixture
+def callibration_data() -> dict:
+    nqubits = 20
+    with open("test/data/qexa-calibration-data-2024-10-15.json", "r") as f:
+        data = json.load(f)
+    gate_duration_ns_1q = 20
+    basis_gates_1q = ["id", "r"]
+    basis_gates_2q = ["cz"]
+    basis_gates = basis_gates_1q + basis_gates_2q
 
 
 def test_get_coupling_map():
