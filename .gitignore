@@ -159,3 +159,8 @@ tmp/
 
 # Misc.
 .DS_Store
+.envrc
+
+# IDEs
+.idea/
+.vscode/
