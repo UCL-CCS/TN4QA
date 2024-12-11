@@ -36,9 +36,6 @@ coverage = "^7.6.9"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.poetry.scripts]
-nbed = "nbed.embed:cli"
-
 [tool.isort]
 profile = "black"
 multi_line_output = 3
@@ -46,6 +43,19 @@ multi_line_output = 3
 # Ignore pytest warnings here
 [tool.pytest.ini_options]
 filterwarnings = []
+
+[tool.ruff]
+exclude = ["notebooks/"]
+line-length = 88
+indent-width = 4
+
+[tool.ruff.lint]
+select = [
+    "E4", "E7", "E9",
+    "F",
+    #"D", #pydocstyle (lets add this when we actually write docstrings)
+    "I", #isort
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
