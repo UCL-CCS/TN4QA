@@ -22,7 +22,7 @@ from .visualisation import draw_arbitrary_tn, draw_quantum_circuit
 class TensorNetwork:
     def __init__(
         self, tensors: List[Tensor], name: str = "TN", count_from: int = 1
-    ) -> "TensorNetwork":
+    ) -> None:
         """
         Constructor for the TensorNetwork class.
 

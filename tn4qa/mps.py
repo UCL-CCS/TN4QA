@@ -21,9 +21,7 @@ DataOptions: TypeAlias = Union[ndarray, SparseArray]
 
 
 class MatrixProductState(TensorNetwork):
-    def __init__(
-        self, tensors: List[Tensor], shape: str = "udp"
-    ) -> "MatrixProductState":
+    def __init__(self, tensors: List[Tensor], shape: str = "udp") -> None:
         """
         Constructor for MatrixProductState class.
 

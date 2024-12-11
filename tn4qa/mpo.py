@@ -22,9 +22,7 @@ DataOptions: TypeAlias = Union[ndarray, SparseArray]
 
 
 class MatrixProductOperator(TensorNetwork):
-    def __init__(
-        self, tensors: List[Tensor], shape: str = "udrl"
-    ) -> "MatrixProductOperator":
+    def __init__(self, tensors: List[Tensor], shape: str = "udrl") -> None:
         """
         Constructor for MatrixProductOperator class.
 

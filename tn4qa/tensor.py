@@ -17,7 +17,7 @@ QiskitOptions: TypeAlias = Union[CircuitInstruction, Operation]  # type: ignore
 class Tensor:
     def __init__(
         self, data: DataOptions, indices: List[str], labels: List[str]
-    ) -> "Tensor":
+    ) -> None:
         """
         Constructor for the Tensor class.
 
