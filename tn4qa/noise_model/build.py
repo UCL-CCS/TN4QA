@@ -1,6 +1,7 @@
+import logging
 from collections import defaultdict
 from typing import Any
-import logging
+
 import numpy as np
 from qiskit_aer.noise import (
     NoiseModel,
@@ -8,7 +9,11 @@ from qiskit_aer.noise import (
     depolarizing_error,
     thermal_relaxation_error,
 )
-from tn4qa.noise_model.device_characterisation import get_coupling_map, generate_noise_data
+
+from tn4qa.noise_model.device_characterisation import (
+    generate_noise_data,
+    get_coupling_map,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +81,7 @@ def _add_coherent_noise(
             continue
         coherent_error_1q = depolarizing_error(p_coherent_error_1q, 1)
         if isinstance(target, NoiseModel):
-            # NOTE: Qiskit returns a warning message since 'r' already has 
+            # NOTE: Qiskit returns a warning message since 'r' already has
             # an error (thermal relaxation)
             target.add_quantum_error(coherent_error_1q, ["r"], [qidx])
         else:

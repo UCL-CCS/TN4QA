@@ -1,8 +1,5 @@
 import logging
-from collections import defaultdict
 from typing import Any
-
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
