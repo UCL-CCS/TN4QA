@@ -1,15 +1,16 @@
 """Test for the noise model builders."""
 
-import pytest
 import json
-import numpy as np
-from qiskit_aer.noise import thermal_relaxation_error, depolarizing_error
 
-from tn4qa.noise_model.device_characterisation import (
-    get_coupling_map,
-    generate_noise_data,
-)
+import numpy as np
+import pytest
+from qiskit_aer.noise import depolarizing_error, thermal_relaxation_error
+
 from tn4qa.noise_model.build import build_noise_inversion_channels, get_noise_model
+from tn4qa.noise_model.device_characterisation import (
+    generate_noise_data,
+    get_coupling_map,
+)
 
 
 @pytest.fixture
@@ -18,21 +19,26 @@ def calibration_data() -> dict:
         data = json.load(f)
     return data
 
+
 @pytest.fixture
 def nqubits() -> int:
     return 20
+
 
 @pytest.fixture
 def gate_duration_ns_1q() -> int:
     return 20
 
+
 @pytest.fixture
 def basis_gates_1q() -> list:
     return ["id", "r"]
 
+
 @pytest.fixture
 def basis_gates_2q() -> list:
     return ["cz"]
+
 
 @pytest.fixture
 def basis_gates(basis_gates_1q, basis_gates_2q) -> list:
@@ -120,10 +126,13 @@ def test_match_coupling_noise_data(nqubits, calibration_data):
     noise_data = generate_noise_data(nqubits, calibration_data)
     for qubit, qubit_dict in noise_data.items():
         for second_qubit in qubit_dict["gates_2q"]:
-            assert [
-                int(qubit),
-                int(second_qubit),
-            ] in coupling_map, f"Couple of qubits ({qubit}, {second_qubit}) in noise_data but not in coupling_map."
+            assert (
+                [
+                    int(qubit),
+                    int(second_qubit),
+                ]
+                in coupling_map
+            ), f"Couple of qubits ({qubit}, {second_qubit}) in noise_data but not in coupling_map."
     for couple in coupling_map:
         assert (
             str(couple[0]) in noise_data
@@ -218,21 +227,19 @@ def test_noise_model(nqubits, calibration_data, gate_duration_ns_1q, basis_gates
     assert set(noise_model.noise_instructions) == set(
         basis_gates + ["measure"]
     ), "Instructions with noise are all the basis set gates + measurement."
-    assert noise_model.noise_qubits == list(range(nqubits)), f"All qubits from 0 to {nqubits} must be regarded as noisy."
+    assert noise_model.noise_qubits == list(
+        range(nqubits)
+    ), f"All qubits from 0 to {nqubits} must be regarded as noisy."
     noise_qubits_list = noise_model.to_dict()["errors"]
     # FIXME: we don't always have coherent error on 'r'!
     # TODO: Test should be generalized to different basis gates for different devices
-    assert isinstance(noise_qubits_list, list) and len(
-        noise_qubits_list
-    ) == nqubits * 3 + len(
-        coupling_map
+    assert (
+        isinstance(noise_qubits_list, list)
+        and len(noise_qubits_list) == nqubits * 3 + len(coupling_map)
     ), "Noise model should have one dict for every qubit and every 1-qubit error + measurement or for every couple of interacting qubits."
     for error_dict in noise_qubits_list:
         assert any(
-            [
-                error_dict["operations"] == [gate]
-                for gate in basis_gates + ["measure"]
-            ]
+            [error_dict["operations"] == [gate] for gate in basis_gates + ["measure"]]
         ), "Error model for a gate not present in the basis gates list (+ measurement)."
         if len(error_dict["gate_qubits"][0]) == 1:
             assert (
