@@ -53,7 +53,7 @@ class TensorNetwork:
         Defines addition for tensor networks.
         """
         all_tensors = self.tensors + other.tensors 
-        tn = TensorNetwork(all_tensors, name=self.name, name=self.name)
+        tn = TensorNetwork(all_tensors, name=self.name)
         return tn
     
     @classmethod
@@ -396,7 +396,7 @@ class TensorNetwork:
         
         return tensors
 
-    def add_tensor(self, tensor : Tensor, position : int | None = None) -> None:
+    def add_tensor(self, tensor : Tensor, position : int | None = None, add_label : bool = False) -> None:
         """
         Add a tensor to the network.
         
