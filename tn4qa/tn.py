@@ -50,7 +50,7 @@ class TensorNetwork:
         Defines addition for tensor networks.
         """
         all_tensors = self.tensors + other.tensors 
-        tn = TensorNetwork(all_tensors)
+        tn = TensorNetwork(all_tensors, name=self.name)
         return tn
     
     @classmethod
@@ -105,7 +105,7 @@ class TensorNetwork:
             tensors.append(tensor)
             tensor_number += 1
         
-        tn = TensorNetwork(tensors)
+        tn = TensorNetwork(tensors, name="QuantumCircuit")
         return tn
 
     @classmethod
@@ -299,11 +299,12 @@ class TensorNetwork:
             new_data = new_data.reshape(new_data.shape[1:])
         new_tensor = Tensor(new_data, output_indices, new_labels)
 
+        pos = self.tensors.index(tensors[0])
         self.tensors.remove(tensors[0])
         self.tensors.remove(tensors[1])
         self.indices.remove(idx)
 
-        self.tensors.append(new_tensor)
+        self.add_tensor(new_tensor, pos)
 
         return
 
@@ -378,10 +379,10 @@ class TensorNetwork:
             if has_all_labels:
                 tensors.append(tensor)
 
+        tn_dict = self.get_index_to_tensor_dict()
         for t in tensors:
             self.tensors.remove(t)
 
-        tn_dict = self.get_index_to_tensor_dict()
         for idx in tn_dict:
             still_exists = False
             if len(tn_dict[idx]) > 0:
@@ -391,15 +392,16 @@ class TensorNetwork:
         
         return tensors
 
-    def add_tensor(self, tensor : Tensor, position : int=None) -> None:
+    def add_tensor(self, tensor : Tensor, position : int=None, add_label : bool=False) -> None:
         """
         Add a tensor to the network.
         
         Args:
             tensor: The tensor to add.
         """
-        unique_label = self.get_new_label("TN_T")
-        tensor.labels.append(unique_label)
+        if add_label:
+            unique_label = self.get_new_label("TN_T")
+            tensor.labels.append(unique_label)
         if not position:
             self.tensors.append(tensor)
         else:

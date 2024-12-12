@@ -17,8 +17,6 @@ setup(
         'symmer',
         'cotengra',
         'kahypar',
-        'block2',
-        'pyscf',
-        'matplotlib'
+        'pyscf'
 	], 
 ) 

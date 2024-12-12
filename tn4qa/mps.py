@@ -186,7 +186,7 @@ class MatrixProductState(TensorNetwork):
             mps = input_mps
         mps = mps.apply_mpo(qc_mpo)
         return mps
-
+    
     def __add__(self, other : "MatrixProductState") -> "MatrixProductState":
         """
         Defines MPS addition.
@@ -331,20 +331,31 @@ class MatrixProductState(TensorNetwork):
             t.data = sparse.COO.conj(t.data)
         return 
 
-    def move_orthogonality_centre(self, where : int=None) -> None:
+    def move_orthogonality_centre(self, where : int=None, current : int=None) -> None:
         """
         Move the orthogonality centre of the MPS.
         
         Args:
             where (optional): Defaults to the last tensor.
+            current (optional): Where the orthogonality centre is currently (if known)
         """
         if not where:
             where = self.num_sites 
 
         internal_indices = self.get_internal_indices()
         
-        push_down = list(range(1, where))
-        push_up = list(range(where, self.num_sites))[::-1]
+        if current == where:
+            return
+        
+        if not current:
+            push_down = list(range(1, where))
+            push_up = list(range(where, self.num_sites))[::-1]
+        elif current < where:
+            push_down = list(range(current, where))
+            push_up = []
+        else:
+            push_down = []
+            push_up = list(range(where, current))[::-1]
 
         max_bond = self.bond_dimension
 
@@ -457,82 +468,3 @@ class MatrixProductState(TensorNetwork):
         norm = self.compute_inner_product(self).real
         self.multiply_by_constant(np.sqrt(1/norm))
         return
-
-    # def sample_configurations(self, num_samples : int) -> List[str]:
-    #     """
-    #     Randomly sample from the MPS.
-        
-    #     Args:
-    #         num_samples: The number of samples to take.
-        
-    #     Returns:
-    #         A list of strings (e.g. bitstrings for qubit MPS).
-    #     """
-    #     return
-
-    # def to_staircase_circuit(self, max_layers : int, fidelity_target : float) -> QuantumCircuit:
-    #     """
-    #     Construct a Qiskit QuantumCircuit that prepares the MPS.
-        
-    #     Args:
-    #         max_layers: The maximum number of staircase layers to allow.
-    #         fidelity_target: The circuit will aim to reproduce the MPS with this fidelity.
-        
-    #     Returns:
-    #         A QuantumCircuit that prepares the MPS.
-    #     """
-    #     return
-    
-    # def warmstart_ansatz_circuit(self, ansatz : QuantumCircuit, maxiter : int, fidelity_target : float) -> List[float]:
-    #     """
-    #     Use the MPS to warm-start a variational quantum circuit.
-        
-    #     Args:
-    #         ansatz: A parameterised quantum circuit.
-    #         maxiter: The maximum number of optimisation iterations.
-    #         fidelity_target: The fidelity target for optimisation.
-        
-    #     Returns:
-    #         A list of parameters to warm-start the given ansatz.
-    #     """
-    #     return
-
-    # def to_preparation_mpo(self) -> MatrixProductOperator:
-    #     """
-    #     Create an MPO that prepares the MPS.
-        
-    #     Returns:
-    #         An MPO such that MPO|0> = MPS.
-    #     """
-    #     return
-
-    # def perfect_amplitude_amplification(self, oracle : QuantumCircuit) -> None:
-    #     """
-    #     Amplify the good part of the MPS.
-        
-    #     Args:
-    #         oracle: A quantum circuit that marks the good states.
-    #     """
-    #     return
-
-    # def perfect_amplitude_suppression(self, oracle : QuantumCircuit) -> None:
-    #     """
-    #     Amplify the bad part of the MPS.
-        
-    #     Args:
-    #         oracle: A quantum circuit that marks the good states.
-    #     """
-    #     return
-
-    # def get_grovers_operator(self, oracle : QuantumCircuit) -> MatrixProductOperator:
-    #     """
-    #     Create an MPO representation of the Grovers operator.
-        
-    #     Args:
-    #         oracle: A quantum circuit that marks the good states.
-        
-    #     Returns:
-    #         The MPO representation of the Grovers operator.
-    #     """
-    #     return
-    
