@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A Python package to integrate tensor network methods with quantum algorithms."
 authors = [
     "Angus Mingare <angus.mingare.22@ucl.ac.uk>",
-    "Isabel Heuzé",
+    "Isabelle Heuzé <isabelle.heuze.24@ucl.ac.uk>",
 ]
 license = "MIT"
 readme = "README.md"
