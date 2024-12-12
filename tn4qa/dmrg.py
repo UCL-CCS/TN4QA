@@ -19,7 +19,6 @@ class FermionDMRG:
     def __init__(self,
                  scf_obj : scf,
                  HF_symmetry : str,
-                 max_mpo_bond : int,
                  max_mps_bond : int,
                  n_core : int=0,
                  n_cas : int=None,
@@ -50,7 +49,6 @@ class FermionDMRG:
             self.ncas, self.n_elec, self.spin, self.ecore, self.h1e, self.g2e, self.orb_sym = itg.get_uhf_integrals(scf_obj, ncore=n_core, ncas=n_cas, g2e_symm=g2e_symm)
         else:
             raise ValueError("Unsupported HF symmetry type.")
-        self.max_mpo_bond = max_mpo_bond
         self.max_mps_bond = max_mps_bond
 
         self.driver = self.initialise_driver()
@@ -109,7 +107,6 @@ class QubitDMRG:
 
     def __init__(self, 
                  hamiltonian : dict[str, complex],
-                 max_mpo_bond : int,
                  max_mps_bond : int,
                  method : str = "one-site",
                  ) -> "QubitDMRG":
@@ -127,7 +124,6 @@ class QubitDMRG:
         """
         self.hamiltonian = hamiltonian
         self.num_sites = len(list(hamiltonian.keys())[0])
-        self.max_mpo_bond = max_mpo_bond
         self.max_mps_bond = max_mps_bond
         self.mps = self.set_initial_state()
         self.mpo = self.set_hamiltonian_mpo()
@@ -157,9 +153,7 @@ class QubitDMRG:
         """
         Convert the Hamiltonian to an MPO for DMRG.
         """
-        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, self.max_mpo_bond)
-        # if mpo.bond_dimension > self.max_mpo_bond:
-        #     mpo.compress(self.max_mpo_bond)
+        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, np.infty)
 
         mpo = self.add_trivial_tensors_mpo(mpo)
 
