@@ -286,11 +286,7 @@ class TensorNetwork:
         Returns
             A list of tensors with idx as one of their indices.
         """
-        tensors = []
-        for t in self.tensors:
-            if idx in t.indices:
-                tensors.append(t)
-        return tensors
+        return [t for t in self.tensors if idx in t.indices]
 
     def get_tensors_from_label(self, label: str) -> List[Tensor]:
         """
@@ -302,11 +298,7 @@ class TensorNetwork:
         Returns
             A list of tensors with label as one of their labels.
         """
-        tensors = []
-        for t in self.tensors:
-            if label in t.labels:
-                tensors.append(t)
-        return tensors
+        return [t for t in self.tensors if label in t.labels]
 
     def contract_index(self, idx: str) -> None:
         """
