@@ -55,5 +55,7 @@ select = [
     "I", #isort
 ]
 
+ignore = ["E741"]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
