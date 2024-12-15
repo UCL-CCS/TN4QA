@@ -637,7 +637,7 @@ class TensorNetwork:
             Displays plot.
         """
         if self.name == "QuantumCircuit":
-            draw_quantum_circuit(self, node_size, x_len, y_len)
+            draw_quantum_circuit(self.tensors, node_size, x_len, y_len)
 
         else:
-            draw_arbitrary_tn(self)
+            draw_arbitrary_tn(self.tensors)

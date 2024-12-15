@@ -858,4 +858,4 @@ class MatrixProductOperator(TensorNetwork):
         Returns:
             Displays plot.
         """
-        draw_mpo(self, node_size, x_len, y_len)
+        draw_mpo(self.tensors, node_size, x_len, y_len)

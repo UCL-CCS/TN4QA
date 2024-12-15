@@ -524,4 +524,4 @@ class MatrixProductState(TensorNetwork):
         Returns:
             Displays plot.
         """
-        draw_mps(self, node_size, x_len, y_len)
+        draw_mps(self.tensors, node_size, x_len, y_len)
