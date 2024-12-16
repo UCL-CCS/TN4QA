@@ -386,15 +386,22 @@ class QubitDMRG:
 
         return
     
-    def construct_effective_matrix(self) -> SparseArray:
+    def combine_neighbouring_sites(self) -> SparseArray:
+        return
+    
+    def construct_effective_matrix(self, current_site_mat : SparseArray | None = None) -> SparseArray:
         """
         Construct the effective matrix for a step of DMRG.
+
+        Args:
+            current_site_mat (optional): The MPO tensor at the site(s) to be optimised. Defaults to single site tensor.
         """
         left_block = copy.deepcopy(self.left_block)
         right_block = copy.deepcopy(self.right_block)
         current_site = len(self.left_block_cache)+1
-        ham = copy.deepcopy(self.mpo.tensors[current_site].data)
-        ham_tensor = Tensor(ham, ["Lham", "Rham", "pdag", "p"], ["HAM"])
+        if not current_site_mat:
+            current_site_mat = copy.deepcopy(self.mpo.tensors[current_site].data)
+        ham_tensor = Tensor(current_site_mat, ["Lham", "Rham", "pdag", "p"], ["HAM"])
 
         tn = TensorNetwork([ham_tensor, right_block, left_block])
         tensor = tn.contract_entire_network()
