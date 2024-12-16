@@ -1,25 +1,30 @@
-from typing import List, Union, TypeAlias
 import copy
+from typing import List, TypeAlias, Union
 
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
 import numpy as np
-from numpy import ndarray
 import sparse
-from sparse import SparseArray
-from .tensor import Tensor
-from .tn import TensorNetwork
-from .mpo import MatrixProductOperator
+from numpy import ndarray
 
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
+from sparse import SparseArray
 
-DataOptions : TypeAlias = Union[ndarray, SparseArray]
+from .mpo import MatrixProductOperator
+from .tensor import Tensor
+from .tn import TensorNetwork
+
+# Visualisation
+from .visualisation import draw_mps
+
+DataOptions: TypeAlias = Union[ndarray, SparseArray]
+
 
 class MatrixProductState(TensorNetwork):
-    def __init__(self, tensors : List[Tensor], shape : str="udp") -> "MatrixProductState":
+    def __init__(self, tensors: List[Tensor], shape: str = "udp") -> None:
         """
         Constructor for MatrixProductState class.
-        
+
         Args:
             tensors: List of tensors to form the MPS.
             shape (optional): The order of the indices for the tensors. Default is 'udp' (up, down, physical)
@@ -43,14 +48,16 @@ class MatrixProductState(TensorNetwork):
         self.physical_dimension = max(physical_dims)
 
     @classmethod
-    def from_arrays(cls, arrays : List[DataOptions], shape : str="udp") -> "MatrixProductState":
+    def from_arrays(
+        cls, arrays: List[DataOptions], shape: str = "udp"
+    ) -> "MatrixProductState":
         """
         Create an MPS from a list of arrays.
-        
+
         Args:
             arrays: The list of arrays.
             shape (optional): The order of the indices for the tensors. Default is 'udp' (up, down, physical)
-        
+
         Returns:
             An MPS.
         """
@@ -68,7 +75,7 @@ class MatrixProductState(TensorNetwork):
         physical_idx_pos = shape.index("p")
         virtual_output_idx_pos = shape.index("u")
         virtual_input_idx_pos = shape.index("d")
-        for a_idx in range(1, len(arrays)-1):
+        for a_idx in range(1, len(arrays) - 1):
             a = arrays[a_idx]
             indices_k = ["", "", ""]
             indices_k[physical_idx_pos] = f"P{a_idx+1}"
@@ -91,7 +98,7 @@ class MatrixProductState(TensorNetwork):
         return mps
 
     @classmethod
-    def all_zero_mps(cls, num_sites : int) -> "MatrixProductState":
+    def all_zero_mps(cls, num_sites: int) -> "MatrixProductState":
         """
         Create an MPS for the all zero state |000...0>
 
@@ -101,21 +108,23 @@ class MatrixProductState(TensorNetwork):
         Returns:
             An MPS.
         """
-        zero_end = np.array([1,0], dtype=complex).reshape(1,2)
-        zero_middle = np.array([1,0], dtype=complex).reshape(1,1,2)
-        arrays = [zero_end] + [zero_middle]*(num_sites-2) + [zero_end]
+        zero_end = np.array([1, 0], dtype=complex).reshape(1, 2)
+        zero_middle = np.array([1, 0], dtype=complex).reshape(1, 1, 2)
+        arrays = [zero_end] + [zero_middle] * (num_sites - 2) + [zero_end]
 
         return cls.from_arrays(arrays, shape="udp")
 
     @classmethod
-    def random_mps(cls, num_sites : int, bond_dim : int, physical_dim : int) -> "MatrixProductState":
+    def random_mps(
+        cls, num_sites: int, bond_dim: int, physical_dim: int
+    ) -> "MatrixProductState":
         """
         Create a random MPS.
-        
+
         Args:
             num_sites: The number of sites for the MPS.
             bond_dim: The internal bond dimension to use.
-            physical_dim: The physical dimension to use. 
+            physical_dim: The physical dimension to use.
 
         Returns:
             An MPS.
@@ -124,25 +133,27 @@ class MatrixProductState(TensorNetwork):
         first_array = np.random.rand(bond_dim, physical_dim)
         arrays.append(first_array)
 
-        for _ in range(1, num_sites-1):
+        for _ in range(1, num_sites - 1):
             array = np.random.rand(bond_dim, bond_dim, physical_dim)
             arrays.append(array)
-        
+
         last_array = np.random.rand(bond_dim, physical_dim)
         arrays.append(last_array)
 
         return cls.from_arrays(arrays, shape="udp")
 
     @classmethod
-    def random_quantum_state_mps(cls, num_sites : int, bond_dim : int, physical_dim : int=2) -> "MatrixProductState":
+    def random_quantum_state_mps(
+        cls, num_sites: int, bond_dim: int, physical_dim: int = 2
+    ) -> "MatrixProductState":
         """
         Create a random MPS corresponding to a valid quantum state.
-        
+
         Args:
             num_sites: The number of sites for the MPS.
             bond_dim: The internal bond dimension to use.
             physical_dim (optional): The physical dimension to use. Default is 2 (for qubits).
-        
+
         Returns:
             An MPS.
         """
@@ -151,26 +162,30 @@ class MatrixProductState(TensorNetwork):
         return mps
 
     @classmethod
-    def equal_superposition_mps(cls, num_sites : int) -> "MatrixProductState":
+    def equal_superposition_mps(cls, num_sites: int) -> "MatrixProductState":
         """
         Create an MPS for the equal superposition state |+++...+>
-        
+
         Args:
             num_sites: The number of sites for the MPS.
 
         Returns:
             An MPS.
         """
-        h_end = np.array([np.sqrt(1/2),np.sqrt(1/2)], dtype=complex).reshape(1,2)
-        h_middle = np.array([np.sqrt(1/2),np.sqrt(1/2)], dtype=complex).reshape(1,1,2)
-        arrays = [h_end] + [h_middle]*(num_sites-2) + [h_end]
+        h_end = np.array([np.sqrt(1 / 2), np.sqrt(1 / 2)], dtype=complex).reshape(1, 2)
+        h_middle = np.array([np.sqrt(1 / 2), np.sqrt(1 / 2)], dtype=complex).reshape(
+            1, 1, 2
+        )
+        arrays = [h_end] + [h_middle] * (num_sites - 2) + [h_end]
         return cls.from_arrays(arrays, shape="udp")
 
     @classmethod
-    def from_qiskit_circuit(cls, qc : QuantumCircuit, max_bond : int, input_mps : "MatrixProductState"=None) -> "MatrixProductState":
+    def from_qiskit_circuit(
+        cls, qc: QuantumCircuit, max_bond: int, input_mps: "MatrixProductState" = None
+    ) -> "MatrixProductState":
         """
         Create an MPS for the output of a Qiskit QuantumCircuit.
-        
+
         Args:
             qc: The QuantumCircuit object.
             max_bond: The maximum bond dimension to allow.
@@ -186,8 +201,8 @@ class MatrixProductState(TensorNetwork):
             mps = input_mps
         mps = mps.apply_mpo(qc_mpo)
         return mps
-    
-    def __add__(self, other : "MatrixProductState") -> "MatrixProductState":
+
+    def __add__(self, other: "MatrixProductState") -> "MatrixProductState":
         """
         Defines MPS addition.
         """
@@ -205,34 +220,58 @@ class MatrixProductState(TensorNetwork):
         t1_dimensions = (1, t1.dimensions[0], t1.dimensions[1])
         t2_dimensions = (1, t2.dimensions[0], t2.dimensions[1])
 
-        data1 = sparse.reshape(t1_data, (t1_dimensions[0]*t1_dimensions[2], t1_dimensions[1]))
-        data2 = sparse.reshape(t2_data, (t2_dimensions[0]*t2_dimensions[2], t2_dimensions[1]))
+        data1 = sparse.reshape(
+            t1_data, (t1_dimensions[0] * t1_dimensions[2], t1_dimensions[1])
+        )
+        data2 = sparse.reshape(
+            t2_data, (t2_dimensions[0] * t2_dimensions[2], t2_dimensions[1])
+        )
 
-        new_data = sparse.concatenate([data1, data2],axis=1)
-        new_data = sparse.moveaxis(new_data, [0,1], [1,0])
+        new_data = sparse.concatenate([data1, data2], axis=1)
+        new_data = sparse.moveaxis(new_data, [0, 1], [1, 0])
         arrays.append(new_data)
 
-        for t_idx in range(1, self.num_sites-1):
+        for t_idx in range(1, self.num_sites - 1):
             t1 = self.tensors[t_idx]
             t2 = other.tensors[t_idx]
 
-            t1_data = t1.data 
+            t1_data = t1.data
             t2_data = t2.data
             t1_dimensions = t1.dimensions
             t2_dimensions = t2.dimensions
 
-            data1 = sparse.moveaxis(t1_data, [0,1,2], [0,2,1])
-            data2 = sparse.moveaxis(t2_data, [0,1,2], [0,2,1])
+            data1 = sparse.moveaxis(t1_data, [0, 1, 2], [0, 2, 1])
+            data2 = sparse.moveaxis(t2_data, [0, 1, 2], [0, 2, 1])
 
-            data1 = sparse.reshape(data1, (t1_dimensions[0]*t1_dimensions[2], t1_dimensions[1]))
-            data2 = sparse.reshape(data2, (t2_dimensions[0]*t2_dimensions[2], t2_dimensions[1]))
+            data1 = sparse.reshape(
+                data1, (t1_dimensions[0] * t1_dimensions[2], t1_dimensions[1])
+            )
+            data2 = sparse.reshape(
+                data2, (t2_dimensions[0] * t2_dimensions[2], t2_dimensions[1])
+            )
 
-            zeros_top_right = sparse.COO.from_numpy(np.zeros((data1.shape[0], data2.shape[1])))
-            zeros_bottom_left = sparse.COO.from_numpy(np.zeros((data2.shape[0], data1.shape[1])))
+            zeros_top_right = sparse.COO.from_numpy(
+                np.zeros((data1.shape[0], data2.shape[1]))
+            )
+            zeros_bottom_left = sparse.COO.from_numpy(
+                np.zeros((data2.shape[0], data1.shape[1]))
+            )
 
-            new_data = sparse.concatenate([sparse.concatenate([data1, zeros_top_right],axis=1), sparse.concatenate([zeros_bottom_left, data2],axis=1)])
-            new_data = sparse.moveaxis(new_data, [0,1], [1,0])
-            new_data = sparse.reshape(new_data, (t1_dimensions[0]+t2_dimensions[0], t1_dimensions[1]+t2_dimensions[1], t1_dimensions[2]))
+            new_data = sparse.concatenate(
+                [
+                    sparse.concatenate([data1, zeros_top_right], axis=1),
+                    sparse.concatenate([zeros_bottom_left, data2], axis=1),
+                ]
+            )
+            new_data = sparse.moveaxis(new_data, [0, 1], [1, 0])
+            new_data = sparse.reshape(
+                new_data,
+                (
+                    t1_dimensions[0] + t2_dimensions[0],
+                    t1_dimensions[1] + t2_dimensions[1],
+                    t1_dimensions[2],
+                ),
+            )
 
             arrays.append(new_data)
 
@@ -246,24 +285,28 @@ class MatrixProductState(TensorNetwork):
         t1_dimensions = (t1.dimensions[0], 1, t1.dimensions[1])
         t2_dimensions = (t2.dimensions[0], 1, t2.dimensions[1])
 
-        data1 = sparse.reshape(t1_data, (t1_dimensions[0]*t1_dimensions[2], t1_dimensions[1]))
-        data2 = sparse.reshape(t2_data, (t2_dimensions[0]*t2_dimensions[2], t2_dimensions[1]))
+        data1 = sparse.reshape(
+            t1_data, (t1_dimensions[0] * t1_dimensions[2], t1_dimensions[1])
+        )
+        data2 = sparse.reshape(
+            t2_data, (t2_dimensions[0] * t2_dimensions[2], t2_dimensions[1])
+        )
 
-        new_data = sparse.concatenate([data1, data2],axis=1)
-        new_data = sparse.moveaxis(new_data, [0,1], [1,0])
+        new_data = sparse.concatenate([data1, data2], axis=1)
+        new_data = sparse.moveaxis(new_data, [0, 1], [1, 0])
         arrays.append(new_data)
 
         output = MatrixProductState.from_arrays(arrays)
         return output
 
-    def __sub__(self, other : "MatrixProductState") -> "MatrixProductState":
+    def __sub__(self, other: "MatrixProductState") -> "MatrixProductState":
         """
         Defines MPS subtraction.
         """
         other.multiply_by_constant(-1.0)
         output = self + other
         return output
-    
+
     def to_sparse_array(self) -> SparseArray:
         """
         Convert the MPS to a sparse array.
@@ -282,10 +325,10 @@ class MatrixProductState(TensorNetwork):
         dense_array = sparse_array.todense()
         return dense_array
 
-    def reshape(self, shape : str="udp") -> None:
+    def reshape(self, shape: str = "udp") -> None:
         """
         Reshape the tensors in the MPS.
-        
+
         Args:
             shape (optional): Default is 'udp' (up, down, physical) but any order is allowed.
         """
@@ -293,10 +336,12 @@ class MatrixProductState(TensorNetwork):
         first_current_shape = self.shape.replace("u", "")
         first_new_shape = shape.replace("u", "")
         current_indices = first_tensor.indices
-        new_indices = [current_indices[first_current_shape.index(n)] for n in first_new_shape]
+        new_indices = [
+            current_indices[first_current_shape.index(n)] for n in first_new_shape
+        ]
         first_tensor.reorder_indices(new_indices)
 
-        for t_idx in range(1, self.num_sites-1):
+        for t_idx in range(1, self.num_sites - 1):
             t = self.tensors[t_idx]
             current_indices = t.indices
             new_indices = [current_indices[self.shape.index(n)] for n in shape]
@@ -306,16 +351,18 @@ class MatrixProductState(TensorNetwork):
         last_current_shape = self.shape.replace("d", "")
         last_new_shape = shape.replace("d", "")
         current_indices = last_tensor.indices
-        new_indices = [current_indices[last_current_shape.index(n)] for n in last_new_shape]
+        new_indices = [
+            current_indices[last_current_shape.index(n)] for n in last_new_shape
+        ]
         last_tensor.reorder_indices(new_indices)
 
         self.shape = shape
         return
 
-    def multiply_by_constant(self, const : complex) -> None:
+    def multiply_by_constant(self, const: complex) -> None:
         """
         Scale the MPS by a constant.
-        
+
         Args:
             const: The constant to multiply by.
         """
@@ -329,18 +376,18 @@ class MatrixProductState(TensorNetwork):
         """
         for t in self.tensors:
             t.data = sparse.COO.conj(t.data)
-        return 
+        return
 
     def move_orthogonality_centre(self, where : int=None, current : int=None) -> None:
         """
         Move the orthogonality centre of the MPS.
-        
+
         Args:
             where (optional): Defaults to the last tensor.
             current (optional): Where the orthogonality centre is currently (if known)
         """
         if not where:
-            where = self.num_sites 
+            where = self.num_sites
 
         internal_indices = self.get_internal_indices()
         
@@ -360,22 +407,22 @@ class MatrixProductState(TensorNetwork):
         max_bond = self.bond_dimension
 
         for idx in push_down:
-            index = internal_indices[idx-1]
+            index = internal_indices[idx - 1]
             self.compress_index(index, max_bond)
-        
+
         for idx in push_up:
-            index = internal_indices[idx-1]
+            index = internal_indices[idx - 1]
             self.compress_index(index, max_bond, reverse_direction=True)
 
         return
 
-    def apply_mpo(self, mpo : MatrixProductOperator) -> "MatrixProductState":
+    def apply_mpo(self, mpo: MatrixProductOperator) -> "MatrixProductState":
         """
         Apply a MPO to the MPS.
-        
+
         Args:
             mpo: The MPO to apply.
-        
+
         Returns:
             The new MPS.
         """
@@ -397,7 +444,7 @@ class MatrixProductState(TensorNetwork):
         tensor.reorder_indices(["DOWN", "T2_RIGHT"])
         arrays.append(tensor.data)
 
-        for t_idx in range(1, self.num_sites-1):
+        for t_idx in range(1, self.num_sites - 1):
             t1 = self.tensors[t_idx]
             t2 = mpo.tensors[t_idx]
 
@@ -407,7 +454,9 @@ class MatrixProductState(TensorNetwork):
             tn = TensorNetwork([t1, t2])
             tn.contract_index("TO_CONTRACT")
 
-            tensor = Tensor(tn.tensors[0].data, tn.get_all_indices(), tn.get_all_labels())
+            tensor = Tensor(
+                tn.tensors[0].data, tn.get_all_indices(), tn.get_all_labels()
+            )
             tensor.combine_indices(["T1_UP", "T2_UP"], new_index_name="UP")
             tensor.combine_indices(["T1_DOWN", "T2_DOWN"], new_index_name="DOWN")
             tensor.reorder_indices(["UP", "DOWN", "T2_RIGHT"])
@@ -429,7 +478,7 @@ class MatrixProductState(TensorNetwork):
         mps = MatrixProductState.from_arrays(arrays)
         return mps
 
-    def compute_inner_product(self, other : "MatrixProductState") -> complex:
+    def compute_inner_product(self, other: "MatrixProductState") -> complex:
         """
         Calculate the inner product with another MPS.
 
@@ -446,12 +495,12 @@ class MatrixProductState(TensorNetwork):
         mps2.dagger()
         for t in mps2.tensors:
             current_indices = t.indices
-            new_indices = [x if x[0]=="P" else x+"_" for x in current_indices]
+            new_indices = [x if x[0] == "P" else x + "_" for x in current_indices]
             t.indices = new_indices
         all_tensors = mps1.tensors + mps2.tensors
 
         tn = TensorNetwork(all_tensors, "TotalTN")
-        for n in range(self.num_sites-1):
+        for n in range(self.num_sites - 1):
             tn.contract_index(f"P{n+1}")
             tn.contract_index(f"B{n+1}")
             tn.combine_indices([f"P{n+2}", f"B{n+1}_"], new_index_name=f"P{n+2}")
@@ -466,5 +515,24 @@ class MatrixProductState(TensorNetwork):
         Normalise the MPS.
         """
         norm = self.compute_inner_product(self).real
-        self.multiply_by_constant(np.sqrt(1/norm))
+        self.multiply_by_constant(np.sqrt(1 / norm))
         return
+
+    def draw(
+        self,
+        node_size: int | None = None,
+        x_len: int | None = None,
+        y_len: int | None = None,
+    ):
+        """
+        Visualise MPS.
+
+        Args:
+            node_size: Size of nodes in figure (optional)
+            x_len: Figure width (optional)
+            y_len: Figure height (optional)
+
+        Returns:
+            Displays plot.
+        """
+        draw_mps(self.tensors, node_size, x_len, y_len)

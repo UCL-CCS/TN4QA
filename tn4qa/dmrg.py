@@ -1,4 +1,5 @@
-from typing import Tuple 
+from typing import Tuple
+
 from .mps import MatrixProductState
 from .mpo import MatrixProductOperator
 from .tensor import Tensor
