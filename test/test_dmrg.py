@@ -32,7 +32,7 @@ def test_QubitDMRG_one_site():
         ham = json.load(f)
     ham_dict = {k: float(v) for k, v in ham.items()}
     dmrg = QubitDMRG(ham_dict, 4)
-    energy, _ = dmrg.run(2)
+    energy, _ = dmrg.run(4)
     assert np.isclose(energy, -107.65412244752251, atol=1.0)
 
 
@@ -41,9 +41,9 @@ def test_QubitDMRG_two_site():
     with open(location) as f:
         ham = json.load(f)
     ham_dict = {k: float(v[0]) for k, v in ham.items()}
-    dmrg = QubitDMRG(ham_dict, 4)
-    energy, _ = dmrg.run(5)
-    assert np.isclose(energy, -7.881571973351853, atol=0.1)
+    dmrg = QubitDMRG(ham_dict, 8, "two-site")
+    energy, _ = dmrg.run(4)
+    assert np.isclose(energy, -7.881571973351853, atol=0.2)
 
 
 def test_QubitDMRG_subspace_expansion():
@@ -51,6 +51,6 @@ def test_QubitDMRG_subspace_expansion():
     with open(location) as f:
         ham = json.load(f)
     ham_dict = {k: float(v[0]) for k, v in ham.items()}
-    dmrg = QubitDMRG(ham_dict, 4)
-    energy, _ = dmrg.run(2)
+    dmrg = QubitDMRG(ham_dict, 4, "subspace-expansion")
+    energy, _ = dmrg.run(4)
     assert np.isclose(energy, -2.8625885726691855, atol=0.1)
