@@ -1,11 +1,13 @@
 # Visualisation purposes
 import matplotlib.pyplot as plt
 import networkx as nx
-from networkx import DiGraph
 import numpy as np
+from networkx import DiGraph
+
+from .tensor import Tensor
 
 
-def build_graph_from_tensor_network(tn: "TensorNetwork") -> DiGraph: # type: ignore
+def build_graph_from_tensor_network(tensors: list[Tensor]) -> DiGraph:  # type: ignore
     """
     Build a directed graph from the list of tensors and their indices.
 
@@ -17,14 +19,14 @@ def build_graph_from_tensor_network(tn: "TensorNetwork") -> DiGraph: # type: ign
     """
 
     G = nx.DiGraph()
-    for _, tensor in enumerate(tn.tensors):
+    for _, tensor in enumerate(tensors):
         indices = tensor.indices
         tensor_name = [l for l in tensor.labels if l[:2] == "TN"][0]
         G.add_node(tensor_name)
 
         # Add edges for bottom connections and dangling indices
         for idx in indices:
-            connected_tensors = tn.get_tensors_from_index_name(idx)
+            connected_tensors = [t for t in tensors if idx in t.indices]
             if len(connected_tensors) == 2:
                 t1 = connected_tensors[0]
                 t2 = connected_tensors[1]
@@ -42,7 +44,7 @@ def build_graph_from_tensor_network(tn: "TensorNetwork") -> DiGraph: # type: ign
     return G
 
 
-def build_graph_from_MPO(mpo: "MatrixProductOperator") -> DiGraph: # type: ignore
+def build_graph_from_MPO(tensors: list[Tensor]) -> DiGraph:  # type: ignore
     """
     Build a directed graph from the list of tensors and their indices.
 
@@ -53,14 +55,14 @@ def build_graph_from_MPO(mpo: "MatrixProductOperator") -> DiGraph: # type: ignor
         networkx.DiGraph: Directed graph representing the tensor network
     """
     G = nx.DiGraph()
-    for i, tensor in enumerate(mpo.tensors):
+    for i, tensor in enumerate(tensors):
         indices = tensor.indices
         tensor_name = f"Tensor_{i + 1}"
         G.add_node(tensor_name)
 
         # Add edges for connections and dangling indices
         for idx in indices:
-            if idx.startswith("B") and i < len(mpo.tensors) - 1:
+            if idx.startswith("B") and i < len(tensors) - 1:
                 # Connect to the next tensor
                 next_tensor = f"Tensor_{i + 2}"
                 G.add_edge(tensor_name, next_tensor, label=idx)
@@ -71,7 +73,7 @@ def build_graph_from_MPO(mpo: "MatrixProductOperator") -> DiGraph: # type: ignor
     return G
 
 
-def build_graph_from_MPS(mps: "MatrixProductState") -> DiGraph: # type: ignore
+def build_graph_from_MPS(tensors: list[Tensor]) -> DiGraph:  # type: ignore
     """
     Build a directed graph from the list of tensors and their indices.
 
@@ -82,7 +84,7 @@ def build_graph_from_MPS(mps: "MatrixProductState") -> DiGraph: # type: ignore
         networkx.DiGraph: Directed graph representing the tensor network
     """
     G = nx.DiGraph()
-    for i, tensor in enumerate(mps.tensors):
+    for i, tensor in enumerate(tensors):
         indices = tensor.indices
         tensor_name = f"Tensor_{i + 1}"
         G.add_node(tensor_name)
@@ -90,7 +92,7 @@ def build_graph_from_MPS(mps: "MatrixProductState") -> DiGraph: # type: ignore
         # Add edges for connections and dangling indices
         for idx in indices:
             print(idx)
-            if idx.startswith("B") and i < len(mps.tensors) - 1:
+            if idx.startswith("B") and i < len(tensors) - 1:
                 # Connect to the next tensor
                 next_tensor = f"Tensor_{i + 2}"
                 G.add_edge(tensor_name, next_tensor, label=idx)
@@ -102,7 +104,7 @@ def build_graph_from_MPS(mps: "MatrixProductState") -> DiGraph: # type: ignore
 
 
 def draw_quantum_circuit(
-    qc_tn: "TensorNetwork", # type: ignore
+    tensors: list[Tensor],  # type: ignore
     node_size: int | None = None,
     x_len: int | None = None,
     y_len: int | None = None,
@@ -117,14 +119,14 @@ def draw_quantum_circuit(
         y_len (int): Length of the y-axis
     """
     if not x_len:
-        x_len = int(np.sqrt(len(qc_tn.tensors))) * 5
+        x_len = int(np.sqrt(len(tensors))) * 5
     if not y_len:
         y_len = x_len / 2
     if not node_size:
         node_size = x_len * 5
 
     # Build the graph
-    G = build_graph_from_tensor_network(qc_tn)
+    G = build_graph_from_tensor_network(tensors)
 
     # Define positions for tensors and dangling indices
     pos = {}
@@ -134,7 +136,7 @@ def draw_quantum_circuit(
     # Assign positions for tensor nodes
     nodes = [node for node in G.nodes if node.startswith("TN")]
     for node in nodes:
-        tensor = qc_tn.get_tensors_from_label(node)[0]
+        tensor = [t for t in tensors if node in t.labels][0]
         tensor_labels = tensor.labels
         layer_number = int([l for l in tensor_labels if l[0] == "L"][0][1:])
         qubit_wire = int([l for l in tensor_labels if l[0] == "Q"][0][1:])
@@ -186,7 +188,7 @@ def draw_quantum_circuit(
 
 
 def draw_mpo(
-    mpo: "MatrixProductOperator", # type: ignore
+    tensors: list[Tensor],  # type: ignore
     node_size: int | None = None,
     x_len: int | None = None,
     y_len: int | None = None,
@@ -201,14 +203,14 @@ def draw_mpo(
         y_len (int): Length of the y-axis.
     """
     if not x_len:
-        x_len = int(np.sqrt(len(mpo.tensors))) * 5
+        x_len = int(np.sqrt(len(tensors))) * 5
     if not y_len:
         y_len = x_len / 2
     if not node_size:
         node_size = x_len * 5
 
     # Build the graph
-    G = build_graph_from_MPO(mpo)
+    G = build_graph_from_MPO(tensors)
 
     # Define positions for tensors and dangling indices
     pos = {}
@@ -258,7 +260,7 @@ def draw_mpo(
 
 
 def draw_mps(
-    mps: "MatrixProcuctState", # type: ignore
+    tensors: list[Tensor],  # type: ignore
     node_size: int | None = None,
     x_len: int | None = None,
     y_len: int | None = None,
@@ -273,14 +275,14 @@ def draw_mps(
         y_len (int): Length of the y-axis.
     """
     if not x_len:
-        x_len = int(np.sqrt(len(mps.tensors))) * 5
+        x_len = int(np.sqrt(len(tensors))) * 5
     if not y_len:
         y_len = x_len / 2
     if not node_size:
         node_size = x_len * 5
 
     # Build the graph
-    G = build_graph_from_MPS(mps)
+    G = build_graph_from_MPS(tensors)
 
     # Define positions for tensors and dangling indices
     pos = {}
@@ -328,7 +330,7 @@ def draw_mps(
 
 
 def draw_arbitrary_tn(
-    tn: "TensorNetwork", # type: ignore
+    tensors: list[Tensor],  # type: ignore
     node_size: int | None = None,
     x_len: int | None = None,
     y_len: int | None = None,
@@ -343,7 +345,7 @@ def draw_arbitrary_tn(
         y_len (int): Length of the y-axis.
     """
     # Build the graph from the tensor network
-    G = build_graph_from_tensor_network(tn)
+    G = build_graph_from_tensor_network(tensors)
 
     # Use default spring layout for positioning
     pos = nx.spring_layout(G)
