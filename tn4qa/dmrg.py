@@ -158,12 +158,13 @@ class QubitDMRG:
             hamiltonian: A dict of the form {pauli_string : weight}.
             max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             max_mps_bond: The maximum bond to use for MPS during DMRG.
-            method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "two-site".
+            method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "one-site".
 
         Returns:
             The QubitDMRG object.
         """
         self.hamiltonian = hamiltonian
+        self.method = method
         self.num_sites = len(list(hamiltonian.keys())[0])
         self.max_mps_bond = max_mps_bond
         self.mps = self.set_initial_state()
@@ -172,7 +173,6 @@ class QubitDMRG:
         self.right_block_cache = []
         self.left_block, self.right_block = self.initialise_blocks()
         self.energy = np.infty
-        self.method = method
 
         return
 
@@ -396,9 +396,15 @@ class QubitDMRG:
 
         return left_block
 
-    def initialise_blocks(self) -> Tuple[Tensor]:
+    def initialise_blocks(self, method: str = None) -> Tuple[Tensor]:
         """
         Initialise the left and right blocks of the DMRG routine.
+
+        Args:
+            method: The selected method for DMRG.
+
+        Returns:
+            A tuple of the initial left block and the initial right block.
         """
         # Set up the rightmost block
         dag = copy.deepcopy(self.mps.tensors[-1].data.conj())
@@ -431,6 +437,10 @@ class QubitDMRG:
 
         left_block = self.initialise_left_block()
         self.right_block_cache.pop()
+
+        if method == "two_site":
+            right_block = copy.deepcopy(self.right_block_cache[-1])
+            self.right_block_cache.pop()
 
         return left_block, right_block
 
@@ -491,7 +501,18 @@ class QubitDMRG:
         return
 
     def combine_neighbouring_sites(self) -> SparseArray:
-        return
+        """
+        For the two_site method, combine neighbouring Hamiltonian sites.
+        """
+        current_site = len(self.left_block_cache) + 1
+        next_site = current_site + 1
+        ham1 = copy.deepcopy(self.mpo.tensors[current_site])
+        ham2 = copy.deepcopy(self.mpo.tensors[next_site])
+
+        tn = TensorNetwork([ham1, ham2])
+        combined = tn.contract_entire_network()
+
+        return combined.data
 
     def construct_effective_matrix(
         self, current_site_mat: SparseArray | None = None
@@ -527,7 +548,11 @@ class QubitDMRG:
         """
         site = len(self.left_block_cache) + 1
         original_dims = self.mps.tensors[site].dimensions
-        effective_matrix = self.construct_effective_matrix()
+        if self.method == "two_site":
+            ham_mat = self.combine_neighbouring_sites()
+            effective_matrix = self.construct_effective_matrix(ham_mat)
+        else:
+            effective_matrix = self.construct_effective_matrix()
         w, v = eigs(effective_matrix, k=1, which="SR")
         eigval = w[0]
         eigvec = sparse.COO.from_numpy(
@@ -692,7 +717,7 @@ class QubitDMRG:
         """
         Perform a left sweep.
         """
-        sites = list(range(1, self.num_sites + 1))
+        sites = list(range(1, self.num_sites))
         for site in sites:
             self.optimise_local_tensor()
             if site != self.num_sites:
@@ -703,7 +728,7 @@ class QubitDMRG:
         """
         Perform a right sweep.
         """
-        sites = list(range(1, self.num_sites + 1))[::-1]
+        sites = list(range(1, self.num_sites))[::-1]
         for site in sites:
             self.optimise_local_tensor()
             if site != 1:

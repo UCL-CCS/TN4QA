@@ -26,11 +26,31 @@ def test_FermionDMRG_UHF():
     assert np.isclose(energy, -107.654122447524472)
 
 
-def test_QubitDMRG():
+def test_QubitDMRG_one_site():
+    location = os.path.join(cwd, "hamiltonians/N2.json")
+    with open(location) as f:
+        ham = json.load(f)
+    ham_dict = {k: float(v) for k, v in ham.items()}
+    dmrg = QubitDMRG(ham_dict, 4)
+    energy, _ = dmrg.run(2)
+    assert np.isclose(energy, -107.65412244752251, atol=1.0)
+
+
+def test_QubitDMRG_two_site():
+    location = os.path.join(cwd, "hamiltonians/LiH.json")
+    with open(location) as f:
+        ham = json.load(f)
+    ham_dict = {k: float(v[0]) for k, v in ham.items()}
+    dmrg = QubitDMRG(ham_dict, 4)
+    energy, _ = dmrg.run(5)
+    assert np.isclose(energy, -7.881571973351853, atol=0.1)
+
+
+def test_QubitDMRG_subspace_expansion():
     location = os.path.join(cwd, "hamiltonians/HeH.json")
     with open(location) as f:
         ham = json.load(f)
     ham_dict = {k: float(v[0]) for k, v in ham.items()}
     dmrg = QubitDMRG(ham_dict, 4)
     energy, _ = dmrg.run(2)
-    assert np.isclose(energy, -2.8625885726691855, atol=1.0)
+    assert np.isclose(energy, -2.8625885726691855, atol=0.1)
