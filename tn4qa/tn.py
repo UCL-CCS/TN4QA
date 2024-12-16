@@ -428,7 +428,9 @@ class TensorNetwork:
 
         return tensors
 
-    def add_tensor(self, tensor : Tensor, position : int=None, add_label : bool=False) -> None:
+    def add_tensor(
+        self, tensor: Tensor, position: int = None, add_label: bool = False
+    ) -> None:
         """
         Add a tensor to the network.
 

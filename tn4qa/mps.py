@@ -378,7 +378,7 @@ class MatrixProductState(TensorNetwork):
             t.data = sparse.COO.conj(t.data)
         return
 
-    def move_orthogonality_centre(self, where : int=None, current : int=None) -> None:
+    def move_orthogonality_centre(self, where: int = None, current: int = None) -> None:
         """
         Move the orthogonality centre of the MPS.
 
@@ -390,10 +390,10 @@ class MatrixProductState(TensorNetwork):
             where = self.num_sites
 
         internal_indices = self.get_internal_indices()
-        
+
         if current == where:
             return
-        
+
         if not current:
             push_down = list(range(1, where))
             push_up = list(range(where, self.num_sites))[::-1]

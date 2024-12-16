@@ -307,7 +307,9 @@ class MatrixProductOperator(TensorNetwork):
         return mpo
 
     @classmethod
-    def from_hamiltonian_adder(cls, ham : dict[str, complex], max_bond : int) -> "MatrixProductOperator":
+    def from_hamiltonian_adder(
+        cls, ham: dict[str, complex], max_bond: int
+    ) -> "MatrixProductOperator":
         """
         Create an MPO for a Hamiltonian.
 
@@ -327,20 +329,22 @@ class MatrixProductOperator(TensorNetwork):
             temp_mpo = cls.from_pauli_string(ps)
             temp_mpo.multiply_by_constant(ham[ps])
             mpo = mpo + temp_mpo
-        if mpo.bond_dimension > max_bond: 
+        if mpo.bond_dimension > max_bond:
             mpo.compress(max_bond)
 
         return mpo
 
     @classmethod
-    def from_hamiltonian(cls, ham_dict : dict[str, complex], max_bond : int) -> "MatrixProductOperator":
+    def from_hamiltonian(
+        cls, ham_dict: dict[str, complex], max_bond: int
+    ) -> "MatrixProductOperator":
         """
         Create an MPO for a Hamiltonian.
 
         Args:
             ham: The dict representation of the Hamiltonian {pauli_string : weight}.
             max_bond: The maximum bond dimension allowed.
-        
+
         Returns:
             An MPO.
         """
@@ -357,7 +361,6 @@ class MatrixProductOperator(TensorNetwork):
         last_array_data: list[complex] = []
 
         for p_string_idx, (p_string, weight) in enumerate(ham_dict.items()):
-
             # First Term
             _update_array(
                 first_array_coords, first_array_data, weight, p_string_idx, p_string[0]
@@ -376,7 +379,9 @@ class MatrixProductOperator(TensorNetwork):
                 )
 
             # Final Term
-            _update_array(last_array_coords, last_array_data, 1, p_string_idx, p_string[-1])
+            _update_array(
+                last_array_coords, last_array_data, 1, p_string_idx, p_string[-1]
+            )
 
         first_array = sparse.COO(
             first_array_coords, first_array_data, shape=(num_ham_terms, 2, 2)
@@ -393,10 +398,14 @@ class MatrixProductOperator(TensorNetwork):
             last_array_coords, last_array_data, shape=(num_ham_terms, 2, 2)
         )
 
-        return MatrixProductOperator.from_arrays([first_array] + middle_arrays + [last_array])
-    
-    @classmethod 
-    def from_qiskit_layer(cls, layer : QuantumCircuit, layer_number : int=1) -> "MatrixProductOperator":
+        return MatrixProductOperator.from_arrays(
+            [first_array] + middle_arrays + [last_array]
+        )
+
+    @classmethod
+    def from_qiskit_layer(
+        cls, layer: QuantumCircuit, layer_number: int = 1
+    ) -> "MatrixProductOperator":
         """
         Create an MPO for a circuit layer.
 
@@ -601,7 +610,7 @@ class MatrixProductOperator(TensorNetwork):
             if mpo.bond_dimension > max_bond:
                 mpo.compress(max_bond)
         return mpo
-  
+
     def to_sparse_array(self) -> SparseArray:
         """
         Converts MPO to a sparse matrix.
