@@ -122,17 +122,17 @@ def test_build_noise_inversion_channels(noise_data, gate_duration_ns_1q):
     )
     for i in range(noise_data.n_qubits):
         assert (
-            str(i) in noise_inversion_channels_1q
+            i in noise_inversion_channels_1q
         ), "Noise inversion channel should hold a dict for every qubit (in string format)."
         # readout error
         p0given0 = noise_data.qubit_noise[i].readout_p0
         p1given1 = noise_data.qubit_noise[i].readout_p1
         readout_mat = np.array([[p0given0, 1 - p0given0], [1 - p1given1, p1given1]])
         assert (
-            "measurement" in noise_inversion_channels_1q[str(i)]
+            "measurement" in noise_inversion_channels_1q[i]
         ), "Noise inversion channel should have a 'measurement' entry for every qubit."
         assert np.allclose(
-            noise_inversion_channels_1q[str(i)]["measurement"] @ readout_mat,
+            noise_inversion_channels_1q[i]["measurement"] @ readout_mat,
             np.identity(2),
         ), "Inversion channel should have inverse readout error."
         # incoherent error
@@ -143,10 +143,10 @@ def test_build_noise_inversion_channels(noise_data, gate_duration_ns_1q):
         )
         thermal_relaxation_mat = thermal_relaxation.to_quantumchannel().data
         assert (
-            "thermal relaxation" in noise_inversion_channels_1q[str(i)]
+            "thermal relaxation" in noise_inversion_channels_1q[i]
         ), "Noise inversion channel should have a 'thermal relaxation' entry for every qubit."
         assert np.allclose(
-            noise_inversion_channels_1q[str(i)]["thermal relaxation"]
+            noise_inversion_channels_1q[i]["thermal relaxation"]
             @ thermal_relaxation_mat,
             np.identity(4),
         ), "Inversion channel should have inverse thermal relaxation"
@@ -159,15 +159,15 @@ def test_build_noise_inversion_channels(noise_data, gate_duration_ns_1q):
         )
         if p_coherent_error_1q <= 0:
             assert (
-                "coherent error" not in noise_inversion_channels_1q[str(i)]
+                "coherent error" not in noise_inversion_channels_1q[i]
             ), f"Qubit {i} has no coherent error."
         coherent_error_1q = depolarizing_error(p_coherent_error_1q, 1)
         coherent_error_1q_mat = coherent_error_1q.to_quantumchannel().data
         assert (
-            "coherent error" in noise_inversion_channels_1q[str(i)]
+            "coherent error" in noise_inversion_channels_1q[i]
         ), f"Qubit {i} needs coherent error entry."
         assert np.allclose(
-            noise_inversion_channels_1q[str(i)]["coherent error"]
+            noise_inversion_channels_1q[i]["coherent error"]
             @ coherent_error_1q_mat,
             np.identity(4),
         ), "Inversion channel should have inverse coherent error."
