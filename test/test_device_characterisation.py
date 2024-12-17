@@ -85,23 +85,23 @@ def test_build_noise_data(nqubits, calibration_data):
 
 
 def test_match_coupling_noise_data(nqubits, calibration_data):
-    coupling_map = get_coupling_map(nqubits, calibration_data)
     noise_data = generate_noise_data(nqubits, calibration_data)
-    for qubit, qubit_dict in noise_data.items():
-        for second_qubit in qubit_dict["gates_2q"]:
+    for qubit, single_qubit_noise in enumerate(noise_data.qubit_noise):
+        for second_qubit in single_qubit_noise.gates_2q.keys():
             assert (
                 [
-                    int(qubit),
-                    int(second_qubit),
+                    qubit,
+                    second_qubit,
                 ]
-                in coupling_map
+                in noise_data.coupling_map
             ), f"Couple of qubits ({qubit}, {second_qubit}) in noise_data but not in coupling_map."
-    for couple in coupling_map:
+    for couple in noise_data.coupling_map:
+        assert 0 <= couple[0] < noise_data.n_qubits, "Qubit in coupling_map out of range."
+        assert 0 <= couple[1] < noise_data.n_qubits, "Qubit in coupling_map out of range."
         assert (
-            str(couple[0]) in noise_data
-        ), f"Qubit {couple[0]} in coupling_map but not in noise_data."
-        assert (
-            str(couple[1]) in noise_data[str(couple[0])]["gates_2q"]
+            couple[1] in noise_data.qubit_noise[couple[0]].gates_2q
         ), f"Couple of qubits ({couple[0],couple[1]}) in coupling_map but not noise_data"
-
+        assert (
+            couple[0] in noise_data.qubit_noise[couple[1]].gates_2q
+        ), f"Couple of qubits ({couple[1],couple[0]}) in coupling_map but not noise_data"
     return
