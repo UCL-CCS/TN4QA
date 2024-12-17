@@ -14,11 +14,35 @@ class QubitNoise:
     gates_1q: dict[str, float]
     gates_2q: dict[int, float]
 
+    def __init__(
+        self, 
+        id: int=0, 
+        t1_ns: int=0, 
+        t2_ns: int=0, 
+        readout_p0: int=0, 
+        readout_p1: int=0, 
+        gates_1q: dict={}, 
+        gates_2q: dict={}
+    ):
+        self.id = id
+        self.t1_ns = t1_ns
+        self.t2_ns = t2_ns
+        self.readout_p0 = readout_p0
+        self.readout_p1 = readout_p1
+        self.gates_1q = gates_1q
+        self.gates_2q = gates_2q
+
+
 @dataclass
 class NoiseData:
     n_qubits: int
     coupling_map: list[list[int]]
     qubit_noise: list[QubitNoise]
+
+    def __init__(self, n_qubits: int=0, coupling_map: list=[], qubit_noise: list=[]):
+        self.n_qubits = n_qubits
+        self.coupling_map = coupling_map
+        self.qubit_noise = qubit_noise
 
 
 def get_coupling_map(nqubits: int, data: dict[str, Any]) -> list[list[int]]:
@@ -78,20 +102,18 @@ def _get_2q_gate_fid(
 
 def generate_noise_data(num_qubits: int, data: dict[str, Any]) -> NoiseData:
     logger.debug("Generating noise data for:")
-    noise_data = NoiseData()
-    noise_data.coupling_map = get_coupling_map(num_qubits, data)
-    noise_data.n_qubits = num_qubits
+    noise_data = NoiseData(num_qubits, get_coupling_map(num_qubits, data), [])
     for qidx in range(num_qubits):
         logger.debug("qubit %d", qidx)
-        single_qubit_noise = QubitNoise()
-        single_qubit_noise.id = qidx
-        single_qubit_noise.t1_ns = _get_t1_time(qidx, data) * 1e9
-        single_qubit_noise.t2_ns = _get_t2_time(qidx, data) * 1e9
         readout_fid = _get_readout_fid(qidx, data)
-        single_qubit_noise.readout_p0 = readout_fid
-        single_qubit_noise.readout_p1 = readout_fid
-        single_qubit_noise.gates_1q = {"r": _get_1q_gate_fid(qidx, data)}
-        single_qubit_noise.gates_2q = {}
+        single_qubit_noise = QubitNoise(
+            id=qidx,
+            t1_ns = _get_t1_time(qidx, data) * 1e9,
+            t2_ns = _get_t2_time(qidx, data) * 1e9,
+            readout_p0 = readout_fid,
+            readout_p1 = readout_fid,
+            gates_1q = {"r": _get_1q_gate_fid(qidx, data)}
+        )
         for q1, q2 in noise_data.coupling_map:
             if q1 == qidx:
                 single_qubit_noise.gates_2q[str(q2)] = _get_2q_gate_fid(q1, q2, data)
