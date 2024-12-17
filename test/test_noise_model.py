@@ -1,29 +1,100 @@
 """Test for the noise model builders."""
 
-import json
-
 import numpy as np
 import pytest
 from qiskit_aer.noise import depolarizing_error, thermal_relaxation_error
 
+from tn4qa.noise_model.noise_data import QubitNoise, NoiseData
+from tn4qa.noise_model.device_characterisation import generate_noise_data
 from tn4qa.noise_model.build import build_noise_inversion_channels, get_noise_model
-from tn4qa.noise_model.device_characterisation import (
-    generate_noise_data,
-    get_coupling_map,
-)
 
 
 @pytest.fixture
-def calibration_data() -> dict:
-    with open("test/data/qexa-calibration-data-2024-10-15.json", "r") as f:
-        data = json.load(f)
-    return data
-
-
-@pytest.fixture
-def nqubits() -> int:
-    return 20
-
+def noise_data() -> NoiseData:
+    nqubits = 20
+    coupling_map = [
+        [0, 1],
+        [1, 0],
+        [0, 3],
+        [3, 0],
+        [1, 4],
+        [4, 1],
+        [2, 3],
+        [3, 2],
+        [2, 7],
+        [7, 2],
+        [3, 4],
+        [4, 3],
+        [3, 8],
+        [8, 3],
+        [4, 5],
+        [5, 4],
+        [4, 9],
+        [9, 4],
+        [5, 6],
+        [6, 5],
+        [5, 10],
+        [10, 5],
+        [6, 11],
+        [11, 6],
+        [7, 8],
+        [8, 7],
+        [7, 12],
+        [12, 7],
+        [8, 9],
+        [9, 8],
+        [8, 13],
+        [13, 8],
+        [9, 10],
+        [10, 9],
+        [9, 14],
+        [14, 9],
+        [10, 11],
+        [11, 10],
+        [10, 15],
+        [15, 10],
+        [11, 16],
+        [16, 11],
+        [12, 13],
+        [13, 12],
+        [13, 14],
+        [14, 13],
+        [13, 17],
+        [17, 13],
+        [14, 15],
+        [15, 14],
+        [14, 18],
+        [18, 14],
+        [15, 16],
+        [16, 15],
+        [15, 19],
+        [19, 15],
+        [17, 18],
+        [18, 17],
+        [18, 19],
+        [19, 18],
+    ]
+    qubit_noise = [QubitNoise(id=0, t1_ns=43410.1770669608, t2_ns=5546.754503249878, readout_p0=0.9775, readout_p1=0.9775, gates_1q={'r': 0.9990007041848946}, gates_2q={1: 0.9902274607474589, 3: 0.9918029054337629}), 
+                   QubitNoise(id=1, t1_ns=34968.13213140938, t2_ns=2575.3850545478826, readout_p0=0.9745, readout_p1=0.9745, gates_1q={'r': 0.9988573294753003}, gates_2q={0: 0.9902274607474589, 4: 0.9928324289462214}), 
+                   QubitNoise(id=2, t1_ns=40758.22322522347, t2_ns=4755.037107857137, readout_p0=0.97025, readout_p1=0.97025, gates_1q={'r': 0.9989209203926381}, gates_2q={3: 0.9895114371586425, 7: 0.9924136510683637}), 
+                   QubitNoise(id=3, t1_ns=42338.45323268269, t2_ns=1973.6215996647054, readout_p0=0.94575, readout_p1=0.94575, gates_1q={'r': 0.9982026563344413}, gates_2q={0: 0.9918029054337629, 2: 0.9895114371586425, 4: 0.9923078328485646, 8: 0.9911723862393091}), 
+                   QubitNoise(id=4, t1_ns=31687.50089738787, t2_ns=6153.93566326493, readout_p0=0.9785, readout_p1=0.9785, gates_1q={'r': 0.9985737982361929}, gates_2q={1: 0.9928324289462214, 3: 0.9923078328485646, 5: 0.9923906053302095, 9: 0.9922840549492525}), 
+                   QubitNoise(id=5, t1_ns=42426.53364451025, t2_ns=1975.0477210107958, readout_p0=0.96625, readout_p1=0.96625, gates_1q={'r': 0.997301056191781}, gates_2q={4: 0.9923906053302095, 6: 0.9928115849011512, 10: 0.9966063475177782}), 
+                   QubitNoise(id=6, t1_ns=49154.75800608243, t2_ns=4524.78153423451, readout_p0=0.985, readout_p1=0.985, gates_1q={'r': 0.9990077404534111}, gates_2q={5: 0.9928115849011512, 11: 0.9930684645689096}), 
+                   QubitNoise(id=7, t1_ns=45710.784280755084, t2_ns=2319.844285109669, readout_p0=0.982, readout_p1=0.982, gates_1q={'r': 0.998575519612879}, gates_2q={2: 0.9924136510683637, 8: 0.990161462057128, 12: 0.9925518010110758}), 
+                   QubitNoise(id=8, t1_ns=34033.12093913222, t2_ns=5793.71725560215, readout_p0=0.9825, readout_p1=0.9825, gates_1q={'r': 0.9981202652492177}, gates_2q={3: 0.9911723862393091, 7: 0.990161462057128, 9: 0.9935597545907197, 13: 0.9910293936468578}), 
+                   QubitNoise(id=9, t1_ns=34626.08700454571, t2_ns=4057.278698798379, readout_p0=0.9735, readout_p1=0.9735, gates_1q={'r': 0.9985727377738376}, gates_2q={4: 0.9922840549492525, 8: 0.9935597545907197, 10: 0.9905105109647068, 14: 0.9930580774748671}), 
+                   QubitNoise(id=10, t1_ns=45313.26797672993, t2_ns=5129.240695206758, readout_p0=0.975, readout_p1=0.975, gates_1q={'r': 0.9990599188460332}, gates_2q={5: 0.9966063475177782, 9: 0.9905105109647068, 11: 0.9943033563599978, 15: 0.9947334779038436}), 
+                   QubitNoise(id=11, t1_ns=31470.978839394556, t2_ns=3772.3398266344475, readout_p0=0.98575, readout_p1=0.98575, gates_1q={'r': 0.9988888285427157}, gates_2q={6: 0.9930684645689096, 10: 0.9943033563599978, 16: 0.9953867946344}), 
+                   QubitNoise(id=12, t1_ns=25075.980459828505, t2_ns=10093.345670554701, readout_p0=0.9847499999999999, readout_p1=0.9847499999999999, gates_1q={'r': 0.9991012980913542}, gates_2q={7: 0.9925518010110758, 13: 0.992324869613737}), 
+                   QubitNoise(id=13, t1_ns=41638.93148121549, t2_ns=1643.0198935823455, readout_p0=0.98125, readout_p1=0.98125, gates_1q={'r': 0.998639001154107}, gates_2q={8: 0.9910293936468578, 12: 0.992324869613737, 14: 0.9935454812885923, 17: 0.9916109430688291}), 
+                   QubitNoise(id=14, t1_ns=41043.62523778416, t2_ns=6708.971051299335, readout_p0=0.978, readout_p1=0.978, gates_1q={'r': 0.9988358601558478}, gates_2q={9: 0.9930580774748671, 13: 0.9935454812885923, 15: 0.9945238371108084, 18: 0.9938364975254941}), 
+                   QubitNoise(id=15, t1_ns=34900.5911723808, t2_ns=4335.6146733693295, readout_p0=0.9782499999999998, readout_p1=0.9782499999999998, gates_1q={'r': 0.9989017616812649}, gates_2q={10: 0.9947334779038436, 14: 0.9945238371108084, 16: 0.995059313567962, 19: 0.9928153664171769}), 
+                   QubitNoise(id=16, t1_ns=49851.954491479424, t2_ns=9997.706131333185, readout_p0=0.9732499999999998, readout_p1=0.9732499999999998, gates_1q={'r': 0.9990831146886842}, gates_2q={11: 0.9953867946344, 15: 0.995059313567962}), 
+                   QubitNoise(id=17, t1_ns=43652.37604385771, t2_ns=12076.604806666008, readout_p0=0.981, readout_p1=0.981, gates_1q={'r': 0.998870947755937}, gates_2q={13: 0.9916109430688291, 18: 0.9929779412150104}), 
+                   QubitNoise(id=18, t1_ns=54674.48077842716, t2_ns=3962.871440200661, readout_p0=0.97125, readout_p1=0.97125, gates_1q={'r': 0.9991170876565165}, gates_2q={14: 0.9938364975254941, 17: 0.9929779412150104, 19: 0.9922477883919064}), 
+                   QubitNoise(id=19, t1_ns=43505.55933919115, t2_ns=12679.178938060735, readout_p0=0.973, readout_p1=0.973, gates_1q={'r': 0.9994841361734668}, gates_2q={15: 0.9928153664171769, 18: 0.9922477883919064})]
+    return NoiseData(nqubits, coupling_map, qubit_noise)
 
 @pytest.fixture
 def gate_duration_ns_1q() -> int:
@@ -45,118 +116,17 @@ def basis_gates(basis_gates_1q, basis_gates_2q) -> list:
     return basis_gates_1q + basis_gates_2q
 
 
-def test_get_coupling_map(nqubits, calibration_data):
-    coupling_map = get_coupling_map(nqubits, calibration_data)
-    for couple in coupling_map:
-        assert (
-            len(couple) == 2
-        ), "Coupling map should be a list of pairs of connected qubits."
-        assert (
-            0 <= couple[0] < nqubits and 0 <= couple[1] < nqubits
-        ), "The qubit indices should run from 0 to nqubits -1."
-        assert [
-            couple[1],
-            couple[0],
-        ] in coupling_map, "The coupling map should be symmetric."
-
-    return
-
-
-def test_build_noise_data(nqubits, calibration_data):
-    noise_data = generate_noise_data(nqubits, calibration_data)
-    for i in range(nqubits):
-        assert (
-            str(i) in noise_data
-        ), "Noise data should hold a dict for every qubit (in string format)."
-        assert "T1_ns" in noise_data[str(i)], "Every qubit should have 'T1_ns' field."
-        assert isinstance(
-            noise_data[str(i)]["T1_ns"], float
-        ), "T1_ns should be a float."
-        assert "T2_ns" in noise_data[str(i)], "Every qubit should have 'T2_ns' field."
-        assert isinstance(
-            noise_data[str(i)]["T2_ns"], float
-        ), "T2_ns should be a float."
-        assert (
-            "measurements" in noise_data[str(i)]
-        ), "Every qubit should have 'measurements' field."
-        assert (
-            "p00" in noise_data[str(i)]["measurements"]
-        ), "field 'measurements' should have field 'p00'."
-        assert (
-            isinstance(noise_data[str(i)]["measurements"]["p00"], float)
-            and 0 <= noise_data[str(i)]["measurements"]["p00"] <= 1
-        ), "p00 should be a float between 0 and 1."
-        assert (
-            "p11" in noise_data[str(i)]["measurements"]
-        ), "field 'measurements' should have field 'p11'."
-        assert (
-            isinstance(noise_data[str(i)]["measurements"]["p11"], float)
-            and 0 <= noise_data[str(i)]["measurements"]["p11"] <= 1
-        ), "p11 should be a float between 0 and 1."
-        assert (
-            "gates_1q" in noise_data[str(i)]
-        ), "Every qubit should have 'gates_1q' field."
-        assert (
-            isinstance(noise_data[str(i)]["gates_1q"], dict)
-            and "r" in noise_data[str(i)]["gates_1q"]
-        ), "1 qubit gates entry needs 'r' field."
-        assert (
-            isinstance(noise_data[str(i)]["gates_1q"]["r"], float)
-            and 0 <= noise_data[str(i)]["gates_1q"]["r"] <= 1
-        ), "'r' should be a float between 0 and 1."
-        assert (
-            "gates_2q" in noise_data[str(i)]
-        ), "Every qubit should have 'gates_2q' field."
-        assert isinstance(
-            noise_data[str(i)]["gates_2q"], dict
-        ), "2 qubit gates field must be a dict with one entry for each connected qubit."
-        for key, value in noise_data[str(i)]["gates_2q"].items():
-            assert (
-                isinstance(key, str) and 0 <= int(key) < nqubits
-            ), "dict of 2 qubit gates must have the number of connected qubit as key (str)."
-            assert (
-                isinstance(value, float) and 0 <= value <= 1
-            ), "2 qubit gates fidelity should be a float between 0 and 1."
-
-    return
-
-
-def test_match_coupling_noise_data(nqubits, calibration_data):
-    coupling_map = get_coupling_map(nqubits, calibration_data)
-    noise_data = generate_noise_data(nqubits, calibration_data)
-    for qubit, qubit_dict in noise_data.items():
-        for second_qubit in qubit_dict["gates_2q"]:
-            assert (
-                [
-                    int(qubit),
-                    int(second_qubit),
-                ]
-                in coupling_map
-            ), f"Couple of qubits ({qubit}, {second_qubit}) in noise_data but not in coupling_map."
-    for couple in coupling_map:
-        assert (
-            str(couple[0]) in noise_data
-        ), f"Qubit {couple[0]} in coupling_map but not in noise_data."
-        assert (
-            str(couple[1]) in noise_data[str(couple[0])]["gates_2q"]
-        ), f"Couple of qubits ({couple[0],couple[1]}) in coupling_map but not noise_data"
-
-    return
-
-
-def test_build_noise_inversion_channels(nqubits, calibration_data, gate_duration_ns_1q):
-    noise_data = generate_noise_data(nqubits, calibration_data)
+def test_build_noise_inversion_channels(noise_data, gate_duration_ns_1q):
     noise_inversion_channels_1q, noise_inversion_channels_2q = (
-        build_noise_inversion_channels(nqubits, calibration_data, gate_duration_ns_1q)
+        build_noise_inversion_channels(noise_data, gate_duration_ns_1q)
     )
-    coupling_map = get_coupling_map(nqubits, calibration_data)
-    for i in range(nqubits):
+    for i in range(noise_data.n_qubits):
         assert (
             str(i) in noise_inversion_channels_1q
         ), "Noise inversion channel should hold a dict for every qubit (in string format)."
         # readout error
-        p0given0 = noise_data[str(i)]["measurements"]["p00"]
-        p1given1 = noise_data[str(i)]["measurements"]["p11"]
+        p0given0 = noise_data.qubit_noise[i].readout_p0
+        p1given1 = noise_data.qubit_noise[i].readout_p1
         readout_mat = np.array([[p0given0, 1 - p0given0], [1 - p1given1, p1given1]])
         assert (
             "measurement" in noise_inversion_channels_1q[str(i)]
@@ -166,8 +136,8 @@ def test_build_noise_inversion_channels(nqubits, calibration_data, gate_duration
             np.identity(2),
         ), "Inversion channel should have inverse readout error."
         # incoherent error
-        T1_ns = noise_data[str(i)]["T1_ns"]
-        T2_ns = noise_data[str(i)]["T2_ns"]
+        T1_ns = noise_data.qubit_noise[i].t1_ns
+        T2_ns = noise_data.qubit_noise[i].t2_ns
         thermal_relaxation = thermal_relaxation_error(
             T1_ns * 10e-9, T2_ns * 10e-9, gate_duration_ns_1q * 10e-9
         )
@@ -185,7 +155,7 @@ def test_build_noise_inversion_channels(nqubits, calibration_data, gate_duration
             gate_duration_ns_1q / T2_ns
         )
         p_coherent_error_1q = max(
-            noise_data[str(i)]["gates_1q"]["r"] - p_incoherent_error_1q, 0.0
+            noise_data.qubit_noise[i].gates_1q["r"] - p_incoherent_error_1q, 0.0
         )
         if p_coherent_error_1q <= 0:
             assert (
@@ -201,10 +171,10 @@ def test_build_noise_inversion_channels(nqubits, calibration_data, gate_duration
             @ coherent_error_1q_mat,
             np.identity(4),
         ), "Inversion channel should have inverse coherent error."
-    for q1, q2 in coupling_map:
+    for q1, q2 in noise_data.coupling_map:
         # two qubit error
         coherent_error_2q = depolarizing_error(
-            noise_data[str(q1)]["gates_2q"][str(q2)], 2
+            noise_data.qubit_noise[q1].gates_2q[q2], 2
         )
         coherent_error_2q_mat = coherent_error_2q.to_quantumchannel().data
         assert (
@@ -218,9 +188,8 @@ def test_build_noise_inversion_channels(nqubits, calibration_data, gate_duration
     return
 
 
-def test_noise_model(nqubits, calibration_data, gate_duration_ns_1q, basis_gates):
-    noise_model = get_noise_model(nqubits, basis_gates, calibration_data)
-    coupling_map = get_coupling_map(nqubits, calibration_data)
+def test_noise_model(noise_data, gate_duration_ns_1q, basis_gates):
+    noise_model = get_noise_model(noise_data, basis_gates, gate_duration_ns_1q)
     assert set(noise_model.basis_gates) == set(
         basis_gates
     ), "Basis gates set must correspond to the one given in input."
@@ -228,14 +197,15 @@ def test_noise_model(nqubits, calibration_data, gate_duration_ns_1q, basis_gates
         basis_gates + ["measure"]
     ), "Instructions with noise are all the basis set gates + measurement."
     assert noise_model.noise_qubits == list(
-        range(nqubits)
-    ), f"All qubits from 0 to {nqubits} must be regarded as noisy."
+        range(noise_data.n_qubits)
+    ), f"All qubits from 0 to {noise_data.n_qubits} must be regarded as noisy."
     noise_qubits_list = noise_model.to_dict()["errors"]
     # FIXME: we don't always have coherent error on 'r'!
     # TODO: Test should be generalized to different basis gates for different devices
-    assert (
-        isinstance(noise_qubits_list, list)
-        and len(noise_qubits_list) == nqubits * 3 + len(coupling_map)
+    assert isinstance(noise_qubits_list, list) and len(
+        noise_qubits_list
+    ) == noise_data.n_qubits * 3 + len(
+        noise_data.coupling_map
     ), "Noise model should have one dict for every qubit and every 1-qubit error + measurement or for every couple of interacting qubits."
     for error_dict in noise_qubits_list:
         assert any(
@@ -243,11 +213,13 @@ def test_noise_model(nqubits, calibration_data, gate_duration_ns_1q, basis_gates
         ), "Error model for a gate not present in the basis gates list (+ measurement)."
         if len(error_dict["gate_qubits"][0]) == 1:
             assert (
-                0 <= error_dict["gate_qubits"][0][0] < nqubits
+                0 <= error_dict["gate_qubits"][0][0] < noise_data.n_qubits
             ), "Qubit number out of range."
         else:
             assert (
-                list(error_dict["gate_qubits"][0]) in coupling_map
+                list(error_dict["gate_qubits"][0]) in noise_data.coupling_map
             ), "Couple of qubits not connected on the device."
 
     return
+
+
