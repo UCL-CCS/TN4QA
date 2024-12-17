@@ -81,8 +81,8 @@ def test_build_noise_data(nqubits, calibration_data):
         ), "2-qubit gates field must be a dict."
         for key, value in noise_data.qubit_noise[i].gates_2q.items():
             assert (
-                isinstance(key, str) and 0 <= int(key) < nqubits
-            ), "dict of 2-qubit gates must have the number of connected qubit as key (str)."
+                isinstance(key, int) and 0 <= key < nqubits
+            ), "dict of 2-qubit gates must have the number of connected qubit as key."
             assert (
                 isinstance(value, float) and 0 <= value <= 1
             ), "2-qubit gates fidelity should be a float between 0 and 1."
