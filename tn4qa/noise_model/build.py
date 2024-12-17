@@ -69,7 +69,7 @@ def _add_coherent_noise(
         p_incoherent_error_1q = (gate_duration_ns_1q / T1_ns) + (
             gate_duration_ns_1q / T2_ns
         )
-        p_total_error_1q = noise_data[str(qidx)]["gates_1q"]["r"]
+        p_total_error_1q = noise_data.qubit_noise[qidx].gates_1q["r"]
         p_coherent_error_1q = max(p_total_error_1q - p_incoherent_error_1q, 0.0)
         if p_coherent_error_1q <= 0:
             continue
@@ -109,7 +109,7 @@ def _add_two_qubit_noise(
     logger.debug("Adding two qubit noise.")
     for q1, q2 in noise_data.coupling_map:
         logger.debug("q%dq%d", q1, q2)
-        error_rate = noise_data[str(q1)]["gates_2q"][str(q2)]
+        error_rate = noise_data.qubit_noise[q1].gates_2q[q2]
         coherent_error_2q = depolarizing_error(error_rate, 2)
         if isinstance(target, NoiseModel):
             target.add_quantum_error(coherent_error_2q, ["cz"], [q1, q2])
