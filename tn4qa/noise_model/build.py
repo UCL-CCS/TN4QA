@@ -10,9 +10,7 @@ from qiskit_aer.noise import (
     thermal_relaxation_error,
 )
 
-from tn4qa.noise_model.noise_data import (
-    NoiseData,
-)
+from tn4qa.noise_model.noise_data import NoiseData
 
 logger = logging.getLogger(__name__)
 
