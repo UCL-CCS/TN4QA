@@ -1,7 +1,25 @@
 import logging
 from typing import Any
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class QubitNoise:
+    id: int
+    t1_ns: float
+    t2_ns: float
+    readout_p0: float
+    readout_p1: float
+    gates_1q: dict[str, float]
+    gates_2q: dict[int, float]
+
+@dataclass
+class NoiseData:
+    n_qubits: int
+    coupling_map: list[list[int]]
+    noise: list[QubitNoise]
 
 
 def get_coupling_map(nqubits: int, data: dict[str, Any]) -> list[list[int]]:
