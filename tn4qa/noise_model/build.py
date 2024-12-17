@@ -32,7 +32,7 @@ def _add_readout_noise(
             target.add_readout_error(readout_error, [qidx])
         else:
             inv_readout_error = np.linalg.inv(readout_error_mat)
-            target[str(qidx)]["measurement"] = inv_readout_error
+            target[qidx]["measurement"] = inv_readout_error
 
 
 def _add_incoherent_noise(
@@ -53,7 +53,7 @@ def _add_incoherent_noise(
         else:
             thermal_relaxation_mat = thermal_relaxation.to_quantumchannel().data
             inv_thermal_relaxation = np.linalg.inv(thermal_relaxation_mat)
-            target[str(qidx)]["thermal relaxation"] = inv_thermal_relaxation
+            target[qidx]["thermal relaxation"] = inv_thermal_relaxation
 
 
 def _add_coherent_noise(
@@ -81,7 +81,7 @@ def _add_coherent_noise(
         else:
             coherent_error_1q_mat = coherent_error_1q.to_quantumchannel().data
             inv_coherent_error_1q = np.linalg.inv(coherent_error_1q_mat)
-            target[str(qidx)]["coherent error"] = inv_coherent_error_1q
+            target[qidx]["coherent error"] = inv_coherent_error_1q
 
 
 def _add_single_qubit_noise(
