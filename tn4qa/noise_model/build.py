@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 
 def _add_readout_noise(
-    noise_data: dict[str | int, Any],
-    target: NoiseModel | dict[str, dict[str, np.ndarray]],
+    noise_data: NoiseData,
+    target: NoiseModel | dict[int, dict[str, np.ndarray]],
 ) -> None:
     logger.debug("Adding readout noise for:")
     for qidx in range(noise_data.n_qubits):
@@ -36,8 +36,8 @@ def _add_readout_noise(
 
 
 def _add_incoherent_noise(
-    noise_data: dict[str | int, Any],
-    target: NoiseModel | dict[str, dict[str, np.ndarray]],
+    noise_data: NoiseData,
+    target: NoiseModel | dict[int, dict[str, np.ndarray]],
     gate_duration_ns_1q: int = 20,
 ) -> None:
     logger.debug("Adding incoherent noise for:")
@@ -57,8 +57,8 @@ def _add_incoherent_noise(
 
 
 def _add_coherent_noise(
-    noise_data: dict[str | int, Any],
-    target: NoiseModel | dict[str, dict[str, np.ndarray]],
+    noise_data: NoiseData,
+    target: NoiseModel | dict[int, dict[str, np.ndarray]],
     gate_duration_ns_1q: int = 20,
 ) -> None:
     logger.debug("Adding coherent noise for:")
@@ -85,8 +85,8 @@ def _add_coherent_noise(
 
 
 def _add_single_qubit_noise(
-    noise_data: dict[str | int, Any],
-    target: NoiseModel | dict[str, dict[str, np.ndarray]],
+    noise_data: NoiseData,
+    target: NoiseModel | dict[int, dict[str, np.ndarray]],
     gate_duration_ns_1q: int = 20,
 ) -> None:
     logger.debug("Adding single qubit noise.")
@@ -103,8 +103,8 @@ def _add_single_qubit_noise(
 
 
 def _add_two_qubit_noise(
-    noise_data: dict[str | int, Any],
-    target: NoiseModel | dict[str, np.ndarray],
+    noise_data: NoiseData,
+    target: NoiseModel | dict[int, np.ndarray],
 ) -> None:
     logger.debug("Adding two qubit noise.")
     for q1, q2 in noise_data.coupling_map:
