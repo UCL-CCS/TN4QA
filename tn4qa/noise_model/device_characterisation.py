@@ -21,8 +21,8 @@ class QubitNoise:
         t2_ns: int=0, 
         readout_p0: int=0, 
         readout_p1: int=0, 
-        gates_1q: dict={}, 
-        gates_2q: dict={}
+        gates_1q: dict[str, float]={}, 
+        gates_2q: dict[int, float]={}
     ):
         self.id = id
         self.t1_ns = t1_ns
@@ -39,7 +39,12 @@ class NoiseData:
     coupling_map: list[list[int]]
     qubit_noise: list[QubitNoise]
 
-    def __init__(self, n_qubits: int=0, coupling_map: list=[], qubit_noise: list=[]):
+    def __init__(
+        self, 
+        n_qubits: int=0, 
+        coupling_map: list[list[int]]=[], 
+        qubit_noise: list[QubitNoise]=[]
+    ):
         self.n_qubits = n_qubits
         self.coupling_map = coupling_map
         self.qubit_noise = qubit_noise
@@ -112,11 +117,11 @@ def generate_noise_data(num_qubits: int, data: dict[str, Any]) -> NoiseData:
             t2_ns = _get_t2_time(qidx, data) * 1e9,
             readout_p0 = readout_fid,
             readout_p1 = readout_fid,
-            gates_1q = {"r": _get_1q_gate_fid(qidx, data)}
+            gates_1q = {"r": _get_1q_gate_fid(qidx, data)},
+            gates_2q = {}
         )
         for q1, q2 in noise_data.coupling_map:
             if q1 == qidx:
-                single_qubit_noise.gates_2q[str(q2)] = _get_2q_gate_fid(q1, q2, data)
-
+                single_qubit_noise.gates_2q[q2] = _get_2q_gate_fid(q1, q2, data)
         noise_data.qubit_noise.append(single_qubit_noise)
     return noise_data
