@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass
 class QubitNoise:
     id: int
@@ -19,7 +18,7 @@ class QubitNoise:
 class NoiseData:
     n_qubits: int
     coupling_map: list[list[int]]
-    noise: list[QubitNoise]
+    qubit_noise: list[QubitNoise]
 
 
 def get_coupling_map(nqubits: int, data: dict[str, Any]) -> list[list[int]]:
@@ -77,22 +76,25 @@ def _get_2q_gate_fid(
     return fid
 
 
-def generate_noise_data(num_qubits: int, data: dict[str, Any]) -> dict[str | int, Any]:
+def generate_noise_data(num_qubits: int, data: dict[str, Any]) -> NoiseData:
     logger.debug("Generating noise data for:")
-    noise_data: dict[str | int, Any] = {}
-    coupling_map = get_coupling_map(num_qubits, data)
+    noise_data = NoiseData()
+    noise_data.coupling_map = get_coupling_map(num_qubits, data)
+    noise_data.n_qubits = num_qubits
     for qidx in range(num_qubits):
         logger.debug("qubit %d", qidx)
-        noise_dict: dict[str, Any] = {}
-        noise_dict["T1_ns"] = _get_t1_time(qidx, data) * 1e9
-        noise_dict["T2_ns"] = _get_t2_time(qidx, data) * 1e9
+        single_qubit_noise = QubitNoise()
+        single_qubit_noise.id = qidx
+        single_qubit_noise.t1_ns = _get_t1_time(qidx, data) * 1e9
+        single_qubit_noise.t2_ns = _get_t2_time(qidx, data) * 1e9
         readout_fid = _get_readout_fid(qidx, data)
-        noise_dict["measurements"] = {"p00": readout_fid, "p11": readout_fid}
-        noise_dict["gates_1q"] = {"r": _get_1q_gate_fid(qidx, data)}
-        noise_dict["gates_2q"] = {}
-        for q1, q2 in coupling_map:
+        single_qubit_noise.readout_p0 = readout_fid
+        single_qubit_noise.readout_p1 = readout_fid
+        single_qubit_noise.gates_1q = {"r": _get_1q_gate_fid(qidx, data)}
+        single_qubit_noise.gates_2q = {}
+        for q1, q2 in noise_data.coupling_map:
             if q1 == qidx:
-                noise_dict["gates_2q"][str(q2)] = _get_2q_gate_fid(q1, q2, data)
+                single_qubit_noise.gates_2q[str(q2)] = _get_2q_gate_fid(q1, q2, data)
 
-        noise_data[str(qidx)] = noise_dict
+        noise_data.qubit_noise.append(single_qubit_noise)
     return noise_data

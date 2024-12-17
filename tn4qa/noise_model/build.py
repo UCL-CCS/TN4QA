@@ -12,22 +12,20 @@ from qiskit_aer.noise import (
 
 from tn4qa.noise_model.device_characterisation import (
     generate_noise_data,
-    get_coupling_map,
 )
 
 logger = logging.getLogger(__name__)
 
 
 def _add_readout_noise(
-    num_qubits: int,
     noise_data: dict[str | int, Any],
     target: NoiseModel | dict[str, dict[str, np.ndarray]],
 ) -> None:
     logger.debug("Adding readout noise for:")
-    for qidx in range(num_qubits):
+    for qidx in range(noise_data.n_qubits):
         logger.debug("qubit %d", qidx)
-        p0given0 = noise_data[str(qidx)]["measurements"]["p00"]
-        p1given1 = noise_data[str(qidx)]["measurements"]["p11"]
+        p0given0 = noise_data.qubit_noise[qidx].readout_p0
+        p1given1 = noise_data.qubit_noise[qidx].readout_p1
         readout_error_mat = np.array(
             [[p0given0, 1 - p0given0], [1 - p1given1, p1given1]]
         )
@@ -40,16 +38,15 @@ def _add_readout_noise(
 
 
 def _add_incoherent_noise(
-    num_qubits: int,
     noise_data: dict[str | int, Any],
     target: NoiseModel | dict[str, dict[str, np.ndarray]],
     gate_duration_ns_1q: int = 20,
 ) -> None:
     logger.debug("Adding incoherent noise for:")
-    for qidx in range(num_qubits):
+    for qidx in range(noise_data.n_qubits):
         logger.debug("qubit %d", qidx)
-        T1_ns = noise_data[str(qidx)]["T1_ns"]
-        T2_ns = noise_data[str(qidx)]["T2_ns"]
+        T1_ns = noise_data.qubit_noise[qidx].t1_ns
+        T2_ns = noise_data.qubit_noise[qidx].t2_ns
         thermal_relaxation = thermal_relaxation_error(
             T1_ns * 10e-9, T2_ns * 10e-9, gate_duration_ns_1q * 10e-9
         )
@@ -62,16 +59,15 @@ def _add_incoherent_noise(
 
 
 def _add_coherent_noise(
-    num_qubits: int,
     noise_data: dict[str | int, Any],
     target: NoiseModel | dict[str, dict[str, np.ndarray]],
     gate_duration_ns_1q: int = 20,
 ) -> None:
     logger.debug("Adding coherent noise for:")
-    for qidx in range(num_qubits):
+    for qidx in range(noise_data.n_qubits):
         logger.debug("qubit %d", qidx)
-        T1_ns = noise_data[str(qidx)]["T1_ns"]
-        T2_ns = noise_data[str(qidx)]["T2_ns"]
+        T1_ns = noise_data.qubit_noise[qidx].t1_ns
+        T2_ns = noise_data.qubit_noise[qidx].t2_ns
         p_incoherent_error_1q = (gate_duration_ns_1q / T1_ns) + (
             gate_duration_ns_1q / T2_ns
         )
@@ -91,20 +87,17 @@ def _add_coherent_noise(
 
 
 def _add_single_qubit_noise(
-    num_qubits: int,
     noise_data: dict[str | int, Any],
     target: NoiseModel | dict[str, dict[str, np.ndarray]],
     gate_duration_ns_1q: int = 20,
 ) -> None:
     logger.debug("Adding single qubit noise.")
     _add_incoherent_noise(
-        num_qubits,
         noise_data,
         target,
         gate_duration_ns_1q,
     )
     _add_coherent_noise(
-        num_qubits,
         noise_data,
         target,
         gate_duration_ns_1q,
@@ -112,12 +105,11 @@ def _add_single_qubit_noise(
 
 
 def _add_two_qubit_noise(
-    coupling_map: list[list[int]],
     noise_data: dict[str | int, Any],
     target: NoiseModel | dict[str, np.ndarray],
 ) -> None:
     logger.debug("Adding two qubit noise.")
-    for q1, q2 in coupling_map:
+    for q1, q2 in noise_data.coupling_map:
         logger.debug("q%dq%d", q1, q2)
         error_rate = noise_data[str(q1)]["gates_2q"][str(q2)]
         coherent_error_2q = depolarizing_error(error_rate, 2)
@@ -137,17 +129,15 @@ def get_noise_model(
 ) -> NoiseModel:
     logger.debug("Building noise model.")
     noise_model = NoiseModel(basis_gates=basis_gates)
-    coupling_map = get_coupling_map(num_qubits, data)
     noise_data = generate_noise_data(num_qubits, data)
     # noise contributions
-    _add_readout_noise(num_qubits, noise_data, noise_model)
+    _add_readout_noise(noise_data, noise_model)
     _add_single_qubit_noise(
-        num_qubits,
         noise_data,
         noise_model,
         gate_duration_ns_1q,
     )
-    _add_two_qubit_noise(coupling_map, noise_data, noise_model)
+    _add_two_qubit_noise(noise_data, noise_model)
     return noise_model
 
 
@@ -157,7 +147,6 @@ def build_noise_inversion_channels(
     gate_duration_ns_1q: int = 20,
 ) -> tuple[dict[str, dict[str, np.ndarray]], dict[str, np.ndarray]]:
     logger.debug("Building noise inversion channels.")
-    coupling_map = get_coupling_map(num_qubits, data)
     noise_data = generate_noise_data(num_qubits, data)
     # the following line uses nested default dicts, providing an Identity as default
     # if you query unknown keys like dict["a"]["b"], it will return the identity matrix
@@ -166,15 +155,13 @@ def build_noise_inversion_channels(
     )  # avoids ugly if check in _add_coherent_noise
     noise_inversion_channels_2q: dict[str, np.ndarray] = {}
     # error contribution
-    _add_readout_noise(num_qubits, noise_data, noise_inversion_channels_1q)
+    _add_readout_noise(noise_data, noise_inversion_channels_1q)
     _add_single_qubit_noise(
-        num_qubits,
         noise_data,
         noise_inversion_channels_1q,
         gate_duration_ns_1q,
     )
     _add_two_qubit_noise(
-        coupling_map,
         noise_data,
         noise_inversion_channels_2q,
     )
