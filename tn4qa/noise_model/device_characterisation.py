@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from noise_data import QubitNoise, NoiseData
+from tn4qa.noise_model.noise_data import QubitNoise, NoiseData
 
 logger = logging.getLogger(__name__)
 

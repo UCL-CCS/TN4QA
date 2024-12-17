@@ -3,10 +3,10 @@
 import json
 import pytest
 
+from tn4qa.noise_model.noise_data import QubitNoise
 from tn4qa.noise_model.device_characterisation import (
-    QubitNoise,
     generate_noise_data,
-    get_coupling_map,
+    get_coupling_map
 )
 
 
