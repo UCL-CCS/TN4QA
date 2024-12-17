@@ -10,8 +10,8 @@ from qiskit_aer.noise import (
     thermal_relaxation_error,
 )
 
-from tn4qa.noise_model.device_characterisation import (
-    generate_noise_data,
+from tn4qa.noise_model.noise_data import (
+    NoiseData,
 )
 
 logger = logging.getLogger(__name__)
@@ -122,14 +122,12 @@ def _add_two_qubit_noise(
 
 
 def get_noise_model(
-    num_qubits: int,
+    noise_data: NoiseData,
     basis_gates: list[str],
-    data: dict[str, Any],
     gate_duration_ns_1q: int = 20,
 ) -> NoiseModel:
     logger.debug("Building noise model.")
     noise_model = NoiseModel(basis_gates=basis_gates)
-    noise_data = generate_noise_data(num_qubits, data)
     # noise contributions
     _add_readout_noise(noise_data, noise_model)
     _add_single_qubit_noise(
@@ -142,12 +140,10 @@ def get_noise_model(
 
 
 def build_noise_inversion_channels(
-    num_qubits: int,
-    data: dict[str, Any],
+    noise_data: NoiseData,
     gate_duration_ns_1q: int = 20,
 ) -> tuple[dict[str, dict[str, np.ndarray]], dict[str, np.ndarray]]:
     logger.debug("Building noise inversion channels.")
-    noise_data = generate_noise_data(num_qubits, data)
     # the following line uses nested default dicts, providing an Identity as default
     # if you query unknown keys like dict["a"]["b"], it will return the identity matrix
     noise_inversion_channels_1q: dict[str, dict[str, np.ndarray]] = defaultdict(
