@@ -16,7 +16,10 @@ qiskit = "^1.3.0"
 qiskit-ibm-runtime = "^0.34.0"
 qiskit-aer = "^0.15.1"
 cotengra = "^0.6.2"
-kahypar = "^1.3.5"
+kahypar = [
+    {version = "^1.3.5", platform = "darwin"},
+    {version = "^1.3.5", platform = "linux"}
+]
 block2 = "^0.5.3"
 symmer = "^0.0.7"
 scipy = "~1.9.3"
@@ -41,6 +44,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.pytest.ini_options]
 filterwarnings = [
     "ignore:.*The property ``qiskit.dagcircuit.dagcircuit.DAGCircuit.(duration|unit)`` is deprecated as of qiskit 1.3.0.*",
+    "ignore:.*Couldn't import `kahypar` - skipping from default hyper optimizer and using basic `labels` method instead.*",
 ]
 
 [tool.ruff]
