@@ -20,6 +20,18 @@ class QubitNoise:
         gates_1q: dict[str, float]={}, 
         gates_2q: dict[int, float]={}
     ):
+        """
+        Constructor for QubitNoise class.
+        
+        Args:
+            id: Qubit's index.
+            t1_ns: Time T1 in nanoseconds.
+            t2_ns: Time T2 in nanoseconds.
+            readout_p0: Readout probability p0.
+            readout_p1: Readout probability p1.
+            gates_1q: Dict containing the one-qubit gates' fidelities.
+            gates_2q: Dict containing the two-qubit gates' fidelities (for each coupled qubit).
+        """
         self.id = id
         self.t1_ns = t1_ns
         self.t2_ns = t2_ns
@@ -41,6 +53,14 @@ class NoiseData:
         coupling_map: list[list[int]]=[], 
         qubit_noise: list[QubitNoise]=[]
     ):
+        """
+        Constructor for NoiseData class.
+
+            Args:
+            n_qubits: Number of qubits of the device.
+            coupling_map: Map of coupled qubits on the device.
+            qubit_noise: List of QubitNoise instances.
+        """
         self.n_qubits = n_qubits
         self.coupling_map = coupling_map
         self.qubit_noise = qubit_noise

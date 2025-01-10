@@ -19,6 +19,13 @@ def _add_readout_noise(
     noise_data: NoiseData,
     target: NoiseModel | dict[int, dict[str, np.ndarray]],
 ) -> None:
+    """
+    Adds readout noise to every qubit either on a NoiseModel instance or a noise inversion channel dict.
+        
+        Args:
+            noise_data: Instance of the classe NoiseData.
+            target: Either a NoiseModel instance or a noise inversion channel dict.
+    """
     logger.debug("Adding readout noise for:")
     for qidx in range(noise_data.n_qubits):
         logger.debug("qubit %d", qidx)
@@ -40,6 +47,14 @@ def _add_incoherent_noise(
     target: NoiseModel | dict[int, dict[str, np.ndarray]],
     gate_duration_ns_1q: int = 20,
 ) -> None:
+    """
+    Adds incoherent noise to every qubit either on a NoiseModel instance or a noise inversion channel dict.
+
+        Args:
+            noise_data: Instance of the classe NoiseData.
+            target: Either a NoiseModel instance or a noise inversion channel dict.
+            gate_duration_ns_1q: 1-qubit gate duration in nanoseconds.
+    """
     logger.debug("Adding incoherent noise for:")
     for qidx in range(noise_data.n_qubits):
         logger.debug("qubit %d", qidx)
@@ -61,6 +76,14 @@ def _add_coherent_noise(
     target: NoiseModel | dict[int, dict[str, np.ndarray]],
     gate_duration_ns_1q: int = 20,
 ) -> None:
+    """
+    Adds coherent noise either to a NoiseModel instance or a noise inversion channel dict (if needed).
+        
+        Args:
+            noise_data: Instance of the classe NoiseData.
+            target: Either a NoiseModel instance or a noise inversion channel dict.
+            gate_duration_ns_1q: 1-qubit gate duration in nanoseconds.
+    """
     logger.debug("Adding coherent noise for:")
     for qidx in range(noise_data.n_qubits):
         logger.debug("qubit %d", qidx)
@@ -89,6 +112,14 @@ def _add_single_qubit_noise(
     target: NoiseModel | dict[int, dict[str, np.ndarray]],
     gate_duration_ns_1q: int = 20,
 ) -> None:
+    """
+    Adds coherent and incoherent single-qubit noise to every qubit either on a NoiseModel instance or a noise inversion channel dict.
+        
+        Args:
+            noise_data: Instance of the classe NoiseData.
+            target: Either a NoiseModel instance or a noise inversion channel dict.
+            gate_duration_ns_1q: 1-qubit gate duration in nanoseconds.
+    """
     logger.debug("Adding single qubit noise.")
     _add_incoherent_noise(
         noise_data,
@@ -106,6 +137,13 @@ def _add_two_qubit_noise(
     noise_data: NoiseData,
     target: NoiseModel | dict[int, np.ndarray],
 ) -> None:
+    """
+    Adds two-qubit noise to couples of qubits in the coupling map either on a NoiseModel instance or a noise inversion channel dict.
+        
+        Args:
+            noise_data: Instance of the classe NoiseData.
+            target: Either a NoiseModel instance or a noise inversion channel dict.
+    """
     logger.debug("Adding two qubit noise.")
     for q1, q2 in noise_data.coupling_map:
         logger.debug("q%dq%d", q1, q2)
@@ -124,6 +162,17 @@ def get_noise_model(
     basis_gates: list[str],
     gate_duration_ns_1q: int = 20,
 ) -> NoiseModel:
+    """
+    Builds NoiseModel instance adding readout, single- and two-qubit noise.
+        
+        Args:
+            noise_data: Instance of the classe NoiseData.
+            basis_gates: List of allowed gates
+            gate_duration_ns_1q: 1-qubit gate duration in nanoseconds.
+        
+        Returns:
+            NoiseModel instance
+    """
     logger.debug("Building noise model.")
     noise_model = NoiseModel(basis_gates=basis_gates)
     # noise contributions
@@ -141,6 +190,16 @@ def build_noise_inversion_channels(
     noise_data: NoiseData,
     gate_duration_ns_1q: int = 20,
 ) -> tuple[dict[str, dict[str, np.ndarray]], dict[str, np.ndarray]]:
+    """
+    Builds one- and two-qubit noise inversion channel dicts adding readout, single- and two-qubit noise.
+        
+        Args:
+            noise_data: Instance of the classe NoiseData.
+            gate_duration_ns_1q: 1-qubit gate duration in nanoseconds.
+        
+        Returns:
+            Tuple of single- and two-qubit noise inversion channel dicts.
+    """
     logger.debug("Building noise inversion channels.")
     # the following line uses nested default dicts, providing an Identity as default
     # if you query unknown keys like dict["a"]["b"], it will return the identity matrix
