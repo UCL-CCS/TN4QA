@@ -1,7 +1,26 @@
+import json
+import os
 import time
 
-import quimb.tensor as qtn
 from quimb.tensor.tensor_dmrg import DMRG, DMRG2
+
+from qmmbed.tense import _hamiltonian_to_mpo
+
+
+def load_hamiltonian(file_path):
+    """Load the Hamiltonian from a JSON file and convert to QubitOperator."""
+    with open(file_path, "r") as f:
+        data = json.load(f)
+
+    return data
+
+
+def create_mpo(file_path):
+    """Convert Hamiltonian to an MPO using the provided helper function."""
+    hamiltonian = load_hamiltonian(file_path)
+    print(hamiltonian)
+
+    return _hamiltonian_to_mpo(hamiltonian)
 
 
 def run_dmrg_benchmark(method, ham, bond_dims, tol, max_sweeps):
@@ -33,64 +52,36 @@ tolerances = [1e-4, 1e-6]
 max_sweeps_list = [10, 20]
 methods = ["DMRG", "DMRG2"]
 
-
-# Different Hamiltonians for variety
-
-
-def create_hamiltonians(n_sites):
-    """Create a variety of MPO Hamiltonians for testing."""
-    J = 1.0
-    delta = 0.5  # XXZ anisotropy
-
-    # Heisenberg Hamiltonian
-
-    heis_ham = qtn.SpinHam1D(S=1 / 2)
-    heis_ham += J, "X", "X"
-    heis_ham += J, "Y", "Y"
-    heis_ham += J, "Z", "Z"
-    heis_mpo = heis_ham.build_mpo(n_sites)
-
-    # XXZ Hamiltonian
-
-    xxz_ham = qtn.SpinHam1D(S=1 / 2)
-    xxz_ham += J, "X", "X"
-    xxz_ham += J, "Y", "Y"
-    xxz_ham += delta * J, "Z", "Z"
-    xxz_mpo = xxz_ham.build_mpo(n_sites)
-
-    return {"Heisenberg": heis_mpo, "XXZ": xxz_mpo}
+# Create MPO
+file_path = "C:/Users/isabe/OneDrive/Documenti/isabe/PycharmProjects/QETAMINE/hamiltonians/LiH.json"
+mpo = create_mpo(file_path)
 
 
 # Run benchmarks
 
 results = []
-for n_sites in system_sizes:
-    hamiltonians = create_hamiltonians(n_sites)
-    for h_name, hamiltonian in hamiltonians.items():
-        for bond_dims in bond_dims_list:
-            for tol in tolerances:
-                for max_sweeps in max_sweeps_list:
-                    for method in methods:
-                        result = run_dmrg_benchmark(
-                            method, hamiltonian, bond_dims, tol, max_sweeps
-                        )
-                        result.update(
-                            {
-                                "hamiltonian": h_name,
-                                "n_sites": n_sites,
-                                "bond_dims": bond_dims,
-                                "tol": tol,
-                                "max_sweeps": max_sweeps,
-                            }
-                        )
-                        results.append(result)
+for bond_dims in bond_dims_list:
+    for tol in tolerances:
+        for max_sweeps in max_sweeps_list:
+            for method in methods:
+                result = run_dmrg_benchmark(
+                    method, mpo, bond_dims, tol, max_sweeps
+                )
+                result.update(
+                    {
+                        "hamiltonian": os.path.splitext(os.path.basename(file_path))[0],
+                        "bond_dims": bond_dims,
+                        "tol": tol,
+                        "max_sweeps": max_sweeps,
+                    }
+                )
+                results.append(result)
 
 # Output benchmarking results
 
 for result in results:
     print(
         f"Hamiltonian: {result['hamiltonian']}\n"
-        f"System size: {result['n_sites']} sites\n"
         f"Bond dimensions: {result['bond_dims']}\n"
         f"Tolerance: {result['tol']}\n"
         f"Max sweeps: {result['max_sweeps']}\n"
@@ -99,3 +90,4 @@ for result in results:
         f"  Ground state energy: {result['energy']}\n"
         f"  Runtime: {result['runtime']:.2f} seconds\n"
     )
+
