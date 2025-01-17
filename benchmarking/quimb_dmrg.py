@@ -4,7 +4,7 @@ import time
 
 from quimb.tensor.tensor_dmrg import DMRG, DMRG2
 
-from qmmbed.tense import _hamiltonian_to_mpo
+from benchmarking.utils import _hamiltonian_to_mpo
 
 
 def load_hamiltonian(file_path):
