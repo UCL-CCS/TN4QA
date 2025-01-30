@@ -31,6 +31,8 @@ def run_dmrg_benchmark(method, file_path, bond_dims, tol, max_sweeps):
 
     # Load Hamiltonian and create MPO (not used for FermionDMRG directly)
     mpo = create_mpo(file_path)
+    ham = load_hamiltonian(file_path)
+    ham_dict =  {k: float(v[0]) for k, v in ham.items()}
 
     # Prepare the SCF object for FermionDMRG
     mol = gto.M(atom="N 0 0 0; N 0 0 1.1", basis="sto3g", symmetry="d2h", verbose=0)
@@ -49,17 +51,22 @@ def run_dmrg_benchmark(method, file_path, bond_dims, tol, max_sweeps):
         dmrg_solver = FermionDMRG(scf_obj=mf, HF_symmetry="RHF", max_mps_bond=bond_dims[-1])
         energy = dmrg_solver.run(maxiter=max_sweeps)
         converged = True  # FermionDMRG doesn't have a 'solve' method
+    elif method == "QubitDMRG":
+        dmrg_solver = QubitDMRG(ham_dict, max_mps_bond=bond_dims[-1])
+        energy, _ = dmrg_solver.run(maxiter=max_sweeps)
+        converged = True
     else:
         raise ValueError(f"Unknown method: {method}")
     
     # For other methods, we solve the DMRG
     if method != "FermionDMRG":
-        converged = dmrg_solver.solve(tol=tol, max_sweeps=max_sweeps, verbosity=0)
-        energy = dmrg_solver.energy
+        if method != "QubitDMRG":
+            converged = dmrg_solver.solve(tol=tol, max_sweeps=max_sweeps, verbosity=0)
+            energy = dmrg_solver.energy
         
-        # Check if the DMRG converged successfully before accessing the energy
-        if not converged:
-            raise RuntimeError(f"DMRG did not converge for method {method}.")
+            # Check if the DMRG converged successfully before accessing the energy
+            if not converged:
+                raise RuntimeError(f"DMRG did not converge for method {method}.")
     end_time = time.time()
 
     # Return the results in a consistent format
@@ -73,11 +80,11 @@ def run_dmrg_benchmark(method, file_path, bond_dims, tol, max_sweeps):
 
 # Benchmark settings
 
-system_sizes = [10, 20]
-bond_dims_list = [[8, 16, 32], [16, 32, 64]]
-tolerances = [1e-4, 1e-6]
-max_sweeps_list = [10, 20]
-methods = ["DMRG", "DMRG2", "FermionDMRG"]  # Added FermionDMRG to the methods list
+system_sizes = 10
+bond_dims_list = [[8, 16, 32] , [16, 32, 64]]
+tolerances = [1e-4, 1e-5]
+max_sweeps_list = [10, 12]
+methods = ["DMRG", "DMRG2", "FermionDMRG", "QubitDMRG"]  # Added FermionDMRG to the methods list
 
 # Path to the Hamiltonian
 file_path = "/workspaces/TN4QA/hamiltonians/LiH.json"
