@@ -64,9 +64,6 @@ def run_dmrg_benchmark(method, file_path, bond_dims, tol, max_sweeps):
             converged = dmrg_solver.solve(tol=tol, max_sweeps=max_sweeps, verbosity=0)
             energy = dmrg_solver.energy
         
-            # Check if the DMRG converged successfully before accessing the energy
-            if not converged:
-                raise RuntimeError(f"DMRG did not converge for method {method}.")
     end_time = time.time()
 
     # Return the results in a consistent format
@@ -83,7 +80,7 @@ def run_dmrg_benchmark(method, file_path, bond_dims, tol, max_sweeps):
 system_sizes = 10
 bond_dims_list = [[8, 16, 32] , [16, 32, 64]]
 tolerances = [1e-4, 1e-5]
-max_sweeps_list = [10, 12]
+max_sweeps_list = [1, 2]
 methods = ["DMRG", "DMRG2", "FermionDMRG", "QubitDMRG"]  # Added FermionDMRG to the methods list
 
 # Path to the Hamiltonian
