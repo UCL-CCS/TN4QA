@@ -4,6 +4,7 @@ from typing import List, Tuple, Dict
 
 import quimb.tensor as qtn
 import sparse
+import pyscf
 
 
 class PauliTerm(Enum):
@@ -116,3 +117,27 @@ def _hamiltonian_to_mpo(hamiltonian: Dict[str, Tuple[complex]]) -> qtn.MatrixPro
 
     # Combine tensors into a MatrixProductOperator
     return qtn.MatrixProductOperator([first_tensor] + middle_tensors + [last_tensor])
+
+def load_scf_from_chk(
+    chk_path : str,
+    scf_method : str = 'RHF'
+) -> pyscf.scf.hf.RHF:
+    """
+    Loads a PySCF SCF object from a .chk (checkpoint) file.
+
+    Args:
+        chk_path (str): path to the .chk file to load.
+        scf_method (str): the SCF method to use (only RHF at the moment).
+
+    Returns:
+        scf_object (pyscf.scf.hf.RHF): the SCF object.
+    """
+    if scf_method == 'RHF':
+        scf_object = pyscf.scf.RHF(
+            mol = pyscf.scf.chkfile.load_scf(chk_path)[0]
+        )
+        scf_object.__dict__.update(pyscf.scf.chkfile.load(chk_path, 'scf'))
+        scf_object.run()
+        return scf_object
+    else:
+        raise NotImplementedError(f"SCF method {scf_method} not implemented.")
