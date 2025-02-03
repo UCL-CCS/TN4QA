@@ -72,33 +72,32 @@ system_sizes = 10
 bond_dims_list = [[8, 16, 32]]
 tolerances = [1e-4]
 max_sweeps_list = [4]
-methods = ["DMRG", "DMRG2", "FermionDMRG", "QubitDMRG"]  # Added FermionDMRG to the methods list
+methods = ["DMRG", "DMRG2", "FermionDMRG", "QubitDMRG"]  
 
 # Path to the Hamiltonian
 ham_file_paths= ["hamiltonians/HeH.json", "hamiltonians/LiH.json"]
 scf_file_paths = ["hamiltonians/HeH_sto-3g.chk", "hamiltonians/LiH_sto-3g.chk"]
-
+file_paths = [["hamiltonians/HeH.json","hamiltonians/HeH_sto-3g.chk"],["hamiltonians/LiH.json", "hamiltonians/LiH_sto-3g.chk"]]
 # Run benchmarks
 
 results = []
-for ham_file_path in ham_file_paths:
-    for scf_file_path in scf_file_paths:
-        for bond_dims in bond_dims_list:
-            for tol in tolerances:
-                for max_sweeps in max_sweeps_list:
-                    for method in methods:
-                        result = run_dmrg_benchmark(
-                            method, ham_file_path, scf_file_path, bond_dims, tol, max_sweeps
-                        )
-                        result.update(
+for ham_file_path, scf_file_path in file_paths:
+    for bond_dims in bond_dims_list:
+        for tol in tolerances:
+            for max_sweeps in max_sweeps_list:
+                for method in methods:
+                    result = run_dmrg_benchmark(
+                        method, ham_file_path, scf_file_path, bond_dims, tol, max_sweeps
+                    )
+                    result.update(
                             {
                                 "hamiltonian": os.path.splitext(os.path.basename(ham_file_path))[0],
                                 "bond_dims": bond_dims,
                                 "tol": tol,
                                 "max_sweeps": max_sweeps,
                             }
-                        )
-                        results.append(result)
+                    )
+                    results.append(result)
 
 # Output benchmarking results
 
