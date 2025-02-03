@@ -1,39 +1,35 @@
 import json
 import os
 import time
+import numpy as np
 
 from quimb.tensor.tensor_dmrg import DMRG, DMRG2
 from tn4qa.dmrg import FermionDMRG, QubitDMRG
 
-from benchmarking.utils import _hamiltonian_to_mpo
-from pyscf import gto, scf
+from benchmarking.utils import _hamiltonian_to_mpo, load_scf_from_chk
+from pyscf import scf
 
-def load_hamiltonian(file_path):
+def load_hamiltonian(ham_file_path):
     """Load the Hamiltonian from a JSON file"""
-    with open(file_path, "r") as f:
+    with open(ham_file_path, "r") as f:
         data = json.load(f)
 
     return data
 
-
-def create_mpo(file_path):
+def create_mpo(ham_file_path):
     """Convert Hamiltonian to an MPO using the provided helper function."""
-    hamiltonian = load_hamiltonian(file_path)
-    print(f"Loaded Hamiltonian from {file_path}")
+    hamiltonian = load_hamiltonian(ham_file_path)
+    print(f"Loaded Hamiltonian from {ham_file_path}")
 
     return _hamiltonian_to_mpo(hamiltonian), hamiltonian
 
-def run_dmrg_benchmark(method, file_path, bond_dims, tol, max_sweeps):
+def run_dmrg_benchmark(method, ham_file_path, scf_file_path, bond_dims, tol, max_sweeps):
     """Run a DMRG method and return results."""
     start_time = time.time()
 
-    # Load Hamiltonian & MPO 
-    mpo, hamiltonian = create_mpo(file_path)
+    # Load Hamiltonian & MPO
+    mpo, hamiltonian = create_mpo(ham_file_path)
     ham_dict = {k: float(v[0]) for k, v in hamiltonian.items()}
-
-    # Prepare SCF object for FermionDMRG
-    mol = gto.M(atom="N 0 0 0; N 0 0 1.1", basis="sto3g", symmetry="d2h", verbose=0)
-    mf = scf.UHF(mol).run(conv_tol=1e-14) if "UHF" in method else scf.RHF(mol).run(conv_tol=1e-14)
 
     # Select the appropriate DMRG solver
     if method == "DMRG":
@@ -45,7 +41,12 @@ def run_dmrg_benchmark(method, file_path, bond_dims, tol, max_sweeps):
         converged = dmrg_solver.solve(tol=tol, max_sweeps=max_sweeps, verbosity=0)
         energy = dmrg_solver.energy
     elif method == "FermionDMRG":
+        # Use helper function to prepare the SCF object
+        mf = load_scf_from_chk(scf_file_path, "RHF")
+
+        # Initialise FermionDMRG with the SCF object
         dmrg_solver = FermionDMRG(scf_obj=mf, HF_symmetry="RHF", max_mps_bond=bond_dims[-1])
+
         energy = dmrg_solver.run(maxiter=max_sweeps)
     elif method == "QubitDMRG":
         dmrg_solver = QubitDMRG(ham_dict, max_mps_bond=bond_dims[-1])
@@ -55,10 +56,9 @@ def run_dmrg_benchmark(method, file_path, bond_dims, tol, max_sweeps):
 
     end_time = time.time()
 
-    # Return the results in a structured format
     return {
         "method": method,
-        "hamiltonian": os.path.splitext(os.path.basename(file_path))[0],
+        "hamiltonian": os.path.splitext(os.path.basename(ham_file_path))[0],
         "bond_dims": bond_dims,
         "tol": tol,
         "max_sweeps": max_sweeps,
@@ -71,34 +71,34 @@ def run_dmrg_benchmark(method, file_path, bond_dims, tol, max_sweeps):
 system_sizes = 10
 bond_dims_list = [[8, 16, 32]]
 tolerances = [1e-4]
-max_sweeps_list = [1]
+max_sweeps_list = [4]
 methods = ["DMRG", "DMRG2", "FermionDMRG", "QubitDMRG"]  # Added FermionDMRG to the methods list
 
 # Path to the Hamiltonian
-file_paths = [
-    "/workspaces/TN4QA/hamiltonians/HeH.json",
-    "/workspaces/TN4QA/hamiltonians/LiH.json"]
+ham_file_paths= ["hamiltonians/HeH.json", "hamiltonians/LiH.json"]
+scf_file_paths = ["hamiltonians/HeH_sto-3g.chk", "hamiltonians/LiH_sto-3g.chk"]
 
 # Run benchmarks
 
 results = []
-for file_path in file_paths:  # Iterate over all Hamiltonians
-    for bond_dims in bond_dims_list:
-        for tol in tolerances:
-            for max_sweeps in max_sweeps_list:
-                for method in methods:
-                    result = run_dmrg_benchmark(
-                        method, file_path, bond_dims, tol, max_sweeps
-                    )
-                    result.update(
-                        {
-                            "hamiltonian": os.path.splitext(os.path.basename(file_path))[0],
-                            "bond_dims": bond_dims,
-                            "tol": tol,
-                            "max_sweeps": max_sweeps,
-                        }
-                    )
-                    results.append(result)
+for ham_file_path in ham_file_paths:
+    for scf_file_path in scf_file_paths:
+        for bond_dims in bond_dims_list:
+            for tol in tolerances:
+                for max_sweeps in max_sweeps_list:
+                    for method in methods:
+                        result = run_dmrg_benchmark(
+                            method, ham_file_path, scf_file_path, bond_dims, tol, max_sweeps
+                        )
+                        result.update(
+                            {
+                                "hamiltonian": os.path.splitext(os.path.basename(ham_file_path))[0],
+                                "bond_dims": bond_dims,
+                                "tol": tol,
+                                "max_sweeps": max_sweeps,
+                            }
+                        )
+                        results.append(result)
 
 # Output benchmarking results
 
