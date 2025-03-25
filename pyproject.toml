@@ -31,6 +31,7 @@ pydocstyle = "^6.3.0"
 pytest = "^7.2.2"
 coverage = "^7.6.9"
 cotengrust = "^0.1.4"
+matplotlib = "^3.10.1"
 
 [[tool.poetry.source]]
 name = "PyPI"
@@ -40,6 +41,11 @@ priority = "primary"
 name = "block2"
 url = "https://block-hczhai.github.io/block2-preview/pypi/"
 priority = "supplemental"
+
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.5"
+pyscf = "^2.8.0"
 
 [build-system]
 requires = ["poetry-core"]
