@@ -68,3 +68,49 @@ def get_two_particle_rdm(mps: MatrixProductState) -> ndarray:
             rdm[r, s, q, p] = -np.conj(expval)
 
     return rdm
+
+
+def get_one_orbital_rdm(
+    mps: MatrixProductState, site: int, direct: bool = True
+) -> ndarray:
+    """
+    Calculate the one orbital RDM.
+
+    Args:
+        mps: The quantum state.
+        site: The location of the orbital
+        direct: If True the RDM is calculated via direct contraction, otherwise calculated via matrix elements.
+
+    Return:
+        The (4,4) array for the one-orbital RDM
+    """
+
+
+def get_two_orbital_rdm(mps: MatrixProductState, site: int) -> ndarray:
+    """
+    Calculate the two orbital RDM.
+    """
+
+
+def get_one_orbital_entropy(mps: MatrixProductState, site: int) -> float:
+    """
+    Calculate the one orbital entropy.
+    """
+
+
+def get_two_orbital_entropy(mps: MatrixProductState, sites: list[int]) -> float:
+    """
+    Calculate the two orbital entropy.
+    """
+
+
+def get_mutual_information(mps: MatrixProductState, sites: list[int]) -> float:
+    """
+    Calculate the mutual information between two orbitals.
+    """
+
+
+def get_all_mutual_information(mps: MatrixProductState) -> float:
+    """
+    Calculate the mutual information between every pair of orbitals.
+    """
