@@ -611,6 +611,47 @@ class MatrixProductOperator(TensorNetwork):
                 mpo.compress(max_bond)
         return mpo
 
+    @classmethod
+    def from_fermionic_operator(cls, op: str) -> "MatrixProductOperator":
+        """
+        Construct an MPO from a Fermion operator consisting of creation and annihilation operators.
+
+        Args:
+            op: The sequence of creation (+) /annihilation (-) operators, e.g. "+I-II+-"
+
+        Return:
+            An MPO.
+        """
+        creation_op = np.array([[0, 0], [1, 0]])
+        annihilation_op = np.array([[0, 1], [0, 0]])
+        identity_op = np.array([[1, 0], [0, 1]])
+
+        num_qubits = len(op)
+        arrays = [0] * num_qubits
+
+        for x in range(num_qubits):
+            match op[x]:
+                case "+":
+                    arrays[x] = (
+                        creation_op.reshape(1, 2, 2)
+                        if x == 0 or x == num_qubits - 1
+                        else creation_op.reshape(1, 1, 2, 2)
+                    )
+                case "-":
+                    arrays[x] = (
+                        annihilation_op.reshape(1, 2, 2)
+                        if x == 0 or x == num_qubits - 1
+                        else annihilation_op.reshape(1, 1, 2, 2)
+                    )
+                case "I":
+                    arrays[x] = (
+                        identity_op.reshape(1, 2, 2)
+                        if x == 0 or x == num_qubits - 1
+                        else identity_op.reshape(1, 1, 2, 2)
+                    )
+
+        return cls.from_arrays(arrays)
+
     def to_sparse_array(self) -> SparseArray:
         """
         Converts MPO to a sparse matrix.
