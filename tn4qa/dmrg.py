@@ -1,21 +1,816 @@
+import copy
 from typing import Tuple
+
+import block2
+import numpy as np
+import psutil
+import sparse
+from pyblock2._pyscf.ao2mo import integrals as itg
+from pyblock2.driver.core import DMRGDriver, SymmetryTypes
+from pyscf import scf
+from scipy.sparse.linalg import eigs
+from sparse import SparseArray
 
 from .mpo import MatrixProductOperator
 from .mps import MatrixProductState
+from .tensor import Tensor
+from .tn import TensorNetwork
 
 
-class DMRG:
-    def run(
-        self, mpo: MatrixProductOperator, max_bond: int, maxiter: int
-    ) -> Tuple[float, MatrixProductState]:
+class FermionDMRG:
+    def __init__(
+        self,
+        scf_obj: scf,
+        HF_symmetry: str,
+        max_mps_bond: int,
+        n_core: int = 0,
+        n_cas: int = None,
+        g2e_symm: int = 1,
+    ) -> "FermionDMRG":
+        """
+        Constructor for the FermionDMRG class. A simple wrapper around Block2 functionality.
+
+        Args:
+            scf_obj: The (post-HF) scf object.
+            HF_symmetry: One of "RHF" or "UHF".
+            max_mpo_bond: The maximum bond dimension to use for MPO construction.
+            max_mps_bond: The maximum bond dimension to use for MPS during DMRG.
+            n_core (optional): The number of core electrons (default 0).
+            ncas (optional): The number of electrons in the CAS (default None=all).
+            g2e_symm (optional): Symmetry group for 2-electron integrals (default 1).
+
+        Returns:
+            The FermionDMRG object.
+        """
+        self.scf_object = scf_obj
+        self.HF_symmetry = HF_symmetry
+        if self.HF_symmetry == "RHF":
+            self.symm_type = SymmetryTypes.SU2
+            (
+                self.ncas,
+                self.n_elec,
+                self.spin,
+                self.ecore,
+                self.h1e,
+                self.g2e,
+                self.orb_sym,
+            ) = itg.get_rhf_integrals(
+                scf_obj, ncore=n_core, ncas=n_cas, g2e_symm=g2e_symm
+            )
+        elif self.HF_symmetry == "UHF":
+            self.symm_type = SymmetryTypes.SZ
+            (
+                self.ncas,
+                self.n_elec,
+                self.spin,
+                self.ecore,
+                self.h1e,
+                self.g2e,
+                self.orb_sym,
+            ) = itg.get_uhf_integrals(
+                scf_obj, ncore=n_core, ncas=n_cas, g2e_symm=g2e_symm
+            )
+        else:
+            raise ValueError("Unsupported HF symmetry type.")
+        self.max_mps_bond = max_mps_bond
+
+        self.driver = self.initialise_driver()
+
+        return
+
+    def initialise_driver(self) -> DMRGDriver:
+        """
+        Initialise the DMRG driver.
+
+        Returns:
+            The DMRG driver
+        """
+        n_threads = int(psutil.cpu_count() / psutil.cpu_count(False))
+        driver = DMRGDriver(
+            scratch="./tmp", symm_type=self.symm_type, n_threads=n_threads
+        )
+        driver.initialize_system(
+            n_sites=self.ncas, n_elec=self.n_elec, spin=self.spin, orb_sym=self.orb_sym
+        )
+
+        return driver
+
+    def set_initial_state(self) -> block2:
+        """
+        Set the initial state for DMRG.
+        """
+        block2_mps = self.driver.get_random_mps(
+            tag="GS", bond_dim=self.max_mps_bond, nroots=1
+        )
+
+        return block2_mps
+
+    def set_hamiltonian(self) -> block2:
+        """
+        Set the Hamiltonian for DMRG.
+        """
+        mpo = self.driver.get_qc_mpo(
+            h1e=self.h1e, g2e=self.g2e, ecore=self.ecore, iprint=0
+        )
+
+        return mpo
+
+    def run(self, maxiter: int) -> float:
+        """
+        Find the groundstate energy of an MPO with DMRG.
+
+        Args:
+            maxiter: The maximum number of DMRG sweeps.
+
+        Returns:
+            The DMRG energy.
+        """
+        mpo = self.set_hamiltonian()
+        mps = self.set_initial_state()
+        driver = self.driver
+        bond_dims = [int(self.max_mps_bond / 2)] * 4 + [self.max_mps_bond] * 4
+        noises = [1e-4] * 4 + [1e-5] * 4 + [0]
+        thrds = [1e-10] * 8
+        energy = driver.dmrg(
+            mpo,
+            mps,
+            n_sweeps=maxiter,
+            bond_dims=bond_dims,
+            noises=noises,
+            thrds=thrds,
+            iprint=0,
+        )
+
+        return energy
+
+
+class QubitDMRG:
+    def __init__(
+        self,
+        hamiltonian: dict[str, complex],
+        max_mps_bond: int,
+        method: str = "one-site",
+    ) -> "QubitDMRG":
+        """
+        Constructor for the QubitDMRG class.
+
+        Args:
+            hamiltonian: A dict of the form {pauli_string : weight}.
+            max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
+            max_mps_bond: The maximum bond to use for MPS during DMRG.
+            method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "one-site".
+
+        Returns:
+            The QubitDMRG object.
+        """
+        self.hamiltonian = hamiltonian
+        self.method = method
+        self.num_sites = len(list(hamiltonian.keys())[0])
+        self.max_mps_bond = max_mps_bond
+        self.mps = self.set_initial_state()
+        self.mpo = self.set_hamiltonian_mpo()
+        self.left_block_cache = []
+        self.right_block_cache = []
+        self.left_block, self.right_block = self.initialise_blocks()
+        self.energy = np.infty
+
+        return
+
+    def set_initial_state(self, mps: MatrixProductState = None) -> MatrixProductState:
+        """
+        Set the initial state for DMRG.
+
+        Args:
+            mps (optional): An optional input state. Defaults to random.
+        """
+        if not mps:
+            mps = MatrixProductState.random_quantum_state_mps(
+                self.num_sites, self.max_mps_bond
+            )
+
+        mps = self.add_trivial_tensors_mps(mps)
+
+        return mps
+
+    def set_hamiltonian_mpo(self) -> MatrixProductOperator:
+        """
+        Convert the Hamiltonian to an MPO for DMRG.
+        """
+        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, np.infty)
+
+        mpo = self.add_trivial_tensors_mpo(mpo)
+
+        return mpo
+
+    def add_trivial_tensors_mps(self, mps: MatrixProductState) -> MatrixProductState:
+        """
+        Add trivial tensors to MPS.
+        """
+        mps.tensors[0].data = sparse.reshape(
+            mps.tensors[0].data, (1,) + mps.tensors[0].dimensions
+        )
+        mps.tensors[-1].data = sparse.reshape(
+            mps.tensors[-1].data,
+            (mps.tensors[-1].dimensions[0], 1, mps.tensors[-1].dimensions[1]),
+        )
+
+        trivial_array = sparse.COO.from_numpy(
+            np.array([np.sqrt(1 / 2), np.sqrt(1 / 2)], dtype=complex).reshape(1, 2)
+        )
+        all_arrays = (
+            [trivial_array]
+            + [mps.tensors[i].data for i in range(self.num_sites)]
+            + [trivial_array]
+        )
+        mps = MatrixProductState.from_arrays(all_arrays)
+        return mps
+
+    def add_trivial_tensors_mpo(
+        self, mpo: MatrixProductOperator
+    ) -> MatrixProductOperator:
+        """
+        Add trivial tensors to MPO.
+        """
+        mpo.tensors[0].data = sparse.reshape(
+            mpo.tensors[0].data, (1,) + mpo.tensors[0].dimensions
+        )
+        mpo.tensors[-1].data = sparse.reshape(
+            mpo.tensors[-1].data,
+            (
+                mpo.tensors[-1].dimensions[0],
+                1,
+                mpo.tensors[-1].dimensions[1],
+                mpo.tensors[-1].dimensions[2],
+            ),
+        )
+
+        trivial_array = sparse.COO.from_numpy(
+            np.array([[1 / 2, 1 / 2], [1 / 2, 1 / 2]], dtype=complex).reshape(1, 2, 2)
+        )
+        all_arrays = (
+            [trivial_array]
+            + [mpo.tensors[i].data for i in range(self.num_sites)]
+            + [trivial_array]
+        )
+        mpo = MatrixProductOperator.from_arrays(all_arrays)
+        return mpo
+
+    def remove_trivial_tensors_mps(self, mps: MatrixProductState) -> MatrixProductState:
+        """
+        Remove trivial tensors from MPS.
+        """
+        zero_array = sparse.COO.from_numpy(
+            np.array([1, 0], dtype=complex).reshape(
+                2,
+            )
+        )
+        zero_tensor_top = Tensor(zero_array, ["P1"], ["ZERO"])
+        zero_tensor_bottom = Tensor(zero_array, [f"P{self.num_sites+2}"], ["ZERO"])
+        self.mps.add_tensor(zero_tensor_top)
+        self.mps.add_tensor(zero_tensor_bottom)
+        self.mps.contract_index("P1")
+        self.mps.contract_index(f"P{self.num_sites+2}")
+        self.mps.contract_index("B1")
+        self.mps.contract_index(f"B{self.num_sites+1}")
+        arrays = []
+        for idx in range(2, self.num_sites + 2):
+            arrays.append(self.mps.get_tensors_from_index_name(f"P{idx}")[0].data)
+        mps = MatrixProductState.from_arrays(arrays)
+        mps.multiply_by_constant(2)
+
+        return mps
+
+    def remove_trivial_tensors_mpo(
+        self, mpo: MatrixProductOperator
+    ) -> MatrixProductOperator:
+        """
+        Remove trivial tensors from MPS.
+        """
+        zero_array = sparse.COO.from_numpy(
+            np.array([1, 0], dtype=complex).reshape(
+                2,
+            )
+        )
+        zero_tensor_top_right = Tensor(zero_array, ["R1"], ["ZERO"])
+        zero_tensor_bottom_right = Tensor(
+            zero_array, [f"R{self.num_sites+2}"], ["ZERO"]
+        )
+        zero_tensor_top_left = Tensor(zero_array, ["L1"], ["ZERO"])
+        zero_tensor_bottom_left = Tensor(zero_array, [f"L{self.num_sites+2}"], ["ZERO"])
+        self.mpo.add_tensor(zero_tensor_top_right)
+        self.mpo.add_tensor(zero_tensor_bottom_right)
+        self.mpo.add_tensor(zero_tensor_top_left)
+        self.mpo.add_tensor(zero_tensor_bottom_left)
+        self.mpo.contract_index("R1")
+        self.mpo.contract_index(f"R{self.num_sites+2}")
+        self.mpo.contract_index("L1")
+        self.mpo.contract_index(f"L{self.num_sites+2}")
+        self.mpo.contract_index("B1")
+        self.mpo.contract_index(f"B{self.num_sites+1}")
+        arrays = []
+        for idx in range(2, self.num_sites + 2):
+            arrays.append(self.mpo.get_tensors_from_index_name(f"R{idx}")[0].data)
+        mpo = MatrixProductOperator.from_arrays(arrays)
+        mpo.multiply_by_constant(4)
+
+        return mpo
+
+    def get_perturbation_term(self, sweep_direction: str) -> SparseArray:
+        """
+        Get the perturbation term required to escape local minima.
+
+        Args:
+            site: The site index for the perturbation term.
+            sweep_direction: Either "F" or "B".
+
+        Returns:
+            The perturbation term.
+        """
+        site = len(self.left_block_cache) + 1
+        if sweep_direction == "F":
+            left_block_array = copy.deepcopy(
+                self.left_block.data
+            )  # Indices ["Ldag", "Lham", "Lmps"]
+            site_array = copy.deepcopy(
+                self.mps.tensors[site].data
+            )  # Indices ["B_i", "B_i+1", "P_i+1"]
+            ham_array = copy.deepcopy(
+                self.mpo.tensors[site].data
+            )  # Indices ["B_i", "B_i+1", "R_i+1", "L_i+1"]
+
+            left_block_tensor = Tensor(
+                left_block_array, ["Ldag", "TEMP1", "TEMP2"], ["LEFTBLOCK"]
+            )
+            site_tensor = Tensor(site_array, ["TEMP2", "B1", "P1"], ["SITE"])
+            ham_tensor = Tensor(ham_array, ["TEMP1", "B2", "P", "P1"], ["HAM"])
+
+            tn = TensorNetwork(
+                [left_block_tensor, site_tensor, ham_tensor], name="PERTURBATION"
+            )
+            perturbation = tn.contract_entire_network()
+            perturbation.combine_indices(["B1", "B2"], "B")
+            perturbation.reorder_indices(["P", "Ldag", "B"])
+
+        else:
+            right_block_array = copy.deepcopy(
+                self.right_block.data
+            )  # Indices ["Rdag", "Rham", "Rmps"]
+            site_array = copy.deepcopy(
+                self.mps.tensors[site].data
+            )  # Indices ["B_i", "B_i+1", "P_i+1"]
+            ham_array = copy.deepcopy(
+                self.mpo.tensors[site].data
+            )  # Indices ["B_i", "B_i+1", "R_i+1", "L_i+1"]
+
+            right_block_tensor = Tensor(
+                right_block_array, ["Rdag", "TEMP1", "TEMP2"], ["RIGHTBLOCK"]
+            )
+            site_tensor = Tensor(site_array, ["B1", "TEMP2", "P1"], ["SITE"])
+            ham_tensor = Tensor(ham_array, ["B2", "TEMP1", "P", "P1"], ["HAM"])
+
+            tn = TensorNetwork(
+                [right_block_tensor, site_tensor, ham_tensor], name="PERTURBATION"
+            )
+            perturbation = tn.contract_entire_network()
+            perturbation.combine_indices(["B1", "B2"], "B")
+            perturbation.reorder_indices(["P", "B", "Rdag"])
+
+        return perturbation.data
+
+    def initialise_left_block(self) -> Tensor:
+        """
+        Initialise the left block of the DMRG routine.
+        """
+        dag = copy.deepcopy(self.mps.tensors[0].data.conj())
+        ham = copy.deepcopy(self.mpo.tensors[0].data)
+        mps = copy.deepcopy(self.mps.tensors[0].data)
+
+        dag_tensor = Tensor(dag, ["Ldag", "TEMP1"], ["DAG"])
+        ham_tensor = Tensor(ham, ["Lham", "TEMP1", "TEMP2"], ["HAM"])
+        mps_tensor = Tensor(mps, ["Lmps", "TEMP2"], ["MPS"])
+
+        tn = TensorNetwork([dag_tensor, ham_tensor, mps_tensor])
+        left_block = tn.contract_entire_network()
+        left_block.reorder_indices(["Ldag", "Lham", "Lmps"])
+        left_block.labels.append("LEFT_OF_SITE_1")
+
+        return left_block
+
+    def initialise_blocks(self) -> Tuple[Tensor]:
+        """
+        Initialise the left and right blocks of the DMRG routine.
+
+        Args:
+            method: The selected method for DMRG.
+
+        Returns:
+            A tuple of the initial left block and the initial right block.
+        """
+        # Set up the rightmost block
+        dag = copy.deepcopy(self.mps.tensors[-1].data.conj())
+        ham = copy.deepcopy(self.mpo.tensors[-1].data)
+        mps = copy.deepcopy(self.mps.tensors[-1].data)
+        dag_tensor = Tensor(dag, ["Rdag", "TEMP1"], ["DAG"])
+        ham_tensor = Tensor(ham, ["Rham", "TEMP1", "TEMP2"], ["HAM"])
+        mps_tensor = Tensor(mps, ["Rmps", "TEMP2"], ["MPS"])
+        tn = TensorNetwork([dag_tensor, ham_tensor, mps_tensor])
+        right_block = tn.contract_entire_network()
+        right_block.reorder_indices(["Rdag", "Rham", "Rmps"])
+        right_block.labels.append(f"RIGHT_OF_SITE_{self.num_sites}")
+        self.right_block_cache.append(right_block)
+
+        for i in list(range(2, self.num_sites + 1))[::-1]:
+            self.mps.move_orthogonality_centre(i, i + 1)
+            dag = copy.deepcopy(self.mps.tensors[i].data.conj())
+            ham = copy.deepcopy(self.mpo.tensors[i].data)
+            mps = copy.deepcopy(self.mps.tensors[i].data)
+            temp_right_block = copy.deepcopy(right_block)
+            temp_right_block.indices = ["TEMP1", "TEMP3", "TEMP5"]
+            dag_tensor = Tensor(dag, ["Rdag", "TEMP1", "TEMP2"], ["DAG"])
+            ham_tensor = Tensor(ham, ["Rham", "TEMP3", "TEMP2", "TEMP4"], ["HAM"])
+            mps_tensor = Tensor(mps, ["Rmps", "TEMP5", "TEMP4"], ["MPS"])
+            tn = TensorNetwork([temp_right_block, dag_tensor, ham_tensor, mps_tensor])
+            right_block = tn.contract_entire_network()
+            right_block.reorder_indices(["Rdag", "Rham", "Rmps"])
+            right_block.labels.append(f"RIGHT_OF_SITE_{i-1}")
+            self.right_block_cache.append(right_block)
+
+        left_block = self.initialise_left_block()
+        self.right_block_cache.pop()
+
+        if self.method == "two-site":
+            right_block = copy.deepcopy(self.right_block_cache[-1])
+            self.right_block_cache.pop()
+
+        return left_block, right_block
+
+    def update_blocks_left_sweep(self) -> None:
+        """
+        Update the blocks after each local optimisation.
+        """
+        current_site = len(self.left_block_cache) + 1
+        self.left_block_cache.append(self.left_block)
+        self.mps.move_orthogonality_centre(current_site + 2, current_site + 1)
+        left_block = copy.deepcopy(self.left_block)
+
+        mps = copy.deepcopy(self.mps.tensors[current_site].data)
+        ham = copy.deepcopy(self.mpo.tensors[current_site].data)
+        dag = copy.deepcopy(self.mps.tensors[current_site].data.conj())
+
+        left_block.indices = ["TEMP1", "TEMP2", "TEMP3"]
+        mps_tensor = Tensor(mps, ["TEMP3", "Lmps", "TEMP5"], ["MPS"])
+        ham_tensor = Tensor(ham, ["TEMP2", "Lham", "TEMP4", "TEMP5"], ["HAM"])
+        dag_tensor = Tensor(dag, ["TEMP1", "Ldag", "TEMP4"], ["DAG"])
+
+        tn = TensorNetwork([left_block, mps_tensor, ham_tensor, dag_tensor])
+        self.left_block = tn.contract_entire_network()
+        self.left_block.reorder_indices(["Ldag", "Lham", "Lmps"])
+        self.left_block.labels.append(f"LEFT_OF_SITE_{current_site+1}")
+
+        self.right_block = copy.deepcopy(self.right_block_cache[-1])
+        self.right_block_cache.pop()
+
+        return
+
+    def update_blocks_right_sweep(self) -> None:
+        """
+        Update the blocks after each local optimisation.
+        """
+        current_site = self.num_sites - len(self.right_block_cache)
+        self.right_block_cache.append(self.right_block)
+        self.mps.move_orthogonality_centre(current_site, current_site + 1)
+        right_block = copy.deepcopy(self.right_block)
+
+        mps = copy.deepcopy(self.mps.tensors[current_site].data)
+        ham = copy.deepcopy(self.mpo.tensors[current_site].data)
+        dag = copy.deepcopy(self.mps.tensors[current_site].data.conj())
+
+        right_block.indices = ["TEMP1", "TEMP2", "TEMP3"]
+        mps_tensor = Tensor(mps, ["Rmps", "TEMP3", "TEMP5"], ["MPS"])
+        ham_tensor = Tensor(ham, ["Rham", "TEMP2", "TEMP4", "TEMP5"], ["HAM"])
+        dag_tensor = Tensor(dag, ["Rdag", "TEMP1", "TEMP4"], ["DAG"])
+
+        tn = TensorNetwork([right_block, mps_tensor, ham_tensor, dag_tensor])
+        self.right_block = tn.contract_entire_network()
+        self.right_block.reorder_indices(["Rdag", "Rham", "Rmps"])
+        self.right_block.labels.append(f"RIGHT_OF_SITE_{current_site-1}")
+
+        self.left_block = copy.deepcopy(self.left_block_cache[-1])
+        self.left_block_cache.pop()
+
+        return
+
+    def combine_neighbouring_sites(self) -> SparseArray:
+        """
+        For the two_site method, combine neighbouring Hamiltonian sites.
+        """
+        current_site = len(self.left_block_cache) + 1
+        next_site = current_site + 1
+        ham1 = copy.deepcopy(self.mpo.tensors[current_site])
+        ham2 = copy.deepcopy(self.mpo.tensors[next_site])
+
+        tn = TensorNetwork([ham1, ham2])
+        combined = tn.contract_entire_network()
+        combined.combine_indices([f"R{current_site+1}", f"R{current_site+2}"], "R")
+        combined.combine_indices([f"L{current_site+1}", f"L{current_site+2}"], "L")
+        combined.reorder_indices([f"B{current_site}", f"B{current_site+2}", "R", "L"])
+
+        return combined.data
+
+    def construct_effective_matrix(
+        self, current_site_mat: SparseArray | None = None
+    ) -> SparseArray:
+        """
+        Construct the effective matrix for a step of DMRG.
+
+        Args:
+            current_site_mat (optional): The MPO tensor at the site(s) to be optimised. Defaults to single site tensor.
+        """
+        left_block = copy.deepcopy(self.left_block)
+        right_block = copy.deepcopy(self.right_block)
+        current_site = len(self.left_block_cache) + 1
+        if current_site_mat is None:
+            current_site_mat = copy.deepcopy(self.mpo.tensors[current_site].data)
+
+        ham_tensor = Tensor(current_site_mat, ["Lham", "Rham", "pdag", "p"], ["HAM"])
+        tn = TensorNetwork([ham_tensor, right_block, left_block])
+        tensor = tn.contract_entire_network()
+        tensor.reorder_indices(["Ldag", "pdag", "Rdag", "Lmps", "p", "Rmps"])
+        tensor.indices = ["udag", "pdag", "ddag", "u", "p", "d"]
+        tensor.tensor_to_matrix(["u", "p", "d"], ["udag", "pdag", "ddag"])
+
+        return tensor.data
+
+    def optimise_local_tensor(self) -> None:
+        """
+        Optimise the local tensor at the current site.
+
+        Args:
+            site: The site index.
+        """
+        site = len(self.left_block_cache) + 1
+        if self.method == "two-site":
+            original_dims = (
+                self.mps.tensors[site].dimensions[0],
+                self.mps.tensors[site + 1].dimensions[1],
+                self.mps.tensors[site].dimensions[2]
+                * self.mps.tensors[site + 1].dimensions[2],
+            )
+            ham_mat = self.combine_neighbouring_sites()
+            effective_matrix = self.construct_effective_matrix(ham_mat)
+        else:
+            original_dims = self.mps.tensors[site].dimensions
+            effective_matrix = self.construct_effective_matrix()
+        w, v = eigs(effective_matrix, k=1, which="SR")
+        eigval = w[0]
+        eigvec = sparse.COO.from_numpy(
+            v[:, 0]
+        )  # This is the new optimal value at site i
+
+        new_data = sparse.reshape(
+            eigvec, (original_dims[0], original_dims[2], original_dims[1])
+        )
+        new_data = sparse.moveaxis(new_data, [0, 1, 2], [0, 2, 1])
+
+        if self.method == "two-site":
+            new_data = sparse.moveaxis(new_data, [0, 1, 2], [2, 1, 0])
+            new_data = sparse.reshape(
+                new_data,
+                (
+                    self.mps.tensors[site].dimensions[2],
+                    self.mps.tensors[site + 1].dimensions[2],
+                    self.mps.tensors[site].dimensions[0],
+                    self.mps.tensors[site + 1].dimensions[1],
+                ),
+            )
+            new_data = sparse.moveaxis(new_data, [0, 1, 2, 3], [2, 3, 0, 1])
+            temp_t = Tensor(new_data, ["u", "d", "p1", "p2"], ["TEMP"])
+            temp_tn = TensorNetwork([temp_t])
+            temp_tn.svd(
+                temp_t,
+                ["u", "p1"],
+                ["d", "p2"],
+                max_bond=self.max_mps_bond,
+                new_index_name="b",
+            )
+
+            t1 = temp_tn.tensors[0]
+            t1.reorder_indices(["u", "b", "p1"])
+            indices1 = self.mps.tensors[site].indices
+            labels1 = self.mps.tensors[site].labels
+            t1.indices = indices1
+            t1.labels = labels1
+
+            t2 = temp_tn.tensors[1]
+            t2.reorder_indices(["b", "d", "p2"])
+            indices2 = self.mps.tensors[site + 1].indices
+            labels2 = self.mps.tensors[site + 1].labels
+            t2.indices = indices2
+            t2.labels = labels2
+
+            self.mps.pop_tensors_by_label(labels1)
+            self.mps.add_tensor(t1, site)
+            self.mps.pop_tensors_by_label(labels2)
+            self.mps.add_tensor(t2, site + 1)
+
+        else:
+            original_indices = self.mps.tensors[site].indices
+            original_labels = self.mps.tensors[site].labels
+            self.mps.pop_tensors_by_label(original_labels)
+            new_t = Tensor(new_data, original_indices, original_labels)
+            self.mps.add_tensor(new_t, site)
+
+        self.energy = eigval.real
+
+        return
+
+    def perturb_left_sweep(self) -> None:
+        """
+        Perturb the local tensor during a left sweep to escape local minima.
+        """
+        current_site = len(self.left_block_cache) + 1
+        perturbation = self.get_perturbation_term("F")
+
+        local_tensor = self.mps.tensors[current_site]
+        original_indices = local_tensor.indices
+        original_labels = local_tensor.labels
+        local_tensor.reorder_indices(
+            [f"P{current_site+1}", f"B{current_site}", f"B{current_site+1}"]
+        )
+        new_data = sparse.concatenate([local_tensor.data, perturbation], axis=2)
+        new_data = sparse.moveaxis(new_data, [0, 1, 2], [2, 0, 1])
+        new_local_tensor = Tensor(new_data, original_indices, original_labels)
+
+        next_tensor = self.mps.tensors[current_site + 1]
+        next_indices = next_tensor.indices
+        next_labels = next_tensor.labels
+        next_tensor.reorder_indices(
+            [f"P{current_site+2}", f"B{current_site+1}", f"B{current_site+2}"]
+        )
+        zeros = sparse.COO.from_numpy(
+            np.zeros(
+                (
+                    next_tensor.dimensions[0],
+                    perturbation.shape[2],
+                    next_tensor.dimensions[2],
+                ),
+                dtype=complex,
+            )
+        )
+        new_next_data = sparse.concatenate([next_tensor.data, zeros], axis=1)
+        new_next_data = sparse.moveaxis(new_next_data, [0, 1, 2], [2, 0, 1])
+        new_next_tensor = Tensor(new_next_data, next_indices, next_labels)
+
+        self.mps.pop_tensors_by_label(original_labels)
+        self.mps.add_tensor(new_local_tensor, current_site)
+        self.mps.pop_tensors_by_label(next_labels)
+        self.mps.add_tensor(new_next_tensor, current_site + 1)
+
+        return
+
+    def perturb_right_sweep(self) -> None:
+        """
+        Perturb the local tensor during a right sweep to escape local minima.
+        """
+        current_site = len(self.left_block_cache) + 1
+        perturbation = self.get_perturbation_term("B")
+
+        local_tensor = self.mps.tensors[current_site]
+        original_indices = local_tensor.indices
+        original_labels = local_tensor.labels
+        local_tensor.reorder_indices(
+            [f"P{current_site+1}", f"B{current_site}", f"B{current_site+1}"]
+        )
+        new_data = sparse.concatenate([local_tensor.data, perturbation], axis=1)
+        new_data = sparse.moveaxis(new_data, [0, 1, 2], [2, 0, 1])
+        new_local_tensor = Tensor(new_data, original_indices, original_labels)
+
+        next_tensor = self.mps.tensors[current_site - 1]
+        next_indices = next_tensor.indices
+        next_labels = next_tensor.labels
+        next_tensor.reorder_indices(
+            [f"P{current_site}", f"B{current_site-1}", f"B{current_site}"]
+        )
+        zeros = sparse.COO.from_numpy(
+            np.zeros(
+                (
+                    next_tensor.dimensions[0],
+                    next_tensor.dimensions[1],
+                    perturbation.shape[1],
+                ),
+                dtype=complex,
+            )
+        )
+        new_next_data = sparse.concatenate([next_tensor.data, zeros], axis=2)
+        new_next_data = sparse.moveaxis(new_next_data, [0, 1, 2], [2, 0, 1])
+        new_next_tensor = Tensor(new_next_data, next_indices, next_labels)
+
+        self.mps.pop_tensors_by_label(original_labels)
+        self.mps.add_tensor(new_local_tensor, current_site)
+        self.mps.pop_tensors_by_label(next_labels)
+        self.mps.add_tensor(new_next_tensor, current_site - 1)
+
+        return
+
+    def sweep_left_subspace_expansion(self):
+        """
+        Perform a left sweep.
+        """
+        sites = list(range(1, self.num_sites + 1))
+        for site in sites:
+            self.optimise_local_tensor()
+            if site != self.num_sites:
+                self.perturb_left_sweep()
+            max_bond = 1 if site == 1 else self.max_mps_bond
+            self.mps.compress_index(f"B{site}", max_bond)
+            if site != self.num_sites:
+                self.update_blocks_left_sweep()
+        return
+
+    def sweep_right_subspace_expansion(self):
+        """
+        Perform a right sweep.
+        """
+        sites = list(range(1, self.num_sites + 1))[::-1]
+        for site in sites:
+            self.optimise_local_tensor()
+            if site != 1:
+                self.perturb_right_sweep()
+            max_bond = 1 if site == self.num_sites else self.max_mps_bond
+            self.mps.compress_index(f"B{site+1}", max_bond)
+            if site != 1:
+                self.update_blocks_right_sweep()
+        return
+
+    def sweep_left_one_site(self):
+        """
+        Perform a left sweep.
+        """
+        sites = list(range(1, self.num_sites + 1))
+        for site in sites:
+            self.optimise_local_tensor()
+            if site != self.num_sites:
+                self.update_blocks_left_sweep()
+        return
+
+    def sweep_right_one_site(self):
+        """
+        Perform a right sweep.
+        """
+        sites = list(range(1, self.num_sites + 1))[::-1]
+        for site in sites:
+            self.optimise_local_tensor()
+            if site != 1:
+                self.update_blocks_right_sweep()
+        return
+
+    def sweep_left_two_site(self):
+        """
+        Perform a left sweep.
+        """
+        sites = list(range(1, self.num_sites))
+        for site in sites:
+            self.optimise_local_tensor()
+            if site != self.num_sites - 1:
+                self.update_blocks_left_sweep()
+        return
+
+    def sweep_right_two_site(self):
+        """
+        Perform a right sweep.
+        """
+        sites = list(range(1, self.num_sites))[::-1]
+        for site in sites:
+            self.optimise_local_tensor()
+            if site != 1:
+                self.update_blocks_right_sweep()
+        return
+
+    def run(self, maxiter: int) -> Tuple[float, MatrixProductState]:
         """
         Find the groundstate of an MPO with DMRG.
 
         Args:
-            max_bond: The maximum bond dimension allowed.
+            max_mps_bond: The maximum bond dimension allowed.
             maxiter: The maximum number of DMRG sweeps.
 
         Returns:
             A tuple of the DMRG energy and the DMRG state.
         """
-        return
+        if self.method == "subspace-expansion":
+            for _ in range(maxiter):
+                self.sweep_left_subspace_expansion()
+                self.sweep_right_subspace_expansion()
+        elif self.method == "one-site":
+            for _ in range(maxiter):
+                self.sweep_left_one_site()
+                self.sweep_right_one_site()
+        elif self.method == "two-site":
+            for _ in range(maxiter):
+                self.sweep_left_two_site()
+                self.sweep_right_two_site()
+
+        self.mps = self.remove_trivial_tensors_mps(self.mps)
+        self.mpo = self.remove_trivial_tensors_mpo(self.mpo)
+
+        return (self.energy, self.mps)
