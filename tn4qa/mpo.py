@@ -654,22 +654,21 @@ class MatrixProductOperator(TensorNetwork):
 
     @classmethod
     def from_fermionic_hamiltonian_adder(
-        cls, ham_dict: dict[str, complex], constant_shift: complex, max_bond: int
+        cls, ham_dict: dict[str, complex], max_bond: int
     ) -> "MatrixProductOperator":
         """
         Construct an MPO from a Fermionic Hamiltonian.
 
         Args:
             ham_dict: Dictionary representation of the Hamiltonian of form {fermionic_operator : weight}
-            constant_shift: A constant term in the Hamiltonian.
             max_bond: Maximum allowed bond dimension.
 
         Returns:
             An MPO.
         """
         ops = list(ham_dict.keys())
-
         num_qubits = len(ops[0])
+        constant_shift = ham_dict["I" * num_qubits]
         mpo = MatrixProductOperator.identity_mpo(num_qubits).multiply_by_constant(
             constant_shift
         )

@@ -150,6 +150,7 @@ class QubitDMRG:
         hamiltonian: dict[str, complex],
         max_mps_bond: int,
         method: str = "one-site",
+        hamiltonian_type: str = "qubit",
     ) -> "QubitDMRG":
         """
         Constructor for the QubitDMRG class.
@@ -159,11 +160,13 @@ class QubitDMRG:
             max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             max_mps_bond: The maximum bond to use for MPS during DMRG.
             method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "one-site".
+            hamiltonian_type: "fermionic" or "qubit" Hamiltonian supplied.
 
         Returns:
             The QubitDMRG object.
         """
         self.hamiltonian = hamiltonian
+        self.hamiltonian_type = hamiltonian_type
         self.method = method
         self.num_sites = len(list(hamiltonian.keys())[0])
         self.max_mps_bond = max_mps_bond
@@ -196,7 +199,13 @@ class QubitDMRG:
         """
         Convert the Hamiltonian to an MPO for DMRG.
         """
-        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, np.infty)
+        match self.hamiltonian_type:
+            case "qubit":
+                mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, np.infty)
+            case "fermionic":
+                mpo = MatrixProductOperator.from_fermionic_hamiltonian_adder(
+                    self.hamiltonian, np.infty
+                )
 
         mpo = self.add_trivial_tensors_mpo(mpo)
 
