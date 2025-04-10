@@ -510,6 +510,29 @@ class MatrixProductState(TensorNetwork):
 
         return val
 
+    def compute_expectation_value(self, mpo: MatrixProductOperator) -> float:
+        """
+        Calculate an expectation value of the form <MPS | MPO | MPS>.
+
+        Args:
+            mpo: The MPO whose expectation value will be calculated.
+
+        Returns:
+            The expectation value.
+        """
+        mps1 = copy.deepcopy(self)
+        mps2 = copy.deepcopy(self)
+
+        mpo.reshape("udrl")
+        mps1.reshape("udp")
+        mps2.reshape("udp")
+
+        mps1 = mps1.apply_mpo(mpo)
+        mps2.dagger()
+
+        exp_val = mps1.compute_inner_product(mps2)
+        return exp_val
+
     def normalise(self) -> None:
         """
         Normalise the MPS.
