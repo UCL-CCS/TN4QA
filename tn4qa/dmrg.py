@@ -721,21 +721,27 @@ class QubitDMRG:
         Returns:
             A tuple of the DMRG energy and the DMRG state.
         """
-        self.all_energies = []
+        self.all_energies = [None for _ in range(maxiter)]
         if self.method == "subspace-expansion":
             for _ in range(maxiter):
                 self.sweep_left_subspace_expansion()
                 self.sweep_right_subspace_expansion()
+                if self.energy == self.all_energies[-1]:
+                    break
                 self.all_energies.append(self.energy)
         elif self.method == "one-site":
             for _ in range(maxiter):
                 self.sweep_left_one_site()
                 self.sweep_right_one_site()
+                if self.energy == self.all_energies[-1]:
+                    break
                 self.all_energies.append(self.energy)
         elif self.method == "two-site":
             for _ in range(maxiter):
                 self.sweep_left_two_site()
                 self.sweep_right_two_site()
+                if self.energy == self.all_energies[-1]:
+                    break
                 self.all_energies.append(self.energy)
 
         self.mps = self.remove_trivial_tensors_mps(self.mps)
