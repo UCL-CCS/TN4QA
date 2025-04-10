@@ -652,6 +652,51 @@ class MatrixProductOperator(TensorNetwork):
 
         return cls.from_arrays(arrays)
 
+    @classmethod
+    def from_fermionic_hamiltonian_adder(
+        cls, ham_dict: dict[str, complex], constant_shift: complex, max_bond: int
+    ) -> "MatrixProductOperator":
+        """
+        Construct an MPO from a Fermionic Hamiltonian.
+
+        Args:
+            ham_dict: Dictionary representation of the Hamiltonian of form {fermionic_operator : weight}
+            constant_shift: A constant term in the Hamiltonian.
+            max_bond: Maximum allowed bond dimension.
+
+        Returns:
+            An MPO.
+        """
+        ops = list(ham_dict.keys())
+
+        num_qubits = len(ops[0])
+        mpo = MatrixProductOperator.identity_mpo(num_qubits).multiply_by_constant(
+            constant_shift
+        )
+
+        for op, weight in ham_dict.items():
+            temp_mpo = MatrixProductOperator.from_fermionic_operator(
+                op
+            ).multiply_by_constant(weight)
+            mpo = mpo + temp_mpo
+
+        return mpo
+
+    # TODO: Implement a Fermionic Hamiltonian constructor without using MPO addition (c.f. from_hamiltonian)
+    # @classmethod
+    # def from_fermionic_hamiltonian(cls, ham_dict: dict[str, complex], constant_shift: complex, max_bond: int) -> "MatrixProductOperator":
+    #     """
+    #     Construct an MPO from a Fermionic Hamiltonian.
+
+    #     Args:
+    #         ham_dict: Dictionary representation of the Hamiltonian of form {fermionic_operator : weight}
+    #         constant_shift: A constant term in the Hamiltonian.
+    #         max_bond: Maximum allowed bond dimension.
+
+    #     Returns:
+    #         An MPO.
+    #     """
+
     def to_sparse_array(self) -> SparseArray:
         """
         Converts MPO to a sparse matrix.
