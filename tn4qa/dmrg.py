@@ -17,7 +17,7 @@ from .tensor import Tensor
 from .tn import TensorNetwork
 
 
-class FermionDMRG:
+class Block2FermionDMRG:
     def __init__(
         self,
         scf_obj: scf,
@@ -26,9 +26,9 @@ class FermionDMRG:
         n_core: int = 0,
         n_cas: int = None,
         g2e_symm: int = 1,
-    ) -> "FermionDMRG":
+    ) -> "Block2FermionDMRG":
         """
-        Constructor for the FermionDMRG class. A simple wrapper around Block2 functionality.
+        Constructor for the Block2FermionDMRG class. A simple wrapper around Block2 functionality.
 
         Args:
             scf_obj: The (post-HF) scf object.
@@ -40,7 +40,7 @@ class FermionDMRG:
             g2e_symm (optional): Symmetry group for 2-electron integrals (default 1).
 
         Returns:
-            The FermionDMRG object.
+            The Block2FermionDMRG object.
         """
         self.scf_object = scf_obj
         self.HF_symmetry = HF_symmetry
@@ -144,16 +144,16 @@ class FermionDMRG:
         return energy
 
 
-class QubitDMRG:
+class DMRG:
     def __init__(
         self,
         hamiltonian: dict[str, complex],
         max_mps_bond: int,
         method: str = "one-site",
         hamiltonian_type: str = "qubit",
-    ) -> "QubitDMRG":
+    ) -> "DMRG":
         """
-        Constructor for the QubitDMRG class.
+        Constructor for the DMRG class.
 
         Args:
             hamiltonian: A dict of the form {pauli_string : weight}.
@@ -163,7 +163,7 @@ class QubitDMRG:
             hamiltonian_type: "fermionic" or "qubit" Hamiltonian supplied.
 
         Returns:
-            The QubitDMRG object.
+            The DMRG object.
         """
         self.hamiltonian = hamiltonian
         self.hamiltonian_type = hamiltonian_type
