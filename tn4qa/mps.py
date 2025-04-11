@@ -478,6 +478,38 @@ class MatrixProductState(TensorNetwork):
         mps = MatrixProductState.from_arrays(arrays)
         return mps
 
+    def set_default_indices(
+        self, internal_prefix: str | None = None, external_prefix: str | None = None
+    ) -> None:
+        """
+        Rename all indices to a standard form.
+
+        Args:
+            internal_prefix: If provided the internal bonds will have the form internal_prefix + index
+            external_prefix: If provided the external bonds will have the form external_prefix + index
+        """
+        if not internal_prefix:
+            internal_prefix = "B"
+        if not external_prefix:
+            external_prefix = "P"
+        self.reshape("udp")
+        new_indices_first = [internal_prefix + "1", external_prefix + "1"]
+        self.tensors[0].indices = new_indices_first
+        for tidx in range(1, self.num_sites - 1):
+            t = self.tensors[tidx]
+            new_indices_t = [
+                internal_prefix + str(tidx),
+                internal_prefix + str(tidx + 1),
+                external_prefix + str(tidx + 1),
+            ]
+            t.indices = new_indices_t
+        new_indices_last = [
+            internal_prefix + str(self.num_sites - 1),
+            external_prefix + str(self.num_sites),
+        ]
+        self.tensors[-1].indices = new_indices_last
+        return
+
     def compute_inner_product(self, other: "MatrixProductState") -> complex:
         """
         Calculate the inner product with another MPS.
@@ -532,6 +564,50 @@ class MatrixProductState(TensorNetwork):
 
         exp_val = mps1.compute_inner_product(mps2)
         return exp_val
+
+    def partial_trace(
+        self, sites: list[int], matrix: bool = False
+    ) -> ndarray | "MatrixProductState":
+        """
+        Compute the partial trace.
+
+        Args:
+            sites: The list of sites to trace over.
+            matrix: If True returns the reduced density matrix, otherwise returns a smaller MPS.
+
+        Returns:
+            The reduced state.
+        """
+        mps1 = copy.deepcopy(self)
+        mps2 = copy.deepcopy(self)
+
+        mps1.set_default_indices()
+        mps2.set_default_indices(internal_prefix="C")
+        for site in sites:
+            current_indices = mps2.tensors[site - 1].indices
+            mps2.tensors[site - 1].indices = [
+                x if x[0] == "C" else "_" + x for x in current_indices
+            ]
+
+        mps2.dagger()
+
+        all_tensors = mps1.tensors + mps2.tensors
+        tn = TensorNetwork(all_tensors, "TotalTN")
+        for n in range(1, self.num_sites):
+            if n not in sites:
+                tn.contract_index(f"P{n}")
+                tn.contract_index(f"B{n}")
+                if n + 1 not in sites:
+                    tn.combine_indices([f"P{n+1}", f"C{n}"], new_index_name=f"P{n+1}")
+            else:
+                tn.contract_index(f"B{n}")
+                tn.contract_index(f"C{n}")
+        result = tn.contract_entire_network()
+        if matrix:
+            output_inds = [f"P{x}" for x in sites]
+            input_inds = [f"_P{x}" for x in sites]
+            result.tensor_to_matrix(input_idxs=input_inds, output_idxs=output_inds)
+        return result
 
     def normalise(self) -> None:
         """
