@@ -620,7 +620,7 @@ class MatrixProductOperator(TensorNetwork):
 
         Args:
             num_sites: The total number of sites = number of spin-orbitals
-            op: A list of tuples of the form (idx, o) where o is a creation ("+") or annihilation ("-") operator acting on the orbital with index idx.
+            op:_list A list of tuples of the form (idx, o) where o is a creation ("+") or annihilation ("-") operator acting on the orbital with index idx.
 
         Return:
             An MPO.
@@ -630,6 +630,10 @@ class MatrixProductOperator(TensorNetwork):
         identity_op = np.array([[1, 0], [0, 1]])
 
         arrays = [0] * num_sites
+
+        # If the list is empty, assumes that its an identity operator
+        if len(op_list) == 0:
+            return MatrixProductOperator.identity_mpo(num_sites)
 
         op = {}
         for idx, o in op_list:
