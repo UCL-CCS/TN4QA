@@ -565,9 +565,7 @@ class MatrixProductState(TensorNetwork):
         exp_val = mps1.compute_inner_product(mps2)
         return exp_val
 
-    def partial_trace(
-        self, sites: list[int], matrix: bool = False
-    ) -> ndarray | "MatrixProductState":
+    def partial_trace(self, sites: list[int], matrix: bool = False) -> ndarray | Tensor:
         """
         Compute the partial trace.
 
