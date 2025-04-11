@@ -612,12 +612,15 @@ class MatrixProductOperator(TensorNetwork):
         return mpo
 
     @classmethod
-    def from_fermionic_operator(cls, op: str) -> "MatrixProductOperator":
+    def from_fermionic_string(
+        cls, num_sites: int, op_list: list[tuple]
+    ) -> "MatrixProductOperator":
         """
-        Construct an MPO from a Fermion operator consisting of creation and annihilation operators.
+        Construct an MPO from a Fermion operator consisting of a single string creation and annihilation operators.
 
         Args:
-            op: The sequence of creation (+) /annihilation (-) operators, e.g. "+I-II+-"
+            num_sites: The total number of sites = number of spin-orbitals
+            op: A list of tuples of the form (idx, o) where o is a creation ("+") or annihilation ("-") operator acting on the orbital with index idx.
 
         Return:
             An MPO.
@@ -626,60 +629,117 @@ class MatrixProductOperator(TensorNetwork):
         annihilation_op = np.array([[0, 1], [0, 0]])
         identity_op = np.array([[1, 0], [0, 1]])
 
-        num_qubits = len(op)
-        arrays = [0] * num_qubits
+        arrays = [0] * num_sites
 
-        for x in range(num_qubits):
-            match op[x]:
-                case "+":
-                    arrays[x] = (
-                        creation_op.reshape(1, 2, 2)
-                        if x == 0 or x == num_qubits - 1
-                        else creation_op.reshape(1, 1, 2, 2)
+        op = {}
+        for idx, o in op_list:
+            if idx in op:
+                op[idx] += o
+            else:
+                op[idx] = o
+
+        for x in range(num_sites):
+            total_op = identity_op
+            if str(x) in op:
+                for y in op[str(x)]:
+                    total_op = (
+                        total_op @ creation_op
+                        if y == "+"
+                        else total_op @ annihilation_op
                     )
-                case "-":
-                    arrays[x] = (
-                        annihilation_op.reshape(1, 2, 2)
-                        if x == 0 or x == num_qubits - 1
-                        else annihilation_op.reshape(1, 1, 2, 2)
-                    )
-                case "I":
-                    arrays[x] = (
-                        identity_op.reshape(1, 2, 2)
-                        if x == 0 or x == num_qubits - 1
-                        else identity_op.reshape(1, 1, 2, 2)
-                    )
+            arrays[x] = (
+                total_op.reshape(1, 2, 2)
+                if x == 0 or x == num_sites - 1
+                else total_op.reshape(1, 1, 2, 2)
+            )
 
         return cls.from_arrays(arrays)
 
     @classmethod
-    def from_fermionic_hamiltonian_adder(
-        cls, ham_dict: dict[str, complex], max_bond: int
+    def from_fermionic_operator(
+        cls, num_sites: int, ops: list[tuple]
     ) -> "MatrixProductOperator":
         """
-        Construct an MPO from a Fermionic Hamiltonian.
+        Construct an MPO from a linear combination of strings of fermionic creation and annihilation operators.
 
         Args:
-            ham_dict: Dictionary representation of the Hamiltonian of form {fermionic_operator : weight}
-            max_bond: Maximum allowed bond dimension.
+            num_sites: The total number of sites = number of spin-orbitals
+            ops: A list of tuples of the form (op, weight) where op is a single fermionic operator as defined in the from_fermionic_string method.
 
         Returns:
             An MPO.
         """
-        ops = list(ham_dict.keys())
-        num_qubits = len(ops[0])
-        constant_shift = ham_dict["I" * num_qubits]
-        mpo = MatrixProductOperator.identity_mpo(num_qubits).multiply_by_constant(
-            constant_shift
-        )
-
-        for op, weight in ham_dict.items():
-            temp_mpo = MatrixProductOperator.from_fermionic_operator(
-                op
+        mpo = MatrixProductOperator.from_fermionic_string(
+            num_sites, ops[0][0]
+        ).multiply_by_constant(ops[0][1])
+        for op, weight in ops[1:]:
+            mpo = mpo + MatrixProductOperator.from_fermionic_string(
+                num_sites, op
             ).multiply_by_constant(weight)
-            mpo = mpo + temp_mpo
-
         return mpo
+
+    @classmethod
+    def from_electron_integral_arrays(
+        cls, one_elec_integrals: ndarray, two_elec_integrals: ndarray
+    ):
+        """
+        Construct an MPO of a Fermionic Hamiltonian given as the arrays of one and two electron integrals.
+
+        Args:
+            one_elec_integrals: The 1e integrals in an (N,N) array.
+            two_elec_integrals: The 2e integrals in an (N,N,N,N) array.
+
+        Returns:
+            An MPO.
+        """
+        ops = []
+        num_sites = one_elec_integrals.shape[0]
+        for i in range(num_sites):
+            for j in range(num_sites):
+                op_list = [(f"{i}", "+"), (f"{j}", "-")]
+                ops.append((op_list, one_elec_integrals[i, j]))
+        for i in range(num_sites):
+            for j in range(num_sites):
+                for k in range(num_sites):
+                    for l in range(num_sites):
+                        op_list = [
+                            (f"{i}", "+"),
+                            (f"{j}", "+"),
+                            (f"{k}", "-"),
+                            (f"{l}", "-"),
+                        ]
+                        ops.append((op_list, two_elec_integrals[i, j, k, l]))
+
+        return MatrixProductOperator.from_fermionic_operator(num_sites, ops)
+
+    # @classmethod
+    # def from_fermionic_hamiltonian_adder(
+    #     cls, ham_dict: dict[str, complex], max_bond: int
+    # ) -> "MatrixProductOperator":
+    #     """
+    #     Construct an MPO from a Fermionic Hamiltonian.
+
+    #     Args:
+    #         ham_dict: Dictionary representation of the Hamiltonian of form {fermionic_operator : weight}
+    #         max_bond: Maximum allowed bond dimension.
+
+    #     Returns:
+    #         An MPO.
+    #     """
+    #     ops = list(ham_dict.keys())
+    #     num_qubits = len(ops[0])
+    #     constant_shift = ham_dict["I" * num_qubits]
+    #     mpo = MatrixProductOperator.identity_mpo(num_qubits).multiply_by_constant(
+    #         constant_shift
+    #     )
+
+    #     for op, weight in ham_dict.items():
+    #         temp_mpo = MatrixProductOperator.from_fermionic_operator(
+    #             op
+    #         ).multiply_by_constant(weight)
+    #         mpo = mpo + temp_mpo
+
+    #     return mpo
 
     # TODO: Implement a Fermionic Hamiltonian constructor without using MPO addition (c.f. from_hamiltonian)
     # @classmethod
