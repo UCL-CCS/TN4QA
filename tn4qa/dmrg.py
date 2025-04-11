@@ -5,6 +5,7 @@ import block2
 import numpy as np
 import psutil
 import sparse
+from numpy import ndarray
 from pyblock2._pyscf.ao2mo import integrals as itg
 from pyblock2.driver.core import DMRGDriver, SymmetryTypes
 from pyscf import scf
@@ -147,7 +148,7 @@ class Block2FermionDMRG:
 class DMRG:
     def __init__(
         self,
-        hamiltonian: dict[str, complex],
+        hamiltonian: dict[str, complex] | tuple[ndarray, ndarray],
         max_mps_bond: int,
         method: str = "one-site",
         hamiltonian_type: str = "qubit",
@@ -156,7 +157,7 @@ class DMRG:
         Constructor for the DMRG class.
 
         Args:
-            hamiltonian: A dict of the form {pauli_string : weight}.
+            hamiltonian: A dict of the form {pauli_string : weight} or a tuple of (one_e_integrals, two_e_integrals)
             max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             max_mps_bond: The maximum bond to use for MPS during DMRG.
             method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "one-site".
@@ -203,8 +204,8 @@ class DMRG:
             case "qubit":
                 mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, np.infty)
             case "fermionic":
-                mpo = MatrixProductOperator.from_fermionic_hamiltonian_adder(
-                    self.hamiltonian, np.infty
+                mpo = MatrixProductOperator.from_electron_integral_arrays(
+                    self.hamiltonian[0], self.hamiltonian[1]
                 )
 
         mpo = self.add_trivial_tensors_mpo(mpo)
