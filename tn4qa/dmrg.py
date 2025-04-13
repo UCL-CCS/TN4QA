@@ -167,6 +167,7 @@ class QubitDMRG:
         self.hamiltonian = hamiltonian
         self.num_sites = len(list(hamiltonian.keys())[0])
         self.max_mps_bond = max_mps_bond
+        self.current_max_mps_bond = 2
         self.mps = self.set_initial_state()
         self.mpo = self.set_hamiltonian_mpo()
         self.left_block_cache = []
@@ -188,7 +189,7 @@ class QubitDMRG:
         """
         if not mps:
             mps = MatrixProductState.random_quantum_state_mps(
-                self.num_sites, self.max_mps_bond
+                self.num_sites, self.current_max_mps_bond
             )
 
         mps = self.add_trivial_tensors_mps(mps)
@@ -648,7 +649,7 @@ class QubitDMRG:
             self.optimise_local_tensor()
             if site != self.num_sites:
                 self.perturb_left_sweep()
-            max_bond = 1 if site == 1 else self.max_mps_bond
+            max_bond = 1 if site == 1 else self.current_max_mps_bond
             self.mps.compress_index(f"B{site}", max_bond)
             if site != self.num_sites:
                 self.update_blocks_left_sweep()
@@ -663,7 +664,7 @@ class QubitDMRG:
             self.optimise_local_tensor()
             if site != 1:
                 self.perturb_right_sweep()
-            max_bond = 1 if site == self.num_sites else self.max_mps_bond
+            max_bond = 1 if site == self.num_sites else self.current_max_mps_bond
             self.mps.compress_index(f"B{site+1}", max_bond)
             if site != 1:
                 self.update_blocks_right_sweep()
@@ -713,12 +714,24 @@ class QubitDMRG:
                 self.update_blocks_right_sweep()
         return
 
+    def perform_bond_check(self) -> None:
+        """
+        Check if the maximum bond needs expanding.
+        """
+        if self.mps.bond_dimension == self.max_mps_bond:
+            return
+
+        if self.mps.bond_dimension == self.current_max_mps_bond:
+            self.current_max_mps_bond = min(
+                2 * self.current_max_mps_bond, self.max_mps_bond
+            )
+        return
+
     def run(self, maxiter: int) -> Tuple[float, MatrixProductState]:
         """
         Find the groundstate of an MPO with DMRG.
 
         Args:
-            max_mps_bond: The maximum bond dimension allowed.
             maxiter: The maximum number of DMRG sweeps.
 
         Returns:
@@ -736,6 +749,7 @@ class QubitDMRG:
                     atol=self.convergence_threshold,
                 ):
                     break
+                self.perform_bond_check()
         elif self.method == "one-site":
             for _ in range(maxiter):
                 self.sweep_left_one_site()
@@ -747,6 +761,7 @@ class QubitDMRG:
                     atol=self.convergence_threshold,
                 ):
                     break
+                self.perform_bond_check()
         elif self.method == "two-site":
             for _ in range(maxiter):
                 self.sweep_left_two_site()
@@ -758,6 +773,7 @@ class QubitDMRG:
                     atol=self.convergence_threshold,
                 ):
                     break
+                self.perform_bond_check()
 
         self.mps = self.remove_trivial_tensors_mps(self.mps)
         self.mpo = self.remove_trivial_tensors_mpo(self.mpo)
