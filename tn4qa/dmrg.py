@@ -150,6 +150,7 @@ class QubitDMRG:
         hamiltonian: dict[str, complex],
         max_mps_bond: int,
         method: str = "one-site",
+        convergence_threshold: float = 1e-6,
     ) -> "QubitDMRG":
         """
         Constructor for the QubitDMRG class.
@@ -171,8 +172,10 @@ class QubitDMRG:
         self.left_block_cache = []
         self.right_block_cache = []
         self.left_block, self.right_block = self.initialise_blocks()
-        self.energy = np.infty
+        self.energy = np.inf
         self.method = method
+        self.convergence_threshold = convergence_threshold
+        self.all_energies = []
 
         return
 
@@ -196,7 +199,7 @@ class QubitDMRG:
         """
         Convert the Hamiltonian to an MPO for DMRG.
         """
-        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, np.infty)
+        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, np.inf)
 
         mpo = self.add_trivial_tensors_mpo(mpo)
 
@@ -721,22 +724,40 @@ class QubitDMRG:
         Returns:
             A tuple of the DMRG energy and the DMRG state.
         """
-        self.all_energies = []
+
         if self.method == "subspace-expansion":
             for _ in range(maxiter):
                 self.sweep_left_subspace_expansion()
                 self.sweep_right_subspace_expansion()
                 self.all_energies.append(self.energy)
+                if np.isclose(
+                    self.all_energies[-1],
+                    self.all_energies[-2],
+                    atol=self.convergence_threshold,
+                ):
+                    break
         elif self.method == "one-site":
             for _ in range(maxiter):
                 self.sweep_left_one_site()
                 self.sweep_right_one_site()
                 self.all_energies.append(self.energy)
+                if np.isclose(
+                    self.all_energies[-1],
+                    self.all_energies[-2],
+                    atol=self.convergence_threshold,
+                ):
+                    break
         elif self.method == "two-site":
             for _ in range(maxiter):
                 self.sweep_left_two_site()
                 self.sweep_right_two_site()
                 self.all_energies.append(self.energy)
+                if np.isclose(
+                    self.all_energies[-1],
+                    self.all_energies[-2],
+                    atol=self.convergence_threshold,
+                ):
+                    break
 
         self.mps = self.remove_trivial_tensors_mps(self.mps)
         self.mpo = self.remove_trivial_tensors_mpo(self.mpo)
