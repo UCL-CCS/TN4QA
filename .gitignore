@@ -160,6 +160,7 @@ tmp/
 # Misc.
 .DS_Store
 .envrc
+nodex/
 
 # IDEs
 .idea/
