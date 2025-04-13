@@ -218,7 +218,7 @@ class QubitDMRG:
         )
 
         trivial_array = sparse.COO.from_numpy(
-            np.array([np.sqrt(1 / 2), np.sqrt(1 / 2)], dtype=complex).reshape(1, 2)
+            np.array([1], dtype=complex).reshape(1, 1)
         )
         all_arrays = (
             [trivial_array]
@@ -248,7 +248,7 @@ class QubitDMRG:
         )
 
         trivial_array = sparse.COO.from_numpy(
-            np.array([[1 / 2, 1 / 2], [1 / 2, 1 / 2]], dtype=complex).reshape(1, 2, 2)
+            np.array([1], dtype=complex).reshape(1, 1, 1)
         )
         all_arrays = (
             [trivial_array]
@@ -262,22 +262,22 @@ class QubitDMRG:
         """
         Remove trivial tensors from MPS.
         """
-        zero_array = sparse.COO.from_numpy(
-            np.array([1, 0], dtype=complex).reshape(
-                2,
-            )
-        )
-        zero_tensor_top = Tensor(zero_array, ["P1"], ["ZERO"])
-        zero_tensor_bottom = Tensor(zero_array, [f"P{self.num_sites+2}"], ["ZERO"])
-        self.mps.add_tensor(zero_tensor_top)
-        self.mps.add_tensor(zero_tensor_bottom)
-        self.mps.contract_index("P1")
-        self.mps.contract_index(f"P{self.num_sites+2}")
-        self.mps.contract_index("B1")
-        self.mps.contract_index(f"B{self.num_sites+1}")
-        arrays = []
-        for idx in range(2, self.num_sites + 2):
-            arrays.append(self.mps.get_tensors_from_index_name(f"P{idx}")[0].data)
+        # zero_array = sparse.COO.from_numpy(
+        #     np.array([1, 0], dtype=complex).reshape(
+        #         2,
+        #     )
+        # )
+        # zero_tensor_top = Tensor(zero_array, ["P1"], ["ZERO"])
+        # zero_tensor_bottom = Tensor(zero_array, [f"P{self.num_sites+2}"], ["ZERO"])
+        # self.mps.add_tensor(zero_tensor_top)
+        # self.mps.add_tensor(zero_tensor_bottom)
+        # self.mps.contract_index("P1")
+        # self.mps.contract_index(f"P{self.num_sites+2}")
+        # self.mps.contract_index("B1")
+        # self.mps.contract_index(f"B{self.num_sites+1}")
+        arrays = [self.mps.tensors[i].data for i in range(2, self.num_sites + 2)]
+        # for idx in range(2, self.num_sites + 2):
+        #     arrays.append(self.mps.get_tensors_from_index_name(f"P{idx}")[0].data)
         mps = MatrixProductState.from_arrays(arrays)
         mps.multiply_by_constant(2)
 
@@ -289,30 +289,30 @@ class QubitDMRG:
         """
         Remove trivial tensors from MPS.
         """
-        zero_array = sparse.COO.from_numpy(
-            np.array([1, 0], dtype=complex).reshape(
-                2,
-            )
-        )
-        zero_tensor_top_right = Tensor(zero_array, ["R1"], ["ZERO"])
-        zero_tensor_bottom_right = Tensor(
-            zero_array, [f"R{self.num_sites+2}"], ["ZERO"]
-        )
-        zero_tensor_top_left = Tensor(zero_array, ["L1"], ["ZERO"])
-        zero_tensor_bottom_left = Tensor(zero_array, [f"L{self.num_sites+2}"], ["ZERO"])
-        self.mpo.add_tensor(zero_tensor_top_right)
-        self.mpo.add_tensor(zero_tensor_bottom_right)
-        self.mpo.add_tensor(zero_tensor_top_left)
-        self.mpo.add_tensor(zero_tensor_bottom_left)
-        self.mpo.contract_index("R1")
-        self.mpo.contract_index(f"R{self.num_sites+2}")
-        self.mpo.contract_index("L1")
-        self.mpo.contract_index(f"L{self.num_sites+2}")
-        self.mpo.contract_index("B1")
-        self.mpo.contract_index(f"B{self.num_sites+1}")
-        arrays = []
-        for idx in range(2, self.num_sites + 2):
-            arrays.append(self.mpo.get_tensors_from_index_name(f"R{idx}")[0].data)
+        # zero_array = sparse.COO.from_numpy(
+        #     np.array([1, 0], dtype=complex).reshape(
+        #         2,
+        #     )
+        # )
+        # zero_tensor_top_right = Tensor(zero_array, ["R1"], ["ZERO"])
+        # zero_tensor_bottom_right = Tensor(
+        #     zero_array, [f"R{self.num_sites+2}"], ["ZERO"]
+        # )
+        # zero_tensor_top_left = Tensor(zero_array, ["L1"], ["ZERO"])
+        # zero_tensor_bottom_left = Tensor(zero_array, [f"L{self.num_sites+2}"], ["ZERO"])
+        # self.mpo.add_tensor(zero_tensor_top_right)
+        # self.mpo.add_tensor(zero_tensor_bottom_right)
+        # self.mpo.add_tensor(zero_tensor_top_left)
+        # self.mpo.add_tensor(zero_tensor_bottom_left)
+        # self.mpo.contract_index("R1")
+        # self.mpo.contract_index(f"R{self.num_sites+2}")
+        # self.mpo.contract_index("L1")
+        # self.mpo.contract_index(f"L{self.num_sites+2}")
+        # self.mpo.contract_index("B1")
+        # self.mpo.contract_index(f"B{self.num_sites+1}")
+        arrays = [self.mpo.tensors[i].data for i in range(2, self.num_sites + 2)]
+        # for idx in range(2, self.num_sites + 2):
+        #     arrays.append(self.mpo.get_tensors_from_index_name(f"R{idx}")[0].data)
         mpo = MatrixProductOperator.from_arrays(arrays)
         mpo.multiply_by_constant(4)
 
