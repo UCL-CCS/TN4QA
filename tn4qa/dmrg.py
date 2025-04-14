@@ -729,9 +729,22 @@ class QubitDMRG:
         self.left_block, self.right_block = self.initialise_blocks()
         return
 
+    def sub_convergence_check(self) -> None:
+        """
+        Check if the convergence threshold has been met for the current bond dimension.
+        """
+        if len(self.all_energies) < 2:
+            return False
+        convergence_condition = np.isclose(
+            self.all_energies[-1],
+            self.all_energies[-2],
+            atol=self.convergence_threshold,
+        )
+        return convergence_condition
+
     def convergence_check(self) -> None:
         """
-        Check if the convergence threshold has been met.
+        Check if the convergence threshold has been met for the max bond dimension.
         """
         if len(self.all_energies) < 2:
             return False
@@ -760,7 +773,7 @@ class QubitDMRG:
                 self.all_energies.append(self.energy)
                 if self.convergence_check():
                     break
-                else:
+                elif self.sub_convergence_check():
                     self.perform_bond_expansion()
         elif self.method == "one-site":
             for _ in range(maxiter):
@@ -769,7 +782,7 @@ class QubitDMRG:
                 self.all_energies.append(self.energy)
                 if self.convergence_check():
                     break
-                else:
+                elif self.sub_convergence_check():
                     self.perform_bond_expansion()
         elif self.method == "two-site":
             for _ in range(maxiter):
@@ -778,7 +791,7 @@ class QubitDMRG:
                 self.all_energies.append(self.energy)
                 if self.convergence_check():
                     break
-                else:
+                elif self.sub_convergence_check():
                     self.perform_bond_expansion()
 
         self.mps = self.remove_trivial_tensors_mps(self.mps)
