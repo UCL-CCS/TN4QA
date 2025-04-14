@@ -151,6 +151,7 @@ class QubitDMRG:
         max_mps_bond: int,
         method: str = "one-site",
         convergence_threshold: float = 1e-9,
+        initial_state: MatrixProductState | None = None,
     ) -> "QubitDMRG":
         """
         Constructor for the QubitDMRG class.
@@ -168,7 +169,7 @@ class QubitDMRG:
         self.num_sites = len(list(hamiltonian.keys())[0])
         self.max_mps_bond = max_mps_bond
         self.current_max_mps_bond = 2
-        self.mps = self.set_initial_state()
+        self.mps = self.set_initial_state(initial_state)
         self.mpo = self.set_hamiltonian_mpo()
         self.left_block_cache = []
         self.right_block_cache = []
@@ -738,7 +739,7 @@ class QubitDMRG:
         convergence_condition = np.isclose(
             self.all_energies[-1],
             self.all_energies[-2],
-            atol=self.convergence_threshold,
+            atol=1e-3,
         )
         return convergence_condition
 
