@@ -150,7 +150,7 @@ class QubitDMRG:
         hamiltonian: dict[str, complex],
         max_mps_bond: int,
         method: str = "one-site",
-        convergence_threshold: float = 1e-6,
+        convergence_threshold: float = 1e-9,
     ) -> "QubitDMRG":
         """
         Constructor for the QubitDMRG class.
@@ -263,24 +263,24 @@ class QubitDMRG:
         """
         Remove trivial tensors from MPS.
         """
-        # zero_array = sparse.COO.from_numpy(
-        #     np.array([1, 0], dtype=complex).reshape(
-        #         2,
-        #     )
-        # )
-        # zero_tensor_top = Tensor(zero_array, ["P1"], ["ZERO"])
-        # zero_tensor_bottom = Tensor(zero_array, [f"P{self.num_sites+2}"], ["ZERO"])
-        # self.mps.add_tensor(zero_tensor_top)
-        # self.mps.add_tensor(zero_tensor_bottom)
-        # self.mps.contract_index("P1")
-        # self.mps.contract_index(f"P{self.num_sites+2}")
-        # self.mps.contract_index("B1")
-        # self.mps.contract_index(f"B{self.num_sites+1}")
-        arrays = [self.mps.tensors[i].data for i in range(2, self.num_sites + 2)]
-        # for idx in range(2, self.num_sites + 2):
-        #     arrays.append(self.mps.get_tensors_from_index_name(f"P{idx}")[0].data)
+        zero_array = sparse.COO.from_numpy(
+            np.array([1], dtype=complex).reshape(
+                1,
+            )
+        )
+        zero_tensor_top = Tensor(zero_array, ["P1"], ["ZERO"])
+        zero_tensor_bottom = Tensor(zero_array, [f"P{self.num_sites+2}"], ["ZERO"])
+        self.mps.add_tensor(zero_tensor_top)
+        self.mps.add_tensor(zero_tensor_bottom)
+        self.mps.contract_index("P1")
+        self.mps.contract_index(f"P{self.num_sites+2}")
+        self.mps.contract_index("B1")
+        self.mps.contract_index(f"B{self.num_sites+1}")
+        arrays = []
+        for idx in range(2, self.num_sites + 2):
+            arrays.append(self.mps.get_tensors_from_index_name(f"P{idx}")[0].data)
         mps = MatrixProductState.from_arrays(arrays)
-        mps.multiply_by_constant(2)
+        # mps.multiply_by_constant(2)
 
         return mps
 
@@ -290,32 +290,32 @@ class QubitDMRG:
         """
         Remove trivial tensors from MPS.
         """
-        # zero_array = sparse.COO.from_numpy(
-        #     np.array([1, 0], dtype=complex).reshape(
-        #         2,
-        #     )
-        # )
-        # zero_tensor_top_right = Tensor(zero_array, ["R1"], ["ZERO"])
-        # zero_tensor_bottom_right = Tensor(
-        #     zero_array, [f"R{self.num_sites+2}"], ["ZERO"]
-        # )
-        # zero_tensor_top_left = Tensor(zero_array, ["L1"], ["ZERO"])
-        # zero_tensor_bottom_left = Tensor(zero_array, [f"L{self.num_sites+2}"], ["ZERO"])
-        # self.mpo.add_tensor(zero_tensor_top_right)
-        # self.mpo.add_tensor(zero_tensor_bottom_right)
-        # self.mpo.add_tensor(zero_tensor_top_left)
-        # self.mpo.add_tensor(zero_tensor_bottom_left)
-        # self.mpo.contract_index("R1")
-        # self.mpo.contract_index(f"R{self.num_sites+2}")
-        # self.mpo.contract_index("L1")
-        # self.mpo.contract_index(f"L{self.num_sites+2}")
-        # self.mpo.contract_index("B1")
-        # self.mpo.contract_index(f"B{self.num_sites+1}")
-        arrays = [self.mpo.tensors[i].data for i in range(2, self.num_sites + 2)]
-        # for idx in range(2, self.num_sites + 2):
-        #     arrays.append(self.mpo.get_tensors_from_index_name(f"R{idx}")[0].data)
+        zero_array = sparse.COO.from_numpy(
+            np.array([1], dtype=complex).reshape(
+                1,
+            )
+        )
+        zero_tensor_top_right = Tensor(zero_array, ["R1"], ["ZERO"])
+        zero_tensor_bottom_right = Tensor(
+            zero_array, [f"R{self.num_sites+2}"], ["ZERO"]
+        )
+        zero_tensor_top_left = Tensor(zero_array, ["L1"], ["ZERO"])
+        zero_tensor_bottom_left = Tensor(zero_array, [f"L{self.num_sites+2}"], ["ZERO"])
+        self.mpo.add_tensor(zero_tensor_top_right)
+        self.mpo.add_tensor(zero_tensor_bottom_right)
+        self.mpo.add_tensor(zero_tensor_top_left)
+        self.mpo.add_tensor(zero_tensor_bottom_left)
+        self.mpo.contract_index("R1")
+        self.mpo.contract_index(f"R{self.num_sites+2}")
+        self.mpo.contract_index("L1")
+        self.mpo.contract_index(f"L{self.num_sites+2}")
+        self.mpo.contract_index("B1")
+        self.mpo.contract_index(f"B{self.num_sites+1}")
+        arrays = []
+        for idx in range(2, self.num_sites + 2):
+            arrays.append(self.mpo.get_tensors_from_index_name(f"R{idx}")[0].data)
         mpo = MatrixProductOperator.from_arrays(arrays)
-        mpo.multiply_by_constant(4)
+        # mpo.multiply_by_constant(4)
 
         return mpo
 
@@ -714,18 +714,34 @@ class QubitDMRG:
                 self.update_blocks_right_sweep()
         return
 
-    def perform_bond_check(self) -> None:
+    def perform_bond_expansion(self) -> None:
         """
-        Check if the maximum bond needs expanding.
+        Expand the MPS bond dimension.
         """
-        if self.mps.bond_dimension == self.max_mps_bond:
-            return
-
-        if self.mps.bond_dimension == self.current_max_mps_bond:
-            self.current_max_mps_bond = min(
-                2 * self.current_max_mps_bond, self.max_mps_bond
-            )
+        new_bond_dim = min(2 * self.current_max_mps_bond, self.max_mps_bond)
+        diff = new_bond_dim - self.current_max_mps_bond
+        self.current_max_mps_bond = new_bond_dim
+        self.mps = self.mps.expand_bond_dimension_list(
+            diff, list(range(2, self.num_sites + 1))
+        )
+        self.left_block_cache = []
+        self.right_block_cache = []
+        self.left_block, self.right_block = self.initialise_blocks()
         return
+
+    def convergence_check(self) -> None:
+        """
+        Check if the convergence threshold has been met.
+        """
+        if len(self.all_energies) < 2:
+            return False
+        convergence_condition = np.isclose(
+            self.all_energies[-1],
+            self.all_energies[-2],
+            atol=self.convergence_threshold,
+        )
+        bond_dimension_condition = self.current_max_mps_bond == self.max_mps_bond
+        return convergence_condition and bond_dimension_condition
 
     def run(self, maxiter: int) -> Tuple[float, MatrixProductState]:
         """
@@ -737,43 +753,33 @@ class QubitDMRG:
         Returns:
             A tuple of the DMRG energy and the DMRG state.
         """
-
         if self.method == "subspace-expansion":
             for _ in range(maxiter):
                 self.sweep_left_subspace_expansion()
                 self.sweep_right_subspace_expansion()
                 self.all_energies.append(self.energy)
-                if np.isclose(
-                    self.all_energies[-1],
-                    self.all_energies[-2],
-                    atol=self.convergence_threshold,
-                ):
+                if self.convergence_check():
                     break
-                self.perform_bond_check()
+                else:
+                    self.perform_bond_expansion()
         elif self.method == "one-site":
             for _ in range(maxiter):
                 self.sweep_left_one_site()
                 self.sweep_right_one_site()
                 self.all_energies.append(self.energy)
-                if np.isclose(
-                    self.all_energies[-1],
-                    self.all_energies[-2],
-                    atol=self.convergence_threshold,
-                ):
+                if self.convergence_check():
                     break
-                self.perform_bond_check()
+                else:
+                    self.perform_bond_expansion()
         elif self.method == "two-site":
             for _ in range(maxiter):
                 self.sweep_left_two_site()
                 self.sweep_right_two_site()
                 self.all_energies.append(self.energy)
-                if np.isclose(
-                    self.all_energies[-1],
-                    self.all_energies[-2],
-                    atol=self.convergence_threshold,
-                ):
+                if self.convergence_check():
                     break
-                self.perform_bond_check()
+                else:
+                    self.perform_bond_expansion()
 
         self.mps = self.remove_trivial_tensors_mps(self.mps)
         self.mpo = self.remove_trivial_tensors_mpo(self.mpo)
