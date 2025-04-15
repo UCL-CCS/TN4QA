@@ -169,14 +169,17 @@ class DMRG:
         self.hamiltonian = hamiltonian
         self.hamiltonian_type = hamiltonian_type
         self.method = method
-        self.num_sites = len(list(hamiltonian.keys())[0])
+        if isinstance(hamiltonian, dict):
+            self.num_sites = len(list(hamiltonian.keys())[0])
+        else:
+            self.num_sites = len(hamiltonian[0])
         self.max_mps_bond = max_mps_bond
         self.mps = self.set_initial_state()
         self.mpo = self.set_hamiltonian_mpo()
         self.left_block_cache = []
         self.right_block_cache = []
         self.left_block, self.right_block = self.initialise_blocks()
-        self.energy = np.infty
+        self.energy = np.inf
 
         return
 
@@ -207,7 +210,6 @@ class DMRG:
                 mpo = MatrixProductOperator.from_electron_integral_arrays(
                     self.hamiltonian[0], self.hamiltonian[1]
                 )
-
         mpo = self.add_trivial_tensors_mpo(mpo)
 
         return mpo

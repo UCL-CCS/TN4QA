@@ -673,13 +673,12 @@ class MatrixProductOperator(TensorNetwork):
         Returns:
             An MPO.
         """
-        mpo = MatrixProductOperator.from_fermionic_string(
-            num_sites, ops[0][0]
-        ).multiply_by_constant(ops[0][1])
+        mpo = MatrixProductOperator.from_fermionic_string(num_sites, ops[0][0])
+        mpo.multiply_by_constant(ops[0][1])
         for op, weight in ops[1:]:
-            mpo = mpo + MatrixProductOperator.from_fermionic_string(
-                num_sites, op
-            ).multiply_by_constant(weight)
+            temp_mpo = MatrixProductOperator.from_fermionic_string(num_sites, op)
+            temp_mpo.multiply_by_constant(weight)
+            mpo = mpo + temp_mpo
         return mpo
 
     @classmethod
@@ -772,7 +771,6 @@ class MatrixProductOperator(TensorNetwork):
             mpo.contract_index(index)
 
         tensor = mpo.tensors[0]
-        print(mpo.indices)
         output_indices = [mpo.indices[2 * i] for i in range(int(len(mpo.indices) / 2))]
         input_indices = [
             mpo.indices[2 * i + 1] for i in range(int(len(mpo.indices) / 2))
