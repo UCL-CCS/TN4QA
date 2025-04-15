@@ -701,6 +701,7 @@ class MatrixProductOperator(TensorNetwork):
             for j in range(num_sites):
                 op_list = [(f"{i}", "+"), (f"{j}", "-")]
                 ops.append((op_list, one_elec_integrals[i, j]))
+
         for i in range(num_sites):
             for j in range(num_sites):
                 for k in range(num_sites):
