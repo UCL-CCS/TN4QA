@@ -158,12 +158,13 @@ class QubitDMRG:
             hamiltonian: A dict of the form {pauli_string : weight}.
             max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             max_mps_bond: The maximum bond to use for MPS during DMRG.
-            method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "two-site".
+            method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "one-site".
 
         Returns:
             The QubitDMRG object.
         """
         self.hamiltonian = hamiltonian
+        self.method = method
         self.num_sites = len(list(hamiltonian.keys())[0])
         self.max_mps_bond = max_mps_bond
         self.mps = self.set_initial_state()
@@ -172,7 +173,6 @@ class QubitDMRG:
         self.right_block_cache = []
         self.left_block, self.right_block = self.initialise_blocks()
         self.energy = np.infty
-        self.method = method
 
         return
 
@@ -399,6 +399,12 @@ class QubitDMRG:
     def initialise_blocks(self) -> Tuple[Tensor]:
         """
         Initialise the left and right blocks of the DMRG routine.
+
+        Args:
+            method: The selected method for DMRG.
+
+        Returns:
+            A tuple of the initial left block and the initial right block.
         """
         # Set up the rightmost block
         dag = copy.deepcopy(self.mps.tensors[-1].data.conj())
@@ -431,6 +437,10 @@ class QubitDMRG:
 
         left_block = self.initialise_left_block()
         self.right_block_cache.pop()
+
+        if self.method == "two-site":
+            right_block = copy.deepcopy(self.right_block_cache[-1])
+            self.right_block_cache.pop()
 
         return left_block, right_block
 
@@ -491,7 +501,21 @@ class QubitDMRG:
         return
 
     def combine_neighbouring_sites(self) -> SparseArray:
-        return
+        """
+        For the two_site method, combine neighbouring Hamiltonian sites.
+        """
+        current_site = len(self.left_block_cache) + 1
+        next_site = current_site + 1
+        ham1 = copy.deepcopy(self.mpo.tensors[current_site])
+        ham2 = copy.deepcopy(self.mpo.tensors[next_site])
+
+        tn = TensorNetwork([ham1, ham2])
+        combined = tn.contract_entire_network()
+        combined.combine_indices([f"R{current_site+1}", f"R{current_site+2}"], "R")
+        combined.combine_indices([f"L{current_site+1}", f"L{current_site+2}"], "L")
+        combined.reorder_indices([f"B{current_site}", f"B{current_site+2}", "R", "L"])
+
+        return combined.data
 
     def construct_effective_matrix(
         self, current_site_mat: SparseArray | None = None
@@ -505,15 +529,14 @@ class QubitDMRG:
         left_block = copy.deepcopy(self.left_block)
         right_block = copy.deepcopy(self.right_block)
         current_site = len(self.left_block_cache) + 1
-        if not current_site_mat:
+        if current_site_mat is None:
             current_site_mat = copy.deepcopy(self.mpo.tensors[current_site].data)
-        ham_tensor = Tensor(current_site_mat, ["Lham", "Rham", "pdag", "p"], ["HAM"])
 
+        ham_tensor = Tensor(current_site_mat, ["Lham", "Rham", "pdag", "p"], ["HAM"])
         tn = TensorNetwork([ham_tensor, right_block, left_block])
         tensor = tn.contract_entire_network()
         tensor.reorder_indices(["Ldag", "pdag", "Rdag", "Lmps", "p", "Rmps"])
         tensor.indices = ["udag", "pdag", "ddag", "u", "p", "d"]
-
         tensor.tensor_to_matrix(["u", "p", "d"], ["udag", "pdag", "ddag"])
 
         return tensor.data
@@ -526,23 +549,76 @@ class QubitDMRG:
             site: The site index.
         """
         site = len(self.left_block_cache) + 1
-        original_dims = self.mps.tensors[site].dimensions
-        effective_matrix = self.construct_effective_matrix()
+        if self.method == "two-site":
+            original_dims = (
+                self.mps.tensors[site].dimensions[0],
+                self.mps.tensors[site + 1].dimensions[1],
+                self.mps.tensors[site].dimensions[2]
+                * self.mps.tensors[site + 1].dimensions[2],
+            )
+            ham_mat = self.combine_neighbouring_sites()
+            effective_matrix = self.construct_effective_matrix(ham_mat)
+        else:
+            original_dims = self.mps.tensors[site].dimensions
+            effective_matrix = self.construct_effective_matrix()
         w, v = eigs(effective_matrix, k=1, which="SR")
         eigval = w[0]
         eigvec = sparse.COO.from_numpy(
             v[:, 0]
         )  # This is the new optimal value at site i
+
         new_data = sparse.reshape(
             eigvec, (original_dims[0], original_dims[2], original_dims[1])
         )
         new_data = sparse.moveaxis(new_data, [0, 1, 2], [0, 2, 1])
 
-        original_indices = self.mps.tensors[site].indices
-        original_labels = self.mps.tensors[site].labels
-        self.mps.pop_tensors_by_label(original_labels)
-        new_t = Tensor(new_data, original_indices, original_labels)
-        self.mps.add_tensor(new_t, site)
+        if self.method == "two-site":
+            new_data = sparse.moveaxis(new_data, [0, 1, 2], [2, 1, 0])
+            new_data = sparse.reshape(
+                new_data,
+                (
+                    self.mps.tensors[site].dimensions[2],
+                    self.mps.tensors[site + 1].dimensions[2],
+                    self.mps.tensors[site].dimensions[0],
+                    self.mps.tensors[site + 1].dimensions[1],
+                ),
+            )
+            new_data = sparse.moveaxis(new_data, [0, 1, 2, 3], [2, 3, 0, 1])
+            temp_t = Tensor(new_data, ["u", "d", "p1", "p2"], ["TEMP"])
+            temp_tn = TensorNetwork([temp_t])
+            temp_tn.svd(
+                temp_t,
+                ["u", "p1"],
+                ["d", "p2"],
+                max_bond=self.max_mps_bond,
+                new_index_name="b",
+            )
+
+            t1 = temp_tn.tensors[0]
+            t1.reorder_indices(["u", "b", "p1"])
+            indices1 = self.mps.tensors[site].indices
+            labels1 = self.mps.tensors[site].labels
+            t1.indices = indices1
+            t1.labels = labels1
+
+            t2 = temp_tn.tensors[1]
+            t2.reorder_indices(["b", "d", "p2"])
+            indices2 = self.mps.tensors[site + 1].indices
+            labels2 = self.mps.tensors[site + 1].labels
+            t2.indices = indices2
+            t2.labels = labels2
+
+            self.mps.pop_tensors_by_label(labels1)
+            self.mps.add_tensor(t1, site)
+            self.mps.pop_tensors_by_label(labels2)
+            self.mps.add_tensor(t2, site + 1)
+
+        else:
+            original_indices = self.mps.tensors[site].indices
+            original_labels = self.mps.tensors[site].labels
+            self.mps.pop_tensors_by_label(original_labels)
+            new_t = Tensor(new_data, original_indices, original_labels)
+            self.mps.add_tensor(new_t, site)
 
         self.energy = eigval.real
 
@@ -692,10 +768,10 @@ class QubitDMRG:
         """
         Perform a left sweep.
         """
-        sites = list(range(1, self.num_sites + 1))
+        sites = list(range(1, self.num_sites))
         for site in sites:
             self.optimise_local_tensor()
-            if site != self.num_sites:
+            if site != self.num_sites - 1:
                 self.update_blocks_left_sweep()
         return
 
@@ -703,7 +779,7 @@ class QubitDMRG:
         """
         Perform a right sweep.
         """
-        sites = list(range(1, self.num_sites + 1))[::-1]
+        sites = list(range(1, self.num_sites))[::-1]
         for site in sites:
             self.optimise_local_tensor()
             if site != 1:
