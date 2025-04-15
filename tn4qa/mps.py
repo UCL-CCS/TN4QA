@@ -615,6 +615,45 @@ class MatrixProductState(TensorNetwork):
         self.multiply_by_constant(np.sqrt(1 / norm))
         return
 
+    def expand_bond_dimension(self, diff: int, bond_idx: int) -> "MatrixProductState":
+        """
+        Expand the internal bond dimension by padding with 0s.
+
+        Args:
+            diff: The amount to pad the bond dimension by
+            bond_idx: The bond to expand
+        """
+        arrays = [t.data for t in self.tensors]
+        self.reshape("udp")
+        if bond_idx - 1 == 0:
+            arrays[bond_idx - 1] = sparse.pad(arrays[bond_idx - 1], ((0, diff), (0, 0)))
+        else:
+            arrays[bond_idx - 1] = sparse.pad(
+                arrays[bond_idx - 1], ((0, 0), (0, diff), (0, 0))
+            )
+        if bond_idx == self.num_sites - 1:
+            arrays[bond_idx] = sparse.pad(arrays[bond_idx], ((0, diff), (0, 0)))
+        else:
+            arrays[bond_idx] = sparse.pad(arrays[bond_idx], ((0, diff), (0, 0), (0, 0)))
+        mps = MatrixProductState.from_arrays(arrays)
+
+        return mps
+
+    def expand_bond_dimension_list(
+        self, diff: int, bond_idxs: list[int]
+    ) -> "MatrixProductState":
+        """
+        Expand multiple bonds.
+
+        Args:
+            diff: The amount to pad the bond dimension by
+            bond_idx: The bond to expand
+        """
+        mps = self
+        for idx in bond_idxs:
+            mps = mps.expand_bond_dimension(diff, idx)
+        return mps
+
     def draw(
         self,
         node_size: int | None = None,

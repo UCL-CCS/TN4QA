@@ -4,6 +4,9 @@ from typing import List, Tuple, Dict
 
 import quimb.tensor as qtn
 import sparse
+import pyscf
+from pyscf import scf
+from pyscf.scf import chkfile
 
 
 class PauliTerm(Enum):
@@ -116,3 +119,33 @@ def _hamiltonian_to_mpo(hamiltonian: Dict[str, Tuple[complex]]) -> qtn.MatrixPro
 
     # Combine tensors into a MatrixProductOperator
     return qtn.MatrixProductOperator([first_tensor] + middle_tensors + [last_tensor])
+
+def load_scf_from_chk(chk_path: str, scf_method: str = 'RHF') -> pyscf.scf.hf.RHF:
+    """
+    Loads a PySCF SCF object from a .chk (checkpoint) file.
+
+    Args:
+        chk_path (str): Path to the .chk file to load.
+        scf_method (str): The SCF method to use (only RHF at the moment).
+
+    Returns:
+        pyscf.scf.hf.RHF: The SCF object.
+    """
+    # Load molecule from the checkpoint
+    mol = chkfile.load_mol(chk_path)
+    
+    if scf_method == 'RHF':
+        # Create SCF object with the molecule
+        scf_object = scf.RHF(mol)
+        
+        # Load SCF data from checkpoint
+        scf_data = chkfile.load(chk_path, 'scf')
+
+        # Assign MO coefficients and occupations manually
+        scf_object.mo_coeff = scf_data['mo_coeff']
+        scf_object.mo_occ = scf_data['mo_occ']
+        scf_object.mo_energy = scf_data['mo_energy']
+
+        return scf_object
+    else:
+        raise NotImplementedError(f"SCF method {scf_method} not implemented.")
