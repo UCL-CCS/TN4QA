@@ -152,8 +152,7 @@ class DMRG:
         max_mps_bond: int,
         method: str = "one-site",
         convergence_threshold: float = 1e-9,
-        initial_state: MatrixProductState | str = "random",
-        num_electrons: int | None = None,
+        initial_state: MatrixProductState | None = None,
     ) -> "DMRG":
         """
         Constructor for the DMRG class.
@@ -164,8 +163,7 @@ class DMRG:
             max_mps_bond: The maximum bond to use for MPS during DMRG.
             method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "one-site".
             convergence_threshold: DMRG terminates once two successive sweeps differ in energy by less than this value.
-            initial_state: The starting point for the DMRG calculation. Can be a supplied MPS, "random" or "HF"
-            num_electrons: The number of electrons in the system, only required for "HF" initial_state.
+            initial_state: The starting point for the DMRG calculation. If not provided, random MPS is generated.
 
         Returns:
             The DMRG object.
@@ -174,15 +172,12 @@ class DMRG:
         self.method = method
         if isinstance(hamiltonian, dict):
             self.num_sites = len(list(hamiltonian.keys())[0])
-            self.num_spin_orbs = len(list(hamiltonian.keys())[0])
             self.hamiltonian_type = "qubit"
         else:
             self.num_sites = len(hamiltonian[0])
-            self.num_spin_orbs = len(hamiltonian[0])
             self.hamiltonian_type = "fermionic"
         self.max_mps_bond = max_mps_bond
         self.current_max_mps_bond = 2
-        self.num_electrons = num_electrons
         self.mps = self.set_initial_state(initial_state)
         self.mpo = self.set_hamiltonian_mpo()
         self.left_block_cache = []
@@ -196,7 +191,7 @@ class DMRG:
         return
 
     def set_initial_state(
-        self, input: MatrixProductState | str = "random"
+        self, input: MatrixProductState | None = None
     ) -> MatrixProductState:
         """
         Set the initial state for DMRG.
@@ -205,15 +200,7 @@ class DMRG:
             input: Either a given MPS or a string indicating a construction method, one of "random" or "HF"
         """
         match input:
-            case "random":
-                mps = MatrixProductState.random_quantum_state_mps(
-                    self.num_sites, self.current_max_mps_bond
-                )
-            case "HF":
-                if not self.num_electrons:
-                    raise ValueError(
-                        "The number of electrons must be provided to initialise the HF state."
-                    )
+            case None:
                 mps = MatrixProductState.random_quantum_state_mps(
                     self.num_sites, self.current_max_mps_bond
                 )
