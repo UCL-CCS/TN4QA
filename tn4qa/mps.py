@@ -159,6 +159,29 @@ class MatrixProductState(TensorNetwork):
         return cls.from_bitstring(bitstring)
 
     @classmethod
+    def from_symmer_quantumstate(cls, quantum_state: "QuantumState"):  # type: ignore # noqa: F821
+        """
+        Create an MPS from a Symmer QuantumState object.
+
+        Args:
+            quantum_state: The quantum state.
+
+        Returns:
+            An MPS.
+        """
+        state_dict = quantum_state.to_dictionary
+        bitstrings = list(state_dict.keys())
+        weights = list(state_dict.values())
+        mps = MatrixProductState.from_bitstring(bitstrings[0])
+        mps.multiply_by_constant(weights[0])
+        for idx in range(1, len(bitstrings)):
+            temp_mps = MatrixProductState.from_bitstring(bitstrings[idx])
+            temp_mps.multiply_by_constant(weights[idx])
+            mps = mps + temp_mps
+
+        return mps
+
+    @classmethod
     def random_mps(
         cls, num_sites: int, bond_dim: int, physical_dim: int
     ) -> "MatrixProductState":
