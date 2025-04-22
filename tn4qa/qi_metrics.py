@@ -250,8 +250,8 @@ def get_all_mutual_information(mps: MatrixProductState) -> float:
     """
     n_orbs = mps.num_sites // 2 # Number of orbitals - need to ask about factor of two thing
     M = np.zeros((n_orbs, n_orbs))
-    for i in range(n_orbs):
-        for j in range(i + 1, n_orbs):
+    for i in range(1, n_orbs+1):
+        for j in range(i + 1, n_orbs+1):
             M[i, j] = get_mutual_information(mps, [i, j])
             M[j, i] = M[i, j]
     return M
