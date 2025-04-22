@@ -211,26 +211,47 @@ def get_one_orbital_entropy(mps: MatrixProductState, site: int) -> float:
     """
     Calculate the one orbital entropy.
     """
-    # TODO: Method - just calculate the one orbital RDM using above function then calculate eigenvalues and sub into entropy formula.
-    # N.B. if symmetries are enforced in the RDM calculation then the RDM is diagonal so the eigenvalues are easy to get.
+    rdm1 = get_one_orbital_rdm(mps, site, direct=True, enforce_symmetry=True)
+    # Calculate eigenvalues
+    eigvals = np.linalg.eigvalsh(rdm1)
+    # Calculate entropy
+    entropy = -np.sum(eigvals * np.log2(eigvals + 1e-12)) # Add small value to avoid log(0)
+    return entropy
 
 
 def get_two_orbital_entropy(mps: MatrixProductState, sites: list[int]) -> float:
     """
     Calculate the two orbital entropy.
     """
-    # TODO: Method - just calculate the two orbital RDM using above function then calculate eigenvalues and sub into entropy formula.
-
+    rdm2 = get_two_orbital_rdm(mps, sites, direct=True, enforce_symmetry=True)
+    # Calculate eigenvalues
+    eigvals = np.linalg.eigvalsh(rdm2)
+    # Calculate entropy
+    entropy = -np.sum(eigvals * np.log2(eigvals + 1e-12)) # Add small value to avoid log(0)
+    return entropy
 
 def get_mutual_information(mps: MatrixProductState, sites: list[int]) -> float:
     """
     Calculate the mutual information between two orbitals.
+    I(i, j) = S(i) + S(j) - S(i,j)
     """
-    # TODO: Method - calculate one and two orbital entropies using above functions and sub into mutual information formula
+    s1 = get_one_orbital_entropy(mps, sites[0])
+    s2 = get_one_orbital_entropy(mps, sites[1])
+    s12 = get_two_orbital_entropy(mps, sites)
+    mutual_info = s1 + s2 - s12
+    return mutual_info
 
 
 def get_all_mutual_information(mps: MatrixProductState) -> float:
     """
     Calculate the mutual information between every pair of orbitals.
+    Mutual Information matrix where M[i,j] = I(i,j)
+    I(i,j) = S(i) + S(j) - S(i,j)
     """
-    # TODO: Method - just iterate the previous function over all pairs of orbitals.
+    n_orbs = mps.num_sites // 2 # Number of orbitals - need to ask about factor of two thing
+    M = np.zeros((n_orbs, n_orbs))
+    for i in range(1, n_orbs+1):
+        for j in range(i + 1, n_orbs+1):
+            M[i, j] = get_mutual_information(mps, [i, j])
+            M[j, i] = M[i, j]
+    return M
