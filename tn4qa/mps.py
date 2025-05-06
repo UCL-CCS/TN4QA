@@ -596,15 +596,6 @@ class MatrixProductState(TensorNetwork):
 
         all_tensors = mps1.tensors + mps2.tensors
         tn = TensorNetwork(all_tensors, "TotalTN")
-        # for n in range(1, self.num_sites):
-        #     if n not in sites:
-        #         tn.contract_index(f"P{n}")
-        #         tn.contract_index(f"B{n}")
-        #         if n + 1 not in sites:
-        #             tn.combine_indices([f"P{n+1}", f"C{n}"], new_index_name=f"P{n+1}")
-        #     else:
-        #         tn.contract_index(f"B{n}")
-        #         tn.contract_index(f"C{n}")
         result = tn.contract_entire_network()
         if matrix:
             output_inds = [f"P{x}" for x in all_inds]

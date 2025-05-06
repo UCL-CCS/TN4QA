@@ -148,7 +148,7 @@ class Block2FermionDMRG:
 class DMRG:
     def __init__(
         self,
-        hamiltonian: dict[str, complex] | tuple[ndarray, ndarray],
+        hamiltonian: dict[str, complex] | tuple[ndarray, ndarray, float],
         max_mps_bond: int,
         method: str = "one-site",
         hamiltonian_type: str = "qubit",
@@ -159,7 +159,7 @@ class DMRG:
         Constructor for the DMRG class.
 
         Args:
-            hamiltonian: A dict of the form {pauli_string : weight} or a tuple of (one_e_integrals, two_e_integrals)
+            hamiltonian: A dict of the form {pauli_string : weight} or a tuple of (one_e_integrals, two_e_integrals, nuc_energy)
             max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             max_mps_bond: The maximum bond to use for MPS during DMRG.
             method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "one-site".
@@ -175,6 +175,7 @@ class DMRG:
             self.num_sites = len(list(hamiltonian.keys())[0])
         else:
             self.num_sites = len(hamiltonian[0])
+            self.nuc_energy = hamiltonian[2]
         self.max_mps_bond = max_mps_bond
         self.current_max_mps_bond = 2
         self.mps = self.set_initial_state(initial_state)
@@ -888,5 +889,8 @@ class DMRG:
 
         self.mps = self.remove_trivial_tensors_mps(self.mps)
         self.mpo = self.remove_trivial_tensors_mpo(self.mpo)
+
+        if self.hamiltonian_type == "fermionic":
+            self.energy = self.energy + self.nuc_energy
 
         return (self.energy, self.mps)
