@@ -39,6 +39,43 @@ ONE_ORBITAL_OPERATORS = np.array(
 ).reshape((4, 4))
 
 
+def two_orbital_basis_reorder(idx: int, particle_to_orbital: bool = True) -> int:
+    """
+    The basis for a two-orbital RDM can be ordered particle-first or orbital-first.
+    Particle-first makes the two-orbital RDM block diagonal however we tend to use orbital-first.
+
+    Args:
+        idx: The index of the basis element.
+        particle_to_orbital: If true, finds the index of the basis element in the orbital basis.
+
+    Returns:
+        int: The index of the basis element in the reordered basis.
+    """
+    # key = index in particle-first ordering, value = index in orbital-first ordering
+    reordering_dict = {
+        "0": "0",
+        "1": "2",
+        "2": "8",
+        "3": "1",
+        "4": "4",
+        "5": "10",
+        "6": "3",
+        "7": "9",
+        "8": "6",
+        "9": "12",
+        "10": "5",
+        "11": "11",
+        "12": "14",
+        "13": "7",
+        "14": "13",
+        "15": "15",
+    }
+    # If reordering in the other direction, flip the dictionary
+    if not particle_to_orbital:
+        reordering_dict = {v: k for k, v in reordering_dict.items()}
+    return int(reordering_dict[str(idx)])
+
+
 def get_one_orbital_operator(idx1: int, idx2: int, orbital_idx: int) -> list[tuple]:
     """
     Get a one orbital Fermionic operator.
@@ -207,12 +244,120 @@ def get_two_orbital_rdm(
         rdm = mps.partial_trace(spin_orbitals_to_remove, matrix=True)
         rdm = rdm.data.todense()
         if enforce_symmetry:
-            # TODO: enable enforcing symmetries
-            pass
+            expected_non_zero_pairs_particle_basis = [
+                (0, 0),
+                (1, 1),
+                (1, 2),
+                (2, 1),
+                (2, 2),
+                (3, 3),
+                (3, 4),
+                (4, 3),
+                (4, 4),
+                (5, 5),
+                (6, 6),
+                (6, 7),
+                (6, 8),
+                (6, 9),
+                (7, 6),
+                (7, 7),
+                (7, 8),
+                (7, 9),
+                (8, 6),
+                (8, 7),
+                (8, 8),
+                (8, 9),
+                (9, 6),
+                (9, 7),
+                (9, 8),
+                (9, 9),
+                (10, 10),
+                (11, 11),
+                (11, 12),
+                (12, 11),
+                (12, 12),
+                (13, 13),
+                (13, 14),
+                (14, 13),
+                (14, 14),
+                (15, 15),
+            ]
+            expected_non_zero_pairs_orbital_basis = [
+                (two_orbital_basis_reorder(x), two_orbital_basis_reorder(y))
+                for x, y in expected_non_zero_pairs_particle_basis
+            ]
+            for i in range(16):
+                for j in range(16):
+                    if (i, j) in expected_non_zero_pairs_orbital_basis:
+                        continue
+                    else:
+                        rdm[i, j] = 0
         return rdm
     else:
-        # TODO: implement calculation via matrix elements
-        return
+        rdm = np.zeros((16, 16), dtype=complex)
+        expected_non_zero_pairs_particle_basis = [
+            (0, 0),
+            (1, 1),
+            (1, 2),
+            (2, 1),
+            (2, 2),
+            (3, 3),
+            (3, 4),
+            (4, 3),
+            (4, 4),
+            (5, 5),
+            (6, 6),
+            (6, 7),
+            (6, 8),
+            (6, 9),
+            (7, 6),
+            (7, 7),
+            (7, 8),
+            (7, 9),
+            (8, 6),
+            (8, 7),
+            (8, 8),
+            (8, 9),
+            (9, 6),
+            (9, 7),
+            (9, 8),
+            (9, 9),
+            (10, 10),
+            (11, 11),
+            (11, 12),
+            (12, 11),
+            (12, 12),
+            (13, 13),
+            (13, 14),
+            (14, 13),
+            (14, 14),
+            (15, 15),
+        ]
+        expected_non_zero_pairs_orbital_basis = [
+            (two_orbital_basis_reorder(x), two_orbital_basis_reorder(y))
+            for x, y in expected_non_zero_pairs_particle_basis
+        ]
+        for i in range(16):
+            for j in range(16):
+                if (
+                    i,
+                    j,
+                ) not in expected_non_zero_pairs_orbital_basis and enforce_symmetry:
+                    rdm[i, j] = 0
+                else:
+                    op1 = get_one_orbital_operator(
+                        int(np.floor(i / 4)), int(np.floor(j / 4)), sites[0]
+                    )
+                    op2 = get_one_orbital_operator(int(i % 4), int(j % 4), sites[1])
+                    mpo1 = MatrixProductOperator.from_fermionic_operator(
+                        mps.num_sites, op1
+                    )
+                    mpo2 = MatrixProductOperator.from_fermionic_operator(
+                        mps.num_sites, op2
+                    )
+                    mpo = mpo1 * mpo2
+                    rdm[i, j] = mps.compute_expectation_value(mpo)
+        return rdm
 
 
 def get_one_orbital_entropy(mps: MatrixProductState, site: int) -> float:
