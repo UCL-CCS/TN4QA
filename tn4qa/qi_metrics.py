@@ -8,32 +8,35 @@ from .mps import MatrixProductState
 # The following is a matrix of one orbital operators.
 # Each matrix element is a linear combination of strings of creation and annihilation operators given as a list of tuples.
 # Each tuple is (list, weight) where the first term in list is the operators acting on the up spin-orbital and the second term is the operators acting on the down spin-orbital
-ONE_ORBITAL_OPERATORS = [
+ONE_ORBITAL_OPERATORS = np.array(
     [
-        [([], 1), (["+-", ""], -1), (["", "+-"], -1), (["+-", "+-"], 1)],
-        [(["", "-"], 1), (["+-", "-"], -1)],
-        [(["-", ""], 1), (["-", "+-"], -1)],
-        [(["-", "-"], 1)],
+        [
+            [(["", ""], 1), (["+-", ""], -1), (["", "+-"], -1), (["+-", "+-"], 1)],
+            [(["", "-"], 1), (["+-", "-"], -1)],
+            [(["-", ""], 1), (["-", "+-"], -1)],
+            [(["-", "-"], 1)],
+        ],
+        [
+            [(["", "+"], 1), (["+-", "+"], -1)],
+            [(["", "+-"], 1), (["+-", "+-"], -1)],
+            [(["-", "+"], 1)],
+            [(["-", "+-"], -1)],
+        ],
+        [
+            [(["+", ""], 1), (["+", "+-"], -1)],
+            [(["+", "-"], 1)],
+            [(["+-", ""], 1), (["+-", "+-"], -1)],
+            [(["+-", "-"], 1)],
+        ],
+        [
+            [(["+", "+"], 1)],
+            [(["+", "+-"], 1)],
+            [(["+-", "+"], 1)],
+            [(["+-", "+-"], 1)],
+        ],
     ],
-    [
-        [(["", "+"], 1), (["+-", "+"], -1)],
-        [(["", "+-"], 1), (["+-", "+-"], -1)],
-        [(["-", "+"], 1)],
-        [(["-", "+-"], -1)],
-    ],
-    [
-        [(["+", ""], 1), (["+", "+-"], -1)],
-        [(["+", "-"], 1)],
-        [(["+-", ""], 1), (["+-", "+-"], -1)],
-        [(["+-", "-"], 1)],
-    ],
-    [
-        [(["+", "+"], 1)],
-        [(["+", "+-"], 1)],
-        [(["+-", "+"], 1)],
-        [(["+-", "+-"], 1)],
-    ],
-]
+    dtype=object,
+).reshape((4, 4))
 
 
 def get_one_orbital_operator(idx1: int, idx2: int, orbital_idx: int) -> list[tuple]:
@@ -48,16 +51,17 @@ def get_one_orbital_operator(idx1: int, idx2: int, orbital_idx: int) -> list[tup
     Returns:
         A list of tuples of the form (op, weight) where op is a single string of Fermionic creation/annihilation operators.
     """
-    up_idx = 2 * orbital_idx - 1
-    down_idx = 2 * orbital_idx
+    up_idx = 2 * orbital_idx - 2
+    down_idx = 2 * orbital_idx - 1
     ops = []
     for op_list, weight in ONE_ORBITAL_OPERATORS[idx1, idx2]:
         op = []
-        for up_op, down_op in op_list:
-            for o in up_op:
-                op.append((str(up_idx), o))
-            for o in down_op:
-                op.append((str(down_idx), o))
+        up_op = op_list[0]
+        down_op = op_list[1]
+        for o in up_op:
+            op.append((str(up_idx), o))
+        for o in down_op:
+            op.append((str(down_idx), o))
         ops.append((op, weight))
     return ops
 
@@ -155,7 +159,7 @@ def get_one_orbital_rdm(
                     rdm[j, i] = 0
         return rdm
     else:
-        rdm = np.zeros((4, 4))
+        rdm = np.zeros((4, 4), dtype=complex)
         for i in range(4):
             op = get_one_orbital_operator(i, i, orbital_idx)
             mpo = MatrixProductOperator.from_fermionic_operator(mps.num_sites, op)
