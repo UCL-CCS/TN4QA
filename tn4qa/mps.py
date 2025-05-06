@@ -560,7 +560,6 @@ class MatrixProductState(TensorNetwork):
         mps2.reshape("udp")
 
         mps1 = mps1.apply_mpo(mpo)
-        mps2.dagger()
 
         exp_val = mps1.compute_inner_product(mps2)
         return exp_val

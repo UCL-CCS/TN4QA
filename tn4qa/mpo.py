@@ -625,9 +625,9 @@ class MatrixProductOperator(TensorNetwork):
         Return:
             An MPO.
         """
-        creation_op = np.array([[0, 0], [1, 0]])
-        annihilation_op = np.array([[0, 1], [0, 0]])
-        identity_op = np.array([[1, 0], [0, 1]])
+        creation_op = np.array([[0, 0], [1, 0]], dtype=complex)
+        annihilation_op = np.array([[0, 1], [0, 0]], dtype=complex)
+        identity_op = np.array([[1, 0], [0, 1]], dtype=complex)
 
         arrays = [0] * num_sites
 
