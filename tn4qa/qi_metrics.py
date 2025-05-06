@@ -5,6 +5,8 @@ from .mpo import MatrixProductOperator
 from .mps import MatrixProductState
 
 # NOTATION:
+# The following is a matrix of one orbital operators.
+# Each matrix element is a linear combination of strings of creation and annihilation operators given as a list of tuples.
 # Each tuple is (list, weight) where the first term in list is the operators acting on the up spin-orbital and the second term is the operators acting on the down spin-orbital
 ONE_ORBITAL_OPERATORS = [
     [
@@ -145,6 +147,7 @@ def get_one_orbital_rdm(
         spin_orbitals_to_remove.remove(2 * orbital_idx - 1)
         spin_orbitals_to_remove.remove(2 * orbital_idx)
         rdm = mps.partial_trace(spin_orbitals_to_remove, matrix=True)
+        rdm = rdm.data.todense()
         if enforce_symmetry:
             for j in range(4):
                 for i in range(j):
@@ -198,6 +201,7 @@ def get_two_orbital_rdm(
         spin_orbitals_to_remove.remove(2 * sites[1] - 1)
         spin_orbitals_to_remove.remove(2 * sites[1])
         rdm = mps.partial_trace(spin_orbitals_to_remove, matrix=True)
+        rdm = rdm.data.todense()
         if enforce_symmetry:
             # TODO: enable enforcing symmetries
             pass
@@ -215,7 +219,9 @@ def get_one_orbital_entropy(mps: MatrixProductState, site: int) -> float:
     # Calculate eigenvalues
     eigvals = np.linalg.eigvalsh(rdm1)
     # Calculate entropy
-    entropy = -np.sum(eigvals * np.log2(eigvals + 1e-12)) # Add small value to avoid log(0)
+    entropy = -np.sum(
+        eigvals * np.log2(eigvals + 1e-12)
+    )  # Add small value to avoid log(0)
     return entropy
 
 
@@ -227,8 +233,11 @@ def get_two_orbital_entropy(mps: MatrixProductState, sites: list[int]) -> float:
     # Calculate eigenvalues
     eigvals = np.linalg.eigvalsh(rdm2)
     # Calculate entropy
-    entropy = -np.sum(eigvals * np.log2(eigvals + 1e-12)) # Add small value to avoid log(0)
+    entropy = -np.sum(
+        eigvals * np.log2(eigvals + 1e-12)
+    )  # Add small value to avoid log(0)
     return entropy
+
 
 def get_mutual_information(mps: MatrixProductState, sites: list[int]) -> float:
     """
@@ -248,10 +257,12 @@ def get_all_mutual_information(mps: MatrixProductState) -> float:
     Mutual Information matrix where M[i,j] = I(i,j)
     I(i,j) = S(i) + S(j) - S(i,j)
     """
-    n_orbs = mps.num_sites // 2 # Number of orbitals - need to ask about factor of two thing
+    n_orbs = (
+        mps.num_sites // 2
+    )  # Number of orbitals - need to ask about factor of two thing
     M = np.zeros((n_orbs, n_orbs))
-    for i in range(1, n_orbs+1):
-        for j in range(i + 1, n_orbs+1):
+    for i in range(1, n_orbs + 1):
+        for j in range(i + 1, n_orbs + 1):
             M[i, j] = get_mutual_information(mps, [i, j])
             M[j, i] = M[i, j]
     return M

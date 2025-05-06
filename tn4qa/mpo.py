@@ -620,7 +620,7 @@ class MatrixProductOperator(TensorNetwork):
 
         Args:
             num_sites: The total number of sites = number of spin-orbitals
-            op:_list A list of tuples of the form (idx, o) where o is a creation ("+") or annihilation ("-") operator acting on the orbital with index idx.
+            op:_list A list of tuples of the form (idx, o) where o is a creation ("+") or annihilation ("-") operator acting on the spin-orbital with index idx.
 
         Return:
             An MPO.
@@ -712,7 +712,7 @@ class MatrixProductOperator(TensorNetwork):
                             (f"{k}", "-"),
                             (f"{l}", "-"),
                         ]
-                        ops.append((op_list, two_elec_integrals[i, j, k, l]))
+                        ops.append((op_list, 0.5 * two_elec_integrals[i, j, k, l]))
 
         return MatrixProductOperator.from_fermionic_operator(num_sites, ops)
 
