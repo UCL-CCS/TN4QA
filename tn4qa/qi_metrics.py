@@ -37,6 +37,7 @@ ONE_ORBITAL_OPERATORS = np.array(
     ],
     dtype=object,
 ).reshape((4, 4))
+<<<<<<< HEAD
 
 
 def two_orbital_basis_reorder(idx: int, particle_to_orbital: bool = True) -> int:
@@ -74,6 +75,8 @@ def two_orbital_basis_reorder(idx: int, particle_to_orbital: bool = True) -> int
     if not particle_to_orbital:
         reordering_dict = {v: k for k, v in reordering_dict.items()}
     return int(reordering_dict[str(idx)])
+=======
+>>>>>>> 07cad82 (Debug 1-RDM indirect method)
 
 
 def get_one_orbital_operator(idx1: int, idx2: int, orbital_idx: int) -> list[tuple]:
