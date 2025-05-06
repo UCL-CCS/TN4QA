@@ -176,8 +176,6 @@ class DMRG:
             self.hamiltonian_type = "qubit"
         else:
             self.num_sites = len(hamiltonian[0])
-            self.nuc_energy = hamiltonian[2]
-            self.hamiltonian_type = "fermionic"
         self.max_mps_bond = max_mps_bond
         self.current_max_mps_bond = (
             self.max_mps_bond if method == "subspace-expansion" else 2
