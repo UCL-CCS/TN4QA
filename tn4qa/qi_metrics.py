@@ -215,7 +215,7 @@ def get_one_orbital_entropy(mps: MatrixProductState, site: int) -> float:
     """
     Calculate the one orbital entropy.
     """
-    rdm1 = get_one_orbital_rdm(mps, site, direct=True, enforce_symmetry=True)
+    rdm1 = get_one_orbital_rdm(mps, site, direct=True, enforce_symmetry=False)
     # Calculate eigenvalues
     eigvals = np.linalg.eigvalsh(rdm1)
     # Calculate entropy
@@ -229,7 +229,7 @@ def get_two_orbital_entropy(mps: MatrixProductState, sites: list[int]) -> float:
     """
     Calculate the two orbital entropy.
     """
-    rdm2 = get_two_orbital_rdm(mps, sites, direct=True, enforce_symmetry=True)
+    rdm2 = get_two_orbital_rdm(mps, sites, direct=True, enforce_symmetry=False)
     # Calculate eigenvalues
     eigvals = np.linalg.eigvalsh(rdm2)
     # Calculate entropy
