@@ -1,0 +1,16 @@
+# Citation
+
+If you use TN4QA in your work please cite the URL:
+
+https://github.com/UCL-CCS/TN4QA
+
+Here is a Bibtex entry for TN4QA:
+
+```
+@misc{ TN4QA,
+    author = {Angus Mingare, Isabelle Heuzé},
+    title = {TN4QA},
+    year = {2025},
+    url = {https://github.com/UCL-CCS/TN4QA},
+}
+```
