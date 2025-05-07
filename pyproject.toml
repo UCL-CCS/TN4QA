@@ -35,6 +35,7 @@ pytest = "^7.2.2"
 coverage = "^7.6.9"
 cotengrust = "^0.1.4"
 matplotlib = "^3.10.1"
+cached-property = "^1.5.2"
 
 [[tool.poetry.source]]
 name = "PyPI"
