@@ -172,7 +172,7 @@ class QubitDMRG:
         self.left_block_cache = []
         self.right_block_cache = []
         self.left_block, self.right_block = self.initialise_blocks()
-        self.energy = np.infty
+        self.energy = np.inf
 
         return
 
@@ -196,7 +196,7 @@ class QubitDMRG:
         """
         Convert the Hamiltonian to an MPO for DMRG.
         """
-        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, np.infty)
+        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, np.inf)
 
         mpo = self.add_trivial_tensors_mpo(mpo)
 
