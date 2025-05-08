@@ -235,6 +235,48 @@ def get_two_orbital_rdm(
     Return:
         The (16,16) array for the two-orbital RDM
     """
+    expected_non_zero_pairs_particle_basis = [
+        (0, 0),
+        (1, 1),
+        (1, 2),
+        (2, 1),
+        (2, 2),
+        (3, 3),
+        (3, 4),
+        (4, 3),
+        (4, 4),
+        (5, 5),
+        (6, 6),
+        (6, 7),
+        (6, 8),
+        (6, 9),
+        (7, 6),
+        (7, 7),
+        (7, 8),
+        (7, 9),
+        (8, 6),
+        (8, 7),
+        (8, 8),
+        (8, 9),
+        (9, 6),
+        (9, 7),
+        (9, 8),
+        (9, 9),
+        (10, 10),
+        (11, 11),
+        (11, 12),
+        (12, 11),
+        (12, 12),
+        (13, 13),
+        (13, 14),
+        (14, 13),
+        (14, 14),
+        (15, 15),
+    ]
+    expected_non_zero_pairs_orbital_basis = [
+        (two_orbital_basis_reorder(x), two_orbital_basis_reorder(y))
+        for x, y in expected_non_zero_pairs_particle_basis
+    ]
     if direct:
         spin_orbitals_to_remove = list(range(1, mps.num_sites + 1))
         spin_orbitals_to_remove.remove(2 * sites[0] - 1)
@@ -244,48 +286,6 @@ def get_two_orbital_rdm(
         rdm = mps.partial_trace(spin_orbitals_to_remove, matrix=True)
         rdm = rdm.data.todense()
         if enforce_symmetry:
-            expected_non_zero_pairs_particle_basis = [
-                (0, 0),
-                (1, 1),
-                (1, 2),
-                (2, 1),
-                (2, 2),
-                (3, 3),
-                (3, 4),
-                (4, 3),
-                (4, 4),
-                (5, 5),
-                (6, 6),
-                (6, 7),
-                (6, 8),
-                (6, 9),
-                (7, 6),
-                (7, 7),
-                (7, 8),
-                (7, 9),
-                (8, 6),
-                (8, 7),
-                (8, 8),
-                (8, 9),
-                (9, 6),
-                (9, 7),
-                (9, 8),
-                (9, 9),
-                (10, 10),
-                (11, 11),
-                (11, 12),
-                (12, 11),
-                (12, 12),
-                (13, 13),
-                (13, 14),
-                (14, 13),
-                (14, 14),
-                (15, 15),
-            ]
-            expected_non_zero_pairs_orbital_basis = [
-                (two_orbital_basis_reorder(x), two_orbital_basis_reorder(y))
-                for x, y in expected_non_zero_pairs_particle_basis
-            ]
             for i in range(16):
                 for j in range(16):
                     if (i, j) in expected_non_zero_pairs_orbital_basis:
@@ -295,48 +295,6 @@ def get_two_orbital_rdm(
         return rdm
     else:
         rdm = np.zeros((16, 16), dtype=complex)
-        expected_non_zero_pairs_particle_basis = [
-            (0, 0),
-            (1, 1),
-            (1, 2),
-            (2, 1),
-            (2, 2),
-            (3, 3),
-            (3, 4),
-            (4, 3),
-            (4, 4),
-            (5, 5),
-            (6, 6),
-            (6, 7),
-            (6, 8),
-            (6, 9),
-            (7, 6),
-            (7, 7),
-            (7, 8),
-            (7, 9),
-            (8, 6),
-            (8, 7),
-            (8, 8),
-            (8, 9),
-            (9, 6),
-            (9, 7),
-            (9, 8),
-            (9, 9),
-            (10, 10),
-            (11, 11),
-            (11, 12),
-            (12, 11),
-            (12, 12),
-            (13, 13),
-            (13, 14),
-            (14, 13),
-            (14, 14),
-            (15, 15),
-        ]
-        expected_non_zero_pairs_orbital_basis = [
-            (two_orbital_basis_reorder(x), two_orbital_basis_reorder(y))
-            for x, y in expected_non_zero_pairs_particle_basis
-        ]
         for i in range(16):
             for j in range(16):
                 if (
@@ -412,6 +370,6 @@ def get_all_mutual_information(mps: MatrixProductState) -> float:
     M = np.zeros((n_orbs, n_orbs))
     for i in range(1, n_orbs + 1):
         for j in range(i + 1, n_orbs + 1):
-            M[i, j] = get_mutual_information(mps, [i, j])
-            M[j, i] = M[i, j]
+            M[i - 1, j - 1] = get_mutual_information(mps, [i, j])
+            M[j - 1, i - 1] = M[i - 1, j - 1]
     return M
