@@ -370,6 +370,6 @@ def get_all_mutual_information(mps: MatrixProductState) -> float:
     M = np.zeros((n_orbs, n_orbs))
     for i in range(1, n_orbs + 1):
         for j in range(i + 1, n_orbs + 1):
-            M[i, j] = get_mutual_information(mps, [i, j])
-            M[j, i] = M[i, j]
+            M[i - 1, j - 1] = get_mutual_information(mps, [i, j])
+            M[j - 1, i - 1] = M[i - 1, j - 1]
     return M
