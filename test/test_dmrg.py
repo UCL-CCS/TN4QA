@@ -1,8 +1,8 @@
 import json
 import os
 
-import numpy as np
-from pyscf import gto, scf
+import numpy as np  # type: ignore
+from pyscf import gto, scf  # type: ignore
 
 from tn4qa.dmrg import DMRG, Block2FermionDMRG
 
@@ -41,8 +41,8 @@ def test_DMRG_two_site():
     with open(location) as f:
         ham = json.load(f)
     ham_dict = {k: float(v[0]) for k, v in ham.items()}
-    dmrg = DMRG(ham_dict, 8, "two-site")
-    energy, _ = dmrg.run(4)
+    dmrg = DMRG(ham_dict, 16, "two-site")
+    energy, _ = dmrg.run(10)
     assert np.isclose(energy, -7.881571973351853, atol=0.2)
 
 
@@ -51,6 +51,6 @@ def test_DMRG_subspace_expansion():
     with open(location) as f:
         ham = json.load(f)
     ham_dict = {k: float(v[0]) for k, v in ham.items()}
-    dmrg = DMRG(ham_dict, 4, "subspace-expansion")
-    energy, _ = dmrg.run(4)
+    dmrg = DMRG(ham_dict, 16, "subspace-expansion")
+    energy, _ = dmrg.run(10)
     assert np.isclose(energy, -2.8625885726691855, atol=0.1)

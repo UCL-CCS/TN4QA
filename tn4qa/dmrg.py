@@ -151,7 +151,6 @@ class DMRG:
         hamiltonian: dict[str, complex] | tuple[ndarray, ndarray, float],
         max_mps_bond: int,
         method: str = "one-site",
-        hamiltonian_type: str = "qubit",
         convergence_threshold: float = 1e-9,
         initial_state: MatrixProductState | None = None,
     ) -> "DMRG":
@@ -163,19 +162,20 @@ class DMRG:
             max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             max_mps_bond: The maximum bond to use for MPS during DMRG.
             method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "one-site".
-            hamiltonian_type: "fermionic" or "qubit" Hamiltonian supplied.
+            initial_state: optional input state to DMRG
 
         Returns:
             The DMRG object.
         """
         self.hamiltonian = hamiltonian
-        self.hamiltonian_type = hamiltonian_type
         self.method = method
         if isinstance(hamiltonian, dict):
             self.num_sites = len(list(hamiltonian.keys())[0])
+            self.hamiltonian_type = "qubit"
         else:
             self.num_sites = len(hamiltonian[0])
             self.nuc_energy = hamiltonian[2]
+            self.hamiltonian_type = "fermionic"
         self.max_mps_bond = max_mps_bond
         self.current_max_mps_bond = 2
         self.mps = self.set_initial_state(initial_state)
