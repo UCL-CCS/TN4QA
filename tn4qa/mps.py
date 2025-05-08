@@ -714,7 +714,7 @@ class MatrixProductState(TensorNetwork):
 
         Args:
             diff: The amount to pad the bond dimension by
-            bond_idx: The bond to expand
+            bond_idxs: The bonds to expand
         """
         mps = self
         for idx in bond_idxs:

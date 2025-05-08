@@ -177,7 +177,9 @@ class DMRG:
             self.num_sites = len(hamiltonian[0])
             self.hamiltonian_type = "fermionic"
         self.max_mps_bond = max_mps_bond
-        self.current_max_mps_bond = 2
+        self.current_max_mps_bond = (
+            max_mps_bond if method == "subspace-expansion" else 2
+        )
         self.mps = self.set_initial_state(initial_state)
         self.mpo = self.set_hamiltonian_mpo()
         self.left_block_cache = []
@@ -872,10 +874,6 @@ class DMRG:
                 self.sweep_left_subspace_expansion()
                 self.sweep_right_subspace_expansion()
                 self.all_energies.append(self.energy)
-                if self.convergence_check():
-                    break
-                elif self.sub_convergence_check():
-                    self.perform_bond_expansion()
         elif self.method == "one-site":
             for _ in range(maxiter):
                 self.sweep_left_one_site()
