@@ -19,7 +19,7 @@ If you would like to contribute a new feature or fix a bug, please follow the st
 ```
 cd ./docs
 make html
-python -m http.server -d build/html 8080
+python3 -m http.server -d build/html 8080
 ```
 
 so that the docs are accessible through http://localhost:8080
