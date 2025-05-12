@@ -6,7 +6,7 @@ from pyscf import gto, scf  # type: ignore
 
 from tn4qa.dmrg import DMRG, Block2FermionDMRG
 
-np.random.seed(2)
+np.random.seed(1)
 cwd = os.getcwd()
 
 

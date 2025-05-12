@@ -162,7 +162,8 @@ class DMRG:
             max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             max_mps_bond: The maximum bond to use for MPS during DMRG.
             method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "one-site".
-            initial_state: optional input state to DMRG
+            convergence_threshold: DMRG terminates once two successive sweeps differ in energy by less than this value.
+            initial_state: The starting point for the DMRG calculation. If not provided, random MPS is generated.
 
         Returns:
             The DMRG object.
@@ -177,7 +178,9 @@ class DMRG:
             self.nuc_energy = hamiltonian[2]
             self.hamiltonian_type = "fermionic"
         self.max_mps_bond = max_mps_bond
-        self.current_max_mps_bond = 2
+        self.current_max_mps_bond = (
+            max_mps_bond if method == "subspace-expansion" else 2
+        )
         self.mps = self.set_initial_state(initial_state)
         self.mpo = self.set_hamiltonian_mpo()
         self.left_block_cache = []
@@ -190,17 +193,25 @@ class DMRG:
 
         return
 
-    def set_initial_state(self, mps: MatrixProductState = None) -> MatrixProductState:
+    def set_initial_state(
+        self, input: MatrixProductState | None = None
+    ) -> MatrixProductState:
         """
         Set the initial state for DMRG.
 
         Args:
-            mps (optional): An optional input state. Defaults to random.
+            input: Either a given MPS or a string indicating a construction method, one of "random" or "HF"
         """
-        if not mps:
-            mps = MatrixProductState.random_quantum_state_mps(
-                self.num_sites, self.current_max_mps_bond
-            )
+        match input:
+            case None:
+                mps = MatrixProductState.random_quantum_state_mps(
+                    self.num_sites, self.current_max_mps_bond
+                )
+            case _:
+                if isinstance(input, MatrixProductState):
+                    mps = input
+                else:
+                    raise ValueError("Given initial_state not supported")
 
         mps = self.add_trivial_tensors_mps(mps)
 
@@ -864,10 +875,6 @@ class DMRG:
                 self.sweep_left_subspace_expansion()
                 self.sweep_right_subspace_expansion()
                 self.all_energies.append(self.energy)
-                if self.convergence_check():
-                    break
-                elif self.sub_convergence_check():
-                    self.perform_bond_expansion()
         elif self.method == "one-site":
             for _ in range(maxiter):
                 self.sweep_left_one_site()
