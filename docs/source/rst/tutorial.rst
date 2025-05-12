@@ -8,4 +8,4 @@ Here you will find various tutorials on how to use TN4QA.
 
    tutorial_docs/basics.rst
    tutorial_docs/dmrg.rst
-   tutorial_docs/warm_starting.rst
+   tutorial_docs/qi_metrics.rst

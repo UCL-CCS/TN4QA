@@ -169,7 +169,10 @@ class DMRG:
             The DMRG object.
         """
         self.hamiltonian = hamiltonian
+        self.energy = np.inf
         self.method = method
+        self.convergence_threshold = convergence_threshold
+        self.all_energies = []
         if isinstance(hamiltonian, dict):
             self.num_sites = len(list(hamiltonian.keys())[0])
             self.hamiltonian_type = "qubit"
@@ -179,17 +182,13 @@ class DMRG:
             self.hamiltonian_type = "fermionic"
         self.max_mps_bond = max_mps_bond
         self.current_max_mps_bond = (
-            max_mps_bond if method == "subspace-expansion" else 2
+            self.max_mps_bond if method == "subspace-expansion" else 2
         )
         self.mps = self.set_initial_state(initial_state)
         self.mpo = self.set_hamiltonian_mpo()
         self.left_block_cache = []
         self.right_block_cache = []
         self.left_block, self.right_block = self.initialise_blocks()
-        self.energy = np.inf
-        self.method = method
-        self.convergence_threshold = convergence_threshold
-        self.all_energies = []
 
         return
 
@@ -432,9 +431,6 @@ class DMRG:
         """
         Initialise the left and right blocks of the DMRG routine.
 
-        Args:
-            method: The selected method for DMRG.
-
         Returns:
             A tuple of the initial left block and the initial right block.
         """
@@ -585,13 +581,13 @@ class DMRG:
             original_dims = (
                 self.mps.tensors[site].dimensions[0],
                 self.mps.tensors[site + 1].dimensions[1],
-                self.mps.tensors[site].dimensions[2]
-                * self.mps.tensors[site + 1].dimensions[2],
+                self.mps.tensors[site].dimensions[2],
+                self.mps.tensors[site + 1].dimensions[2],
             )
             ham_mat = self.combine_neighbouring_sites()
             effective_matrix = self.construct_effective_matrix(ham_mat)
         else:
-            original_dims = self.mps.tensors[site].dimensions
+            original_dims = self.mps.tensors[site].dimensions + (1,)
             effective_matrix = self.construct_effective_matrix()
         w, v = eigs(effective_matrix, k=1, which="SR")
         eigval = w[0]
@@ -600,7 +596,8 @@ class DMRG:
         )  # This is the new optimal value at site i
 
         new_data = sparse.reshape(
-            eigvec, (original_dims[0], original_dims[2], original_dims[1])
+            eigvec,
+            (original_dims[0], original_dims[2] * original_dims[3], original_dims[1]),
         )
         new_data = sparse.moveaxis(new_data, [0, 1, 2], [0, 2, 1])
 
@@ -609,20 +606,20 @@ class DMRG:
             new_data = sparse.reshape(
                 new_data,
                 (
-                    self.mps.tensors[site].dimensions[2],
-                    self.mps.tensors[site + 1].dimensions[2],
-                    self.mps.tensors[site].dimensions[0],
-                    self.mps.tensors[site + 1].dimensions[1],
+                    original_dims[2],
+                    original_dims[3],
+                    original_dims[1],
+                    original_dims[0],
                 ),
             )
-            new_data = sparse.moveaxis(new_data, [0, 1, 2, 3], [2, 3, 0, 1])
+            new_data = sparse.moveaxis(new_data, [0, 1, 2, 3], [2, 3, 1, 0])
             temp_t = Tensor(new_data, ["u", "d", "p1", "p2"], ["TEMP"])
             temp_tn = TensorNetwork([temp_t])
             temp_tn.svd(
                 temp_t,
                 ["u", "p1"],
                 ["d", "p2"],
-                max_bond=self.max_mps_bond,
+                max_bond=self.current_max_mps_bond,
                 new_index_name="b",
             )
 

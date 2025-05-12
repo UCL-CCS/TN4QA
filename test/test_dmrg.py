@@ -41,9 +41,9 @@ def test_DMRG_two_site():
     with open(location) as f:
         ham = json.load(f)
     ham_dict = {k: float(v[0]) for k, v in ham.items()}
-    dmrg = DMRG(ham_dict, 16, "two-site")
+    dmrg = DMRG(ham_dict, 4, method="two-site")
     energy, _ = dmrg.run(10)
-    assert np.isclose(energy, -7.881571973351853, atol=0.2)
+    assert np.isclose(energy, -7.881571973351853, atol=0.1)
 
 
 def test_DMRG_subspace_expansion():
