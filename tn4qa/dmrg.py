@@ -169,10 +169,8 @@ class DMRG:
             The DMRG object.
         """
         self.hamiltonian = hamiltonian
-        self.energy = np.inf
         self.method = method
         self.convergence_threshold = convergence_threshold
-        self.all_energies = []
         if isinstance(hamiltonian, dict):
             self.num_sites = len(list(hamiltonian.keys())[0])
             self.hamiltonian_type = "qubit"
@@ -186,6 +184,8 @@ class DMRG:
         )
         self.mps = self.set_initial_state(initial_state)
         self.mpo = self.set_hamiltonian_mpo()
+        self.energy = self.set_initial_energy()
+        self.all_energies = [self.energy]
         self.left_block_cache = []
         self.right_block_cache = []
         self.left_block, self.right_block = self.initialise_blocks()
@@ -232,6 +232,28 @@ class DMRG:
         mpo = self.add_trivial_tensors_mpo(mpo)
 
         return mpo
+
+    def set_initial_energy(self) -> float:
+        mps = copy.deepcopy(self.mps)
+        mpo = copy.deepcopy(self.mpo)
+        return mps.compute_expectation_value(mpo)
+
+    def initialise_hf(self, num_elec: int) -> None:
+        """
+        Set the initial state to the HF state.
+
+        Args:
+            num_elec: The number of electrons in the system.
+        """
+        mps = MatrixProductState.from_bitstring(
+            "1" * (num_elec) + "0" * (self.num_sites - num_elec)
+        )
+        mps = mps.expand_bond_dimension_list(1, list(range(1, self.num_sites)))
+        mps = self.add_trivial_tensors_mps(mps)
+        self.mps = mps
+        self.energy = self.set_initial_energy()
+        self.all_energies = [self.energy]
+        return
 
     def add_trivial_tensors_mps(self, mps: MatrixProductState) -> MatrixProductState:
         """
@@ -836,12 +858,9 @@ class DMRG:
         """
         if len(self.all_energies) < 2:
             return False
-        convergence_condition = np.isclose(
-            self.all_energies[-1],
-            self.all_energies[-2],
-            atol=1e-3,
-        )
-        return convergence_condition
+        if np.abs(self.all_energies[-1] - self.all_energies[-2]) < 1e-3:
+            return True
+        return False
 
     def convergence_check(self) -> None:
         """
@@ -849,13 +868,13 @@ class DMRG:
         """
         if len(self.all_energies) < 2:
             return False
-        convergence_condition = np.isclose(
-            self.all_energies[-1],
-            self.all_energies[-2],
-            atol=self.convergence_threshold,
-        )
-        bond_dimension_condition = self.current_max_mps_bond == self.max_mps_bond
-        return convergence_condition and bond_dimension_condition
+        if self.current_max_mps_bond == self.max_mps_bond:
+            if (
+                np.abs(self.all_energies[-1] - self.all_energies[-2])
+                < self.convergence_threshold
+            ):
+                return True
+        return False
 
     def run(self, maxiter: int) -> Tuple[float, MatrixProductState]:
         """
