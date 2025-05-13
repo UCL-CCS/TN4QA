@@ -1,8 +1,8 @@
 import json
 import os
 
-import numpy as np  # type: ignore
-from pyscf import gto, scf  # type: ignore
+import numpy as np
+from pyscf import gto, scf
 
 from tn4qa.dmrg import DMRG, Block2FermionDMRG
 
