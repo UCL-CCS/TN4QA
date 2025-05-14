@@ -91,25 +91,29 @@ def civec_to_state(ci_obj, zero_threhold=None) -> QuantumState:
     psi = QuantumState(state_matrix, coeff_vec).normalize.sort()
     return psi
 
-def get_h2_string(bond_length:float=1.0, basis:str='sto-3g',) -> np.ndarray:
-    """Runs FCI on H2 and returns coefficients in full statevector form
-
+def get_string(xyz_path: str, charge: int = 0, basis: str = 'sto-3g') -> np.ndarray:
+    """Runs FCI on a molecule from an XYZ file and returns the coefficients in full statevector form.
+    
     Args:
-        bond_length (float): bond length of H2 molecule
-        basis (str): basis set to use for H2 molecule
+        xyz_path (str): Path to the XYZ file.
+        charge (int, optional): Charge of the molecule. Defaults to 0.
+        basis (str, optional): Basis set to use. Defaults to 'sto-3g'.
+        
     Returns:
-        statevector (numpy.ndarray): statevector version of FCI vector
+        np.ndarray: Statevector version of the FCI vector.
     """
-    h2_mol = pyscf.M(
-        atom='H 0 0 0; H 0 0 {}'.format(bond_length),
-        basis = basis
+    # Build the molecule directly from the XYZ path
+    mol = pyscf.M(
+        atom=xyz_path,
+        charge=charge,
+        basis=basis
     )
 
-    h2_rhf = pyscf.scf.RHF(h2_mol).run(verbose=0)
-    h2_fci = pyscf.fci.FCI(h2_rhf).run(verbose=0)
+    # Run RHF and FCI calculations
+    rhf_obj = pyscf.scf.RHF(mol).run(verbose=0)
+    fci_obj = pyscf.fci.FCI(rhf_obj).run(verbose=0)
 
-    statevector = civec_to_state(h2_fci, zero_threhold=None).to_sparse_matrix.toarray()
+    # Convert FCI vector to full statevector
+    statevector = civec_to_state(ci_obj=fci_obj).to_sparse_matrix.toarray()
 
     return statevector
-
-print(get_h2_string(1.0, 'sto-3g'))
