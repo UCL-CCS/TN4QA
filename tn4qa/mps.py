@@ -98,6 +98,36 @@ class MatrixProductState(TensorNetwork):
         return mps
 
     @classmethod
+    def from_bitstring(cls, bitstring: str) -> "MatrixProductState":
+        """
+        Create an MPS for the given bitstring |b>
+
+        Args:
+            bitstring: The computational basis state to be prepared.
+
+        Returns:
+            An MPS.
+        """
+        zero = np.array([1, 0], dtype=complex)
+        one = np.array([0, 1], dtype=complex)
+        arrays = []
+        if bitstring[0] == "0":
+            arrays.append(zero.reshape((1, 2)))
+        else:
+            arrays.append(one.reshape((1, 2)))
+        for bit in bitstring[1:-1]:
+            if bit == "0":
+                arrays.append(zero.reshape((1, 1, 2)))
+            else:
+                arrays.append(one.reshape((1, 1, 2)))
+        if bitstring[-1] == "0":
+            arrays.append(zero.reshape((1, 2)))
+        else:
+            arrays.append(one.reshape((1, 2)))
+
+        return cls.from_arrays(arrays)
+
+    @classmethod
     def all_zero_mps(cls, num_sites: int) -> "MatrixProductState":
         """
         Create an MPS for the all zero state |000...0>
@@ -108,11 +138,48 @@ class MatrixProductState(TensorNetwork):
         Returns:
             An MPS.
         """
-        zero_end = np.array([1, 0], dtype=complex).reshape(1, 2)
-        zero_middle = np.array([1, 0], dtype=complex).reshape(1, 1, 2)
-        arrays = [zero_end] + [zero_middle] * (num_sites - 2) + [zero_end]
 
-        return cls.from_arrays(arrays, shape="udp")
+        return cls.from_bitstring("0" * num_sites)
+
+    @classmethod
+    def from_hf_state(cls, num_spin_orbs: int, num_electrons: int):
+        """
+        Create an MPS for the HF state. Currently only valid for fermionic systems and JW encoded qubit systems.
+        This is because the HF state is assumed to be |111000...0>.
+
+        Args:
+            num_spin_orbs: The number of spin orbitals in the system.
+            num_electrons: The number of electrons in the system.
+
+        Returns:
+            A MPS.
+        """
+        bitstring = "1" * num_electrons + "0" * (num_spin_orbs - num_electrons)
+
+        return cls.from_bitstring(bitstring)
+
+    @classmethod
+    def from_symmer_quantumstate(cls, quantum_state: "QuantumState"):  # type: ignore # noqa: F821
+        """
+        Create an MPS from a Symmer QuantumState object.
+
+        Args:
+            quantum_state: The quantum state.
+
+        Returns:
+            An MPS.
+        """
+        state_dict = quantum_state.to_dictionary
+        bitstrings = list(state_dict.keys())
+        weights = list(state_dict.values())
+        mps = MatrixProductState.from_bitstring(bitstrings[0])
+        mps.multiply_by_constant(weights[0])
+        for idx in range(1, len(bitstrings)):
+            temp_mps = MatrixProductState.from_bitstring(bitstrings[idx])
+            temp_mps.multiply_by_constant(weights[idx])
+            mps = mps + temp_mps
+
+        return mps
 
     @classmethod
     def random_mps(
@@ -642,7 +709,7 @@ class MatrixProductState(TensorNetwork):
 
         Args:
             diff: The amount to pad the bond dimension by
-            bond_idx: The bond to expand
+            bond_idxs: The bonds to expand
         """
         mps = self
         for idx in bond_idxs:

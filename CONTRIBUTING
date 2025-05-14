@@ -1,0 +1,41 @@
+# Contributing to TN4QA
+
+The open source package TN4QA is designed to offer a convenient way to integrate tensor network methods into your quantum algorithm routines. There are several ways you can contribute to improve this package!
+
+## Contributing
+
+If you would like to contribute a new feature or fix a bug, please follow the steps outlined below:
+
+1. Open a new issue in the repository [TN4QA](https://github.com/UCL-CCS/TN4QA) and provide a description of the change you will make.
+
+2. Create a fork of the repository [TN4QA](https://github.com/UCL-CCS/TN4QA) in your own GitHub.
+
+3. Checkout a new branch using the naming convention "issue_###_YourGitHubUsername"
+
+3. Make changes in your branch. Please stick to the [PEP8](https://peps.python.org/pep-0008/) style.
+
+4. For any new functions or classes, include docstrings following the [Google format](https://google.github.io/styleguide/pyguide.html). From the top level of the repository you should be able to build the docs using the following
+
+```
+cd ./docs
+make html
+python3 -m http.server -d build/html 8080
+```
+
+so that the docs are accessible through http://localhost:8080
+
+5. For bug fixes, include a new unit test that would catch the error you have fixed. For new features, include unit tests in the appropriate test file.
+
+6. Open a pull request in the original repository.
+
+7. In the pull request description, briefly outline the changes you've made and highlight where you've added any tests. Link to the issue you created.
+
+## Requesting
+
+If there are features you would like to see in future releases of TN4QA or you find a bug that you think the maintainers should be aware of, please follow the steps below:
+
+1. Open a new issue in the repository [TN4QA](https://github.com/UCL-CCS/TN4QA).
+
+2. In the issue description, explain the new feature you would like to see or the bug you have found.
+
+3. If you are reporting a bug, please also provide a minimal example that allows the maintainers to reproduce the bug.

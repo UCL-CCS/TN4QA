@@ -336,6 +336,8 @@ def get_two_orbital_entropy(mps: MatrixProductState, sites: list[int]) -> float:
     """
     Calculate the two orbital entropy.
     """
+    if sites[0] == sites[1]:
+        return 0
     rdm2 = get_two_orbital_rdm(mps, sites, direct=True, enforce_symmetry=False)
     # Calculate eigenvalues
     eigvals = np.linalg.eigvalsh(rdm2)
@@ -369,7 +371,7 @@ def get_all_mutual_information(mps: MatrixProductState) -> float:
     )  # Number of orbitals - need to ask about factor of two thing
     M = np.zeros((n_orbs, n_orbs))
     for i in range(1, n_orbs + 1):
-        for j in range(i + 1, n_orbs + 1):
+        for j in range(i, n_orbs + 1):
             M[i - 1, j - 1] = get_mutual_information(mps, [i, j])
             M[j - 1, i - 1] = M[i - 1, j - 1]
     return M

@@ -162,13 +162,15 @@ class DMRG:
             max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             max_mps_bond: The maximum bond to use for MPS during DMRG.
             method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "one-site".
-            initial_state: optional input state to DMRG
+            convergence_threshold: DMRG terminates once two successive sweeps differ in energy by less than this value.
+            initial_state: The starting point for the DMRG calculation. If not provided, random MPS is generated.
 
         Returns:
             The DMRG object.
         """
         self.hamiltonian = hamiltonian
         self.method = method
+        self.convergence_threshold = convergence_threshold
         if isinstance(hamiltonian, dict):
             self.num_sites = len(list(hamiltonian.keys())[0])
             self.hamiltonian_type = "qubit"
@@ -177,30 +179,38 @@ class DMRG:
             self.nuc_energy = hamiltonian[2]
             self.hamiltonian_type = "fermionic"
         self.max_mps_bond = max_mps_bond
-        self.current_max_mps_bond = 2
+        self.current_max_mps_bond = (
+            self.max_mps_bond if method == "subspace-expansion" else 2
+        )
         self.mps = self.set_initial_state(initial_state)
         self.mpo = self.set_hamiltonian_mpo()
+        self.energy = self.set_initial_energy()
+        self.all_energies = [self.energy]
         self.left_block_cache = []
         self.right_block_cache = []
         self.left_block, self.right_block = self.initialise_blocks()
-        self.energy = np.inf
-        self.method = method
-        self.convergence_threshold = convergence_threshold
-        self.all_energies = []
 
         return
 
-    def set_initial_state(self, mps: MatrixProductState = None) -> MatrixProductState:
+    def set_initial_state(
+        self, input: MatrixProductState | None = None
+    ) -> MatrixProductState:
         """
         Set the initial state for DMRG.
 
         Args:
-            mps (optional): An optional input state. Defaults to random.
+            input: Either a given MPS or a string indicating a construction method, one of "random" or "HF"
         """
-        if not mps:
-            mps = MatrixProductState.random_quantum_state_mps(
-                self.num_sites, self.current_max_mps_bond
-            )
+        match input:
+            case None:
+                mps = MatrixProductState.random_quantum_state_mps(
+                    self.num_sites, self.current_max_mps_bond
+                )
+            case _:
+                if isinstance(input, MatrixProductState):
+                    mps = input
+                else:
+                    raise ValueError("Given initial_state not supported")
 
         mps = self.add_trivial_tensors_mps(mps)
 
@@ -222,6 +232,28 @@ class DMRG:
         mpo = self.add_trivial_tensors_mpo(mpo)
 
         return mpo
+
+    def set_initial_energy(self) -> float:
+        mps = copy.deepcopy(self.mps)
+        mpo = copy.deepcopy(self.mpo)
+        return mps.compute_expectation_value(mpo)
+
+    def initialise_hf(self, num_elec: int) -> None:
+        """
+        Set the initial state to the HF state.
+
+        Args:
+            num_elec: The number of electrons in the system.
+        """
+        mps = MatrixProductState.from_bitstring(
+            "1" * (num_elec) + "0" * (self.num_sites - num_elec)
+        )
+        mps = mps.expand_bond_dimension_list(1, list(range(1, self.num_sites)))
+        mps = self.add_trivial_tensors_mps(mps)
+        self.mps = mps
+        self.energy = self.set_initial_energy()
+        self.all_energies = [self.energy]
+        return
 
     def add_trivial_tensors_mps(self, mps: MatrixProductState) -> MatrixProductState:
         """
@@ -421,9 +453,6 @@ class DMRG:
         """
         Initialise the left and right blocks of the DMRG routine.
 
-        Args:
-            method: The selected method for DMRG.
-
         Returns:
             A tuple of the initial left block and the initial right block.
         """
@@ -574,13 +603,13 @@ class DMRG:
             original_dims = (
                 self.mps.tensors[site].dimensions[0],
                 self.mps.tensors[site + 1].dimensions[1],
-                self.mps.tensors[site].dimensions[2]
-                * self.mps.tensors[site + 1].dimensions[2],
+                self.mps.tensors[site].dimensions[2],
+                self.mps.tensors[site + 1].dimensions[2],
             )
             ham_mat = self.combine_neighbouring_sites()
             effective_matrix = self.construct_effective_matrix(ham_mat)
         else:
-            original_dims = self.mps.tensors[site].dimensions
+            original_dims = self.mps.tensors[site].dimensions + (1,)
             effective_matrix = self.construct_effective_matrix()
         w, v = eigs(effective_matrix, k=1, which="SR")
         eigval = w[0]
@@ -589,7 +618,8 @@ class DMRG:
         )  # This is the new optimal value at site i
 
         new_data = sparse.reshape(
-            eigvec, (original_dims[0], original_dims[2], original_dims[1])
+            eigvec,
+            (original_dims[0], original_dims[2] * original_dims[3], original_dims[1]),
         )
         new_data = sparse.moveaxis(new_data, [0, 1, 2], [0, 2, 1])
 
@@ -598,20 +628,20 @@ class DMRG:
             new_data = sparse.reshape(
                 new_data,
                 (
-                    self.mps.tensors[site].dimensions[2],
-                    self.mps.tensors[site + 1].dimensions[2],
-                    self.mps.tensors[site].dimensions[0],
-                    self.mps.tensors[site + 1].dimensions[1],
+                    original_dims[2],
+                    original_dims[3],
+                    original_dims[1],
+                    original_dims[0],
                 ),
             )
-            new_data = sparse.moveaxis(new_data, [0, 1, 2, 3], [2, 3, 0, 1])
+            new_data = sparse.moveaxis(new_data, [0, 1, 2, 3], [2, 3, 1, 0])
             temp_t = Tensor(new_data, ["u", "d", "p1", "p2"], ["TEMP"])
             temp_tn = TensorNetwork([temp_t])
             temp_tn.svd(
                 temp_t,
                 ["u", "p1"],
                 ["d", "p2"],
-                max_bond=self.max_mps_bond,
+                max_bond=self.current_max_mps_bond,
                 new_index_name="b",
             )
 
@@ -828,12 +858,9 @@ class DMRG:
         """
         if len(self.all_energies) < 2:
             return False
-        convergence_condition = np.isclose(
-            self.all_energies[-1],
-            self.all_energies[-2],
-            atol=1e-3,
-        )
-        return convergence_condition
+        if np.abs(self.all_energies[-1] - self.all_energies[-2]) < 1e-3:
+            return True
+        return False
 
     def convergence_check(self) -> None:
         """
@@ -841,13 +868,13 @@ class DMRG:
         """
         if len(self.all_energies) < 2:
             return False
-        convergence_condition = np.isclose(
-            self.all_energies[-1],
-            self.all_energies[-2],
-            atol=self.convergence_threshold,
-        )
-        bond_dimension_condition = self.current_max_mps_bond == self.max_mps_bond
-        return convergence_condition and bond_dimension_condition
+        if self.current_max_mps_bond == self.max_mps_bond:
+            if (
+                np.abs(self.all_energies[-1] - self.all_energies[-2])
+                < self.convergence_threshold
+            ):
+                return True
+        return False
 
     def run(self, maxiter: int) -> Tuple[float, MatrixProductState]:
         """
@@ -864,10 +891,6 @@ class DMRG:
                 self.sweep_left_subspace_expansion()
                 self.sweep_right_subspace_expansion()
                 self.all_energies.append(self.energy)
-                if self.convergence_check():
-                    break
-                elif self.sub_convergence_check():
-                    self.perform_bond_expansion()
         elif self.method == "one-site":
             for _ in range(maxiter):
                 self.sweep_left_one_site()
