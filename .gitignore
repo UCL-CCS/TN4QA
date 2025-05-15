@@ -161,6 +161,7 @@ tmp/
 .DS_Store
 .envrc
 nodex/
+.ruff_cache
 
 # IDEs
 .idea/
