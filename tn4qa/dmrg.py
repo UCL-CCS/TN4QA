@@ -150,7 +150,7 @@ class DMRG:
         self,
         hamiltonian: dict[str, complex] | tuple[ndarray, ndarray, float],
         max_mps_bond: int,
-        method: str = "one-site",
+        method: str = "two-site",
         convergence_threshold: float = 1e-9,
         initial_state: MatrixProductState | None = None,
     ) -> "DMRG":
