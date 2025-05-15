@@ -69,14 +69,14 @@ methods = ["DMRG", "DMRG2"]
 
 # Path to the Hamiltonian
 ham_file_paths = [
-    "hamiltonians/HeH_sto-3g.json",
-    "hamiltonians/LiH_sto-3g.json",
-    "hamiltonians/water_sto-3g.json",
+    "molecules/hamiltonians/sto_3g/HeH.json",
+    "molecules/hamiltonians/sto_3g/LiH.json",
+    "molecules/hamiltonians/sto_3g/water.json",
 ]
 scf_file_paths = [
-    "hamiltonians/HeH_sto-3g.chk",
-    "hamiltonians/LiH_sto-3g.chk",
-    "hamiltonians/water_sto-3g.chk",
+    "molecules/scf/sto_3g/HeH.chk",
+    "molecules/scf/sto_3g/LiH.chk",
+    "molecules/scf/sto_3g/water.chk",
 ]
 file_paths = [
     [ham_file_paths[i], scf_file_paths[i]] for i in range(len(ham_file_paths))
