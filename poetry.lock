@@ -2638,7 +2638,10 @@ files = [
 ]
 
 [package.dependencies]
-numpy = {version = ">=1.23.2", markers = "python_version == \"3.11\""}
+numpy = [
+    {version = ">=1.23.2", markers = "python_version == \"3.11\""},
+    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
+]
 python-dateutil = ">=2.8.2"
 pytz = ">=2020.1"
 tzdata = ">=2022.7"
@@ -3045,7 +3048,10 @@ files = [
 [package.dependencies]
 annotated-types = ">=0.6.0"
 pydantic-core = "2.23.4"
-typing-extensions = {version = ">=4.6.1", markers = "python_version < \"3.13\""}
+typing-extensions = [
+    {version = ">=4.6.1", markers = "python_version < \"3.13\""},
+    {version = ">=4.12.2", markers = "python_version >= \"3.13\""},
+]
 
 [package.extras]
 email = ["email-validator (>=2.0.0)"]
@@ -3232,7 +3238,6 @@ description = "PySCF: Python-based Simulations of Chemistry Framework"
 optional = false
 python-versions = "*"
 files = [
-    {file = "pyscf-2.9.0-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:cdce0684be3e71ad82e7885810a00214ddf153ba14f300bbcb40741e76bc3e31"},
     {file = "pyscf-2.9.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:231f99463d134a65e919882d27db5663ba01471ffee772a821e496803b507a83"},
     {file = "pyscf-2.9.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:bb204d651061fe1137601de9d32e34db24fe2548b5745992bcf4003acd5e05f3"},
     {file = "pyscf-2.9.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b1da9781ce25db2c34f4d1f844e87f22802e99b75f085bd1ee7a20aad1a33bb6"},
@@ -4109,13 +4114,13 @@ jeepney = ">=0.6"
 
 [[package]]
 name = "setuptools"
-version = "80.7.1"
+version = "80.8.0"
 description = "Easily download, build, install, upgrade, and uninstall Python packages"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "setuptools-80.7.1-py3-none-any.whl", hash = "sha256:ca5cc1069b85dc23070a6628e6bcecb3292acac802399c7f8edc0100619f9009"},
-    {file = "setuptools-80.7.1.tar.gz", hash = "sha256:f6ffc5f0142b1bd8d0ca94ee91b30c0ca862ffd50826da1ea85258a06fd94552"},
+    {file = "setuptools-80.8.0-py3-none-any.whl", hash = "sha256:95a60484590d24103af13b686121328cc2736bee85de8936383111e421b9edc0"},
+    {file = "setuptools-80.8.0.tar.gz", hash = "sha256:49f7af965996f26d43c8ae34539c8d99c5042fbff34302ea151eaa9c207cd257"},
 ]
 
 [package.extras]
@@ -4878,5 +4883,5 @@ type = ["pytest-mypy"]
 
 [metadata]
 lock-version = "2.0"
-python-versions = ">=3.11, <3.12"
-content-hash = "215be30ce9951601004e1a1f95ec17a16507f86ac3e0a7ef4c30dc2203f5ef38"
+python-versions = ">=3.11, <4"
+content-hash = "112d65052aecbbe9d7c4a2d596e5b6ef2d3b36c565767b7d510b976954d4b8a7"
