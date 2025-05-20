@@ -89,7 +89,7 @@ class ReadMoleculeData:
 
         fci_sparse_vec = data["FCI_vector"]
         self.fci_vector = [0] * (2**self.num_spin_orbs)
-        for idx, val in fci_sparse_vec:
+        for idx, val in fci_sparse_vec.items():
             self.fci_vector[int(idx)] = val[0] + 1j * val[1]
         self.fci_vector = np.array(self.fci_vector)
         self.fci_vector_sparse = sparse.COO.from_numpy(self.fci_vector)
