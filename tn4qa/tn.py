@@ -11,7 +11,6 @@ from numpy.linalg import svd
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag, dag_to_circuit
-from qiskit_aer.noise import NoiseModel
 
 from .tensor import Tensor
 
@@ -152,13 +151,6 @@ class TensorNetwork:
             tn = tn + TensorNetwork.from_qiskit_layer(layer_as_circ, layer_number)
             layer_number += 1
         return tn
-
-    @classmethod
-    def tnqem_construction(
-        cls, qc: QuantumCircuit, noise_model: NoiseModel
-    ) -> "TensorNetwork":
-        # TODO: Will likely need some helper functions to convert the noise model into tensors etc.
-        return
 
     def get_index_to_tensor_dict(self) -> dict:
         """

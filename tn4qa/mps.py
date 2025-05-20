@@ -98,6 +98,36 @@ class MatrixProductState(TensorNetwork):
         return mps
 
     @classmethod
+    def from_bitstring(cls, bitstring: str) -> "MatrixProductState":
+        """
+        Create an MPS for the given bitstring |b>
+
+        Args:
+            bitstring: The computational basis state to be prepared.
+
+        Returns:
+            An MPS.
+        """
+        zero = np.array([1, 0], dtype=complex)
+        one = np.array([0, 1], dtype=complex)
+        arrays = []
+        if bitstring[0] == "0":
+            arrays.append(zero.reshape((1, 2)))
+        else:
+            arrays.append(one.reshape((1, 2)))
+        for bit in bitstring[1:-1]:
+            if bit == "0":
+                arrays.append(zero.reshape((1, 1, 2)))
+            else:
+                arrays.append(one.reshape((1, 1, 2)))
+        if bitstring[-1] == "0":
+            arrays.append(zero.reshape((1, 2)))
+        else:
+            arrays.append(one.reshape((1, 2)))
+
+        return cls.from_arrays(arrays)
+
+    @classmethod
     def all_zero_mps(cls, num_sites: int) -> "MatrixProductState":
         """
         Create an MPS for the all zero state |000...0>
@@ -108,11 +138,48 @@ class MatrixProductState(TensorNetwork):
         Returns:
             An MPS.
         """
-        zero_end = np.array([1, 0], dtype=complex).reshape(1, 2)
-        zero_middle = np.array([1, 0], dtype=complex).reshape(1, 1, 2)
-        arrays = [zero_end] + [zero_middle] * (num_sites - 2) + [zero_end]
 
-        return cls.from_arrays(arrays, shape="udp")
+        return cls.from_bitstring("0" * num_sites)
+
+    @classmethod
+    def from_hf_state(cls, num_spin_orbs: int, num_electrons: int):
+        """
+        Create an MPS for the HF state. Currently only valid for fermionic systems and JW encoded qubit systems.
+        This is because the HF state is assumed to be |111000...0>.
+
+        Args:
+            num_spin_orbs: The number of spin orbitals in the system.
+            num_electrons: The number of electrons in the system.
+
+        Returns:
+            A MPS.
+        """
+        bitstring = "1" * num_electrons + "0" * (num_spin_orbs - num_electrons)
+
+        return cls.from_bitstring(bitstring)
+
+    @classmethod
+    def from_symmer_quantumstate(cls, quantum_state: "QuantumState"):  # type: ignore # noqa: F821
+        """
+        Create an MPS from a Symmer QuantumState object.
+
+        Args:
+            quantum_state: The quantum state.
+
+        Returns:
+            An MPS.
+        """
+        state_dict = quantum_state.to_dictionary
+        bitstrings = list(state_dict.keys())
+        weights = list(state_dict.values())
+        mps = MatrixProductState.from_bitstring(bitstrings[0])
+        mps.multiply_by_constant(weights[0])
+        for idx in range(1, len(bitstrings)):
+            temp_mps = MatrixProductState.from_bitstring(bitstrings[idx])
+            temp_mps.multiply_by_constant(weights[idx])
+            mps = mps + temp_mps
+
+        return mps
 
     @classmethod
     def random_mps(
@@ -478,6 +545,38 @@ class MatrixProductState(TensorNetwork):
         mps = MatrixProductState.from_arrays(arrays)
         return mps
 
+    def set_default_indices(
+        self, internal_prefix: str | None = None, external_prefix: str | None = None
+    ) -> None:
+        """
+        Rename all indices to a standard form.
+
+        Args:
+            internal_prefix: If provided the internal bonds will have the form internal_prefix + index
+            external_prefix: If provided the external bonds will have the form external_prefix + index
+        """
+        if not internal_prefix:
+            internal_prefix = "B"
+        if not external_prefix:
+            external_prefix = "P"
+        self.reshape("udp")
+        new_indices_first = [internal_prefix + "1", external_prefix + "1"]
+        self.tensors[0].indices = new_indices_first
+        for tidx in range(1, self.num_sites - 1):
+            t = self.tensors[tidx]
+            new_indices_t = [
+                internal_prefix + str(tidx),
+                internal_prefix + str(tidx + 1),
+                external_prefix + str(tidx + 1),
+            ]
+            t.indices = new_indices_t
+        new_indices_last = [
+            internal_prefix + str(self.num_sites - 1),
+            external_prefix + str(self.num_sites),
+        ]
+        self.tensors[-1].indices = new_indices_last
+        return
+
     def compute_inner_product(self, other: "MatrixProductState") -> complex:
         """
         Calculate the inner product with another MPS.
@@ -510,6 +609,66 @@ class MatrixProductState(TensorNetwork):
 
         return val
 
+    def compute_expectation_value(self, mpo: MatrixProductOperator) -> float:
+        """
+        Calculate an expectation value of the form <MPS | MPO | MPS>.
+
+        Args:
+            mpo: The MPO whose expectation value will be calculated.
+
+        Returns:
+            The expectation value.
+        """
+        mps1 = copy.deepcopy(self)
+        mps2 = copy.deepcopy(self)
+
+        mpo.reshape("udrl")
+        mps1.reshape("udp")
+        mps2.reshape("udp")
+
+        mps1 = mps1.apply_mpo(mpo)
+
+        exp_val = mps1.compute_inner_product(mps2)
+        return exp_val
+
+    def partial_trace(self, sites: list[int], matrix: bool = False) -> ndarray | Tensor:
+        """
+        Compute the partial trace.
+
+        Args:
+            sites: The list of sites to trace over.
+            matrix: If True returns the reduced density matrix, otherwise returns a smaller MPS.
+
+        Returns:
+            The reduced state.
+        """
+        mps1 = copy.deepcopy(self)
+        mps2 = copy.deepcopy(self)
+
+        mps1.set_default_indices()
+        mps2.set_default_indices(internal_prefix="C")
+
+        all_inds = list(range(1, self.num_sites + 1))
+        for site in sites:
+            all_inds.remove(site)
+
+        for site in all_inds:
+            current_indices = mps2.tensors[site - 1].indices
+            mps2.tensors[site - 1].indices = [
+                x if x[0] == "C" else "_" + x for x in current_indices
+            ]
+
+        mps2.dagger()
+
+        all_tensors = mps1.tensors + mps2.tensors
+        tn = TensorNetwork(all_tensors, "TotalTN")
+        result = tn.contract_entire_network()
+        if matrix:
+            output_inds = [f"P{x}" for x in all_inds]
+            input_inds = [f"_P{x}" for x in all_inds]
+            result.tensor_to_matrix(input_idxs=input_inds, output_idxs=output_inds)
+        return result
+
     def normalise(self) -> None:
         """
         Normalise the MPS.
@@ -517,6 +676,45 @@ class MatrixProductState(TensorNetwork):
         norm = self.compute_inner_product(self).real
         self.multiply_by_constant(np.sqrt(1 / norm))
         return
+
+    def expand_bond_dimension(self, diff: int, bond_idx: int) -> "MatrixProductState":
+        """
+        Expand the internal bond dimension by padding with 0s.
+
+        Args:
+            diff: The amount to pad the bond dimension by
+            bond_idx: The bond to expand
+        """
+        arrays = [t.data for t in self.tensors]
+        self.reshape("udp")
+        if bond_idx - 1 == 0:
+            arrays[bond_idx - 1] = sparse.pad(arrays[bond_idx - 1], ((0, diff), (0, 0)))
+        else:
+            arrays[bond_idx - 1] = sparse.pad(
+                arrays[bond_idx - 1], ((0, 0), (0, diff), (0, 0))
+            )
+        if bond_idx == self.num_sites - 1:
+            arrays[bond_idx] = sparse.pad(arrays[bond_idx], ((0, diff), (0, 0)))
+        else:
+            arrays[bond_idx] = sparse.pad(arrays[bond_idx], ((0, diff), (0, 0), (0, 0)))
+        mps = MatrixProductState.from_arrays(arrays)
+
+        return mps
+
+    def expand_bond_dimension_list(
+        self, diff: int, bond_idxs: list[int]
+    ) -> "MatrixProductState":
+        """
+        Expand multiple bonds.
+
+        Args:
+            diff: The amount to pad the bond dimension by
+            bond_idxs: The bonds to expand
+        """
+        mps = self
+        for idx in bond_idxs:
+            mps = mps.expand_bond_dimension(diff, idx)
+        return mps
 
     def draw(
         self,

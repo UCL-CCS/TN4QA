@@ -5,6 +5,7 @@ import block2
 import numpy as np
 import psutil
 import sparse
+from numpy import ndarray
 from pyblock2._pyscf.ao2mo import integrals as itg
 from pyblock2.driver.core import DMRGDriver, SymmetryTypes
 from pyscf import scf
@@ -17,7 +18,7 @@ from .tensor import Tensor
 from .tn import TensorNetwork
 
 
-class FermionDMRG:
+class Block2FermionDMRG:
     def __init__(
         self,
         scf_obj: scf,
@@ -26,9 +27,9 @@ class FermionDMRG:
         n_core: int = 0,
         n_cas: int = None,
         g2e_symm: int = 1,
-    ) -> "FermionDMRG":
+    ) -> "Block2FermionDMRG":
         """
-        Constructor for the FermionDMRG class. A simple wrapper around Block2 functionality.
+        Constructor for the Block2FermionDMRG class. A simple wrapper around Block2 functionality.
 
         Args:
             scf_obj: The (post-HF) scf object.
@@ -40,7 +41,7 @@ class FermionDMRG:
             g2e_symm (optional): Symmetry group for 2-electron integrals (default 1).
 
         Returns:
-            The FermionDMRG object.
+            The Block2FermionDMRG object.
         """
         self.scf_object = scf_obj
         self.HF_symmetry = HF_symmetry
@@ -144,49 +145,70 @@ class FermionDMRG:
         return energy
 
 
-class QubitDMRG:
+class DMRG:
     def __init__(
         self,
-        hamiltonian: dict[str, complex],
+        hamiltonian: dict[str, complex] | tuple[ndarray, ndarray, float],
         max_mps_bond: int,
-        method: str = "one-site",
-    ) -> "QubitDMRG":
+        method: str = "two-site",
+        convergence_threshold: float = 1e-9,
+        initial_state: MatrixProductState | None = None,
+    ) -> "DMRG":
         """
-        Constructor for the QubitDMRG class.
+        Constructor for the DMRG class.
 
         Args:
-            hamiltonian: A dict of the form {pauli_string : weight}.
+            hamiltonian: A dict of the form {pauli_string : weight} or a tuple of (one_e_integrals, two_e_integrals, nuc_energy)
             max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             max_mps_bond: The maximum bond to use for MPS during DMRG.
-            method: Which method to use. One of "subspace-expansion", "one-site", and "two-site". Defaults to "one-site".
+            method: Which method to use. One of "one-site", and "two-site". Defaults to "one-site".
+            convergence_threshold: DMRG terminates once two successive sweeps differ in energy by less than this value.
+            initial_state: The starting point for the DMRG calculation. If not provided, random MPS is generated.
 
         Returns:
-            The QubitDMRG object.
+            The DMRG object.
         """
         self.hamiltonian = hamiltonian
         self.method = method
-        self.num_sites = len(list(hamiltonian.keys())[0])
+        self.convergence_threshold = convergence_threshold
+        if isinstance(hamiltonian, dict):
+            self.num_sites = len(list(hamiltonian.keys())[0])
+            self.hamiltonian_type = "qubit"
+        else:
+            self.num_sites = len(hamiltonian[0])
+            self.nuc_energy = hamiltonian[2]
+            self.hamiltonian_type = "fermionic"
         self.max_mps_bond = max_mps_bond
-        self.mps = self.set_initial_state()
+        self.current_max_mps_bond = 2
+        self.mps = self.set_initial_state(initial_state)
         self.mpo = self.set_hamiltonian_mpo()
+        self.energy = self.set_initial_energy()
+        self.all_energies = [self.energy]
         self.left_block_cache = []
         self.right_block_cache = []
         self.left_block, self.right_block = self.initialise_blocks()
-        self.energy = np.inf
 
         return
 
-    def set_initial_state(self, mps: MatrixProductState = None) -> MatrixProductState:
+    def set_initial_state(
+        self, input: MatrixProductState | None = None
+    ) -> MatrixProductState:
         """
         Set the initial state for DMRG.
 
         Args:
-            mps (optional): An optional input state. Defaults to random.
+            input: Either a given MPS or a string indicating a construction method, one of "random" or "HF"
         """
-        if not mps:
-            mps = MatrixProductState.random_quantum_state_mps(
-                self.num_sites, self.max_mps_bond
-            )
+        match input:
+            case None:
+                mps = MatrixProductState.random_quantum_state_mps(
+                    self.num_sites, self.current_max_mps_bond
+                )
+            case _:
+                if isinstance(input, MatrixProductState):
+                    mps = input
+                else:
+                    raise ValueError("Given initial_state not supported")
 
         mps = self.add_trivial_tensors_mps(mps)
 
@@ -196,11 +218,23 @@ class QubitDMRG:
         """
         Convert the Hamiltonian to an MPO for DMRG.
         """
-        mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, np.inf)
+
+        match self.hamiltonian_type:
+            case "qubit":
+                mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian, np.inf)
+            case "fermionic":
+                mpo = MatrixProductOperator.from_electron_integral_arrays(
+                    self.hamiltonian[0], self.hamiltonian[1]
+                )
 
         mpo = self.add_trivial_tensors_mpo(mpo)
 
         return mpo
+
+    def set_initial_energy(self) -> float:
+        mps = copy.deepcopy(self.mps)
+        mpo = copy.deepcopy(self.mpo)
+        return mps.compute_expectation_value(mpo)
 
     def add_trivial_tensors_mps(self, mps: MatrixProductState) -> MatrixProductState:
         """
@@ -215,7 +249,7 @@ class QubitDMRG:
         )
 
         trivial_array = sparse.COO.from_numpy(
-            np.array([np.sqrt(1 / 2), np.sqrt(1 / 2)], dtype=complex).reshape(1, 2)
+            np.array([1], dtype=complex).reshape(1, 1)
         )
         all_arrays = (
             [trivial_array]
@@ -245,7 +279,7 @@ class QubitDMRG:
         )
 
         trivial_array = sparse.COO.from_numpy(
-            np.array([[1 / 2, 1 / 2], [1 / 2, 1 / 2]], dtype=complex).reshape(1, 2, 2)
+            np.array([1], dtype=complex).reshape(1, 1, 1)
         )
         all_arrays = (
             [trivial_array]
@@ -260,8 +294,8 @@ class QubitDMRG:
         Remove trivial tensors from MPS.
         """
         zero_array = sparse.COO.from_numpy(
-            np.array([1, 0], dtype=complex).reshape(
-                2,
+            np.array([1], dtype=complex).reshape(
+                1,
             )
         )
         zero_tensor_top = Tensor(zero_array, ["P1"], ["ZERO"])
@@ -276,7 +310,7 @@ class QubitDMRG:
         for idx in range(2, self.num_sites + 2):
             arrays.append(self.mps.get_tensors_from_index_name(f"P{idx}")[0].data)
         mps = MatrixProductState.from_arrays(arrays)
-        mps.multiply_by_constant(2)
+        # mps.multiply_by_constant(2)
 
         return mps
 
@@ -287,8 +321,8 @@ class QubitDMRG:
         Remove trivial tensors from MPS.
         """
         zero_array = sparse.COO.from_numpy(
-            np.array([1, 0], dtype=complex).reshape(
-                2,
+            np.array([1], dtype=complex).reshape(
+                1,
             )
         )
         zero_tensor_top_right = Tensor(zero_array, ["R1"], ["ZERO"])
@@ -311,71 +345,9 @@ class QubitDMRG:
         for idx in range(2, self.num_sites + 2):
             arrays.append(self.mpo.get_tensors_from_index_name(f"R{idx}")[0].data)
         mpo = MatrixProductOperator.from_arrays(arrays)
-        mpo.multiply_by_constant(4)
+        # mpo.multiply_by_constant(4)
 
         return mpo
-
-    def get_perturbation_term(self, sweep_direction: str) -> SparseArray:
-        """
-        Get the perturbation term required to escape local minima.
-
-        Args:
-            site: The site index for the perturbation term.
-            sweep_direction: Either "F" or "B".
-
-        Returns:
-            The perturbation term.
-        """
-        site = len(self.left_block_cache) + 1
-        if sweep_direction == "F":
-            left_block_array = copy.deepcopy(
-                self.left_block.data
-            )  # Indices ["Ldag", "Lham", "Lmps"]
-            site_array = copy.deepcopy(
-                self.mps.tensors[site].data
-            )  # Indices ["B_i", "B_i+1", "P_i+1"]
-            ham_array = copy.deepcopy(
-                self.mpo.tensors[site].data
-            )  # Indices ["B_i", "B_i+1", "R_i+1", "L_i+1"]
-
-            left_block_tensor = Tensor(
-                left_block_array, ["Ldag", "TEMP1", "TEMP2"], ["LEFTBLOCK"]
-            )
-            site_tensor = Tensor(site_array, ["TEMP2", "B1", "P1"], ["SITE"])
-            ham_tensor = Tensor(ham_array, ["TEMP1", "B2", "P", "P1"], ["HAM"])
-
-            tn = TensorNetwork(
-                [left_block_tensor, site_tensor, ham_tensor], name="PERTURBATION"
-            )
-            perturbation = tn.contract_entire_network()
-            perturbation.combine_indices(["B1", "B2"], "B")
-            perturbation.reorder_indices(["P", "Ldag", "B"])
-
-        else:
-            right_block_array = copy.deepcopy(
-                self.right_block.data
-            )  # Indices ["Rdag", "Rham", "Rmps"]
-            site_array = copy.deepcopy(
-                self.mps.tensors[site].data
-            )  # Indices ["B_i", "B_i+1", "P_i+1"]
-            ham_array = copy.deepcopy(
-                self.mpo.tensors[site].data
-            )  # Indices ["B_i", "B_i+1", "R_i+1", "L_i+1"]
-
-            right_block_tensor = Tensor(
-                right_block_array, ["Rdag", "TEMP1", "TEMP2"], ["RIGHTBLOCK"]
-            )
-            site_tensor = Tensor(site_array, ["B1", "TEMP2", "P1"], ["SITE"])
-            ham_tensor = Tensor(ham_array, ["B2", "TEMP1", "P", "P1"], ["HAM"])
-
-            tn = TensorNetwork(
-                [right_block_tensor, site_tensor, ham_tensor], name="PERTURBATION"
-            )
-            perturbation = tn.contract_entire_network()
-            perturbation.combine_indices(["B1", "B2"], "B")
-            perturbation.reorder_indices(["P", "B", "Rdag"])
-
-        return perturbation.data
 
     def initialise_left_block(self) -> Tensor:
         """
@@ -399,9 +371,6 @@ class QubitDMRG:
     def initialise_blocks(self) -> Tuple[Tensor]:
         """
         Initialise the left and right blocks of the DMRG routine.
-
-        Args:
-            method: The selected method for DMRG.
 
         Returns:
             A tuple of the initial left block and the initial right block.
@@ -553,13 +522,13 @@ class QubitDMRG:
             original_dims = (
                 self.mps.tensors[site].dimensions[0],
                 self.mps.tensors[site + 1].dimensions[1],
-                self.mps.tensors[site].dimensions[2]
-                * self.mps.tensors[site + 1].dimensions[2],
+                self.mps.tensors[site].dimensions[2],
+                self.mps.tensors[site + 1].dimensions[2],
             )
             ham_mat = self.combine_neighbouring_sites()
             effective_matrix = self.construct_effective_matrix(ham_mat)
         else:
-            original_dims = self.mps.tensors[site].dimensions
+            original_dims = self.mps.tensors[site].dimensions + (1,)
             effective_matrix = self.construct_effective_matrix()
         w, v = eigs(effective_matrix, k=1, which="SR")
         eigval = w[0]
@@ -568,7 +537,8 @@ class QubitDMRG:
         )  # This is the new optimal value at site i
 
         new_data = sparse.reshape(
-            eigvec, (original_dims[0], original_dims[2], original_dims[1])
+            eigvec,
+            (original_dims[0], original_dims[2] * original_dims[3], original_dims[1]),
         )
         new_data = sparse.moveaxis(new_data, [0, 1, 2], [0, 2, 1])
 
@@ -577,20 +547,20 @@ class QubitDMRG:
             new_data = sparse.reshape(
                 new_data,
                 (
-                    self.mps.tensors[site].dimensions[2],
-                    self.mps.tensors[site + 1].dimensions[2],
-                    self.mps.tensors[site].dimensions[0],
-                    self.mps.tensors[site + 1].dimensions[1],
+                    original_dims[2],
+                    original_dims[3],
+                    original_dims[1],
+                    original_dims[0],
                 ),
             )
-            new_data = sparse.moveaxis(new_data, [0, 1, 2, 3], [2, 3, 0, 1])
+            new_data = sparse.moveaxis(new_data, [0, 1, 2, 3], [2, 3, 1, 0])
             temp_t = Tensor(new_data, ["u", "d", "p1", "p2"], ["TEMP"])
             temp_tn = TensorNetwork([temp_t])
             temp_tn.svd(
                 temp_t,
                 ["u", "p1"],
                 ["d", "p2"],
-                max_bond=self.max_mps_bond,
+                max_bond=self.current_max_mps_bond,
                 new_index_name="b",
             )
 
@@ -622,124 +592,6 @@ class QubitDMRG:
 
         self.energy = eigval.real
 
-        return
-
-    def perturb_left_sweep(self) -> None:
-        """
-        Perturb the local tensor during a left sweep to escape local minima.
-        """
-        current_site = len(self.left_block_cache) + 1
-        perturbation = self.get_perturbation_term("F")
-
-        local_tensor = self.mps.tensors[current_site]
-        original_indices = local_tensor.indices
-        original_labels = local_tensor.labels
-        local_tensor.reorder_indices(
-            [f"P{current_site+1}", f"B{current_site}", f"B{current_site+1}"]
-        )
-        new_data = sparse.concatenate([local_tensor.data, perturbation], axis=2)
-        new_data = sparse.moveaxis(new_data, [0, 1, 2], [2, 0, 1])
-        new_local_tensor = Tensor(new_data, original_indices, original_labels)
-
-        next_tensor = self.mps.tensors[current_site + 1]
-        next_indices = next_tensor.indices
-        next_labels = next_tensor.labels
-        next_tensor.reorder_indices(
-            [f"P{current_site+2}", f"B{current_site+1}", f"B{current_site+2}"]
-        )
-        zeros = sparse.COO.from_numpy(
-            np.zeros(
-                (
-                    next_tensor.dimensions[0],
-                    perturbation.shape[2],
-                    next_tensor.dimensions[2],
-                ),
-                dtype=complex,
-            )
-        )
-        new_next_data = sparse.concatenate([next_tensor.data, zeros], axis=1)
-        new_next_data = sparse.moveaxis(new_next_data, [0, 1, 2], [2, 0, 1])
-        new_next_tensor = Tensor(new_next_data, next_indices, next_labels)
-
-        self.mps.pop_tensors_by_label(original_labels)
-        self.mps.add_tensor(new_local_tensor, current_site)
-        self.mps.pop_tensors_by_label(next_labels)
-        self.mps.add_tensor(new_next_tensor, current_site + 1)
-
-        return
-
-    def perturb_right_sweep(self) -> None:
-        """
-        Perturb the local tensor during a right sweep to escape local minima.
-        """
-        current_site = len(self.left_block_cache) + 1
-        perturbation = self.get_perturbation_term("B")
-
-        local_tensor = self.mps.tensors[current_site]
-        original_indices = local_tensor.indices
-        original_labels = local_tensor.labels
-        local_tensor.reorder_indices(
-            [f"P{current_site+1}", f"B{current_site}", f"B{current_site+1}"]
-        )
-        new_data = sparse.concatenate([local_tensor.data, perturbation], axis=1)
-        new_data = sparse.moveaxis(new_data, [0, 1, 2], [2, 0, 1])
-        new_local_tensor = Tensor(new_data, original_indices, original_labels)
-
-        next_tensor = self.mps.tensors[current_site - 1]
-        next_indices = next_tensor.indices
-        next_labels = next_tensor.labels
-        next_tensor.reorder_indices(
-            [f"P{current_site}", f"B{current_site-1}", f"B{current_site}"]
-        )
-        zeros = sparse.COO.from_numpy(
-            np.zeros(
-                (
-                    next_tensor.dimensions[0],
-                    next_tensor.dimensions[1],
-                    perturbation.shape[1],
-                ),
-                dtype=complex,
-            )
-        )
-        new_next_data = sparse.concatenate([next_tensor.data, zeros], axis=2)
-        new_next_data = sparse.moveaxis(new_next_data, [0, 1, 2], [2, 0, 1])
-        new_next_tensor = Tensor(new_next_data, next_indices, next_labels)
-
-        self.mps.pop_tensors_by_label(original_labels)
-        self.mps.add_tensor(new_local_tensor, current_site)
-        self.mps.pop_tensors_by_label(next_labels)
-        self.mps.add_tensor(new_next_tensor, current_site - 1)
-
-        return
-
-    def sweep_left_subspace_expansion(self):
-        """
-        Perform a left sweep.
-        """
-        sites = list(range(1, self.num_sites + 1))
-        for site in sites:
-            self.optimise_local_tensor()
-            if site != self.num_sites:
-                self.perturb_left_sweep()
-            max_bond = 1 if site == 1 else self.max_mps_bond
-            self.mps.compress_index(f"B{site}", max_bond)
-            if site != self.num_sites:
-                self.update_blocks_left_sweep()
-        return
-
-    def sweep_right_subspace_expansion(self):
-        """
-        Perform a right sweep.
-        """
-        sites = list(range(1, self.num_sites + 1))[::-1]
-        for site in sites:
-            self.optimise_local_tensor()
-            if site != 1:
-                self.perturb_right_sweep()
-            max_bond = 1 if site == self.num_sites else self.max_mps_bond
-            self.mps.compress_index(f"B{site+1}", max_bond)
-            if site != 1:
-                self.update_blocks_right_sweep()
         return
 
     def sweep_left_one_site(self):
@@ -786,31 +638,78 @@ class QubitDMRG:
                 self.update_blocks_right_sweep()
         return
 
+    def perform_bond_expansion(self) -> None:
+        """
+        Expand the MPS bond dimension.
+        """
+        new_bond_dim = min(2 * self.current_max_mps_bond, self.max_mps_bond)
+        diff = new_bond_dim - self.current_max_mps_bond
+        self.current_max_mps_bond = new_bond_dim
+        self.mps = self.mps.expand_bond_dimension_list(
+            diff, list(range(2, self.num_sites + 1))
+        )
+        self.left_block_cache = []
+        self.right_block_cache = []
+        self.left_block, self.right_block = self.initialise_blocks()
+        return
+
+    def sub_convergence_check(self) -> None:
+        """
+        Check if the convergence threshold has been met for the current bond dimension.
+        """
+        if len(self.all_energies) < 2:
+            return False
+        if np.abs(self.all_energies[-1] - self.all_energies[-2]) < 1e-3:
+            return True
+        return False
+
+    def convergence_check(self) -> None:
+        """
+        Check if the convergence threshold has been met for the max bond dimension.
+        """
+        if len(self.all_energies) < 2:
+            return False
+        if self.current_max_mps_bond == self.max_mps_bond:
+            if (
+                np.abs(self.all_energies[-1] - self.all_energies[-2])
+                < self.convergence_threshold
+            ):
+                return True
+        return False
+
     def run(self, maxiter: int) -> Tuple[float, MatrixProductState]:
         """
         Find the groundstate of an MPO with DMRG.
 
         Args:
-            max_mps_bond: The maximum bond dimension allowed.
             maxiter: The maximum number of DMRG sweeps.
 
         Returns:
             A tuple of the DMRG energy and the DMRG state.
         """
-        if self.method == "subspace-expansion":
-            for _ in range(maxiter):
-                self.sweep_left_subspace_expansion()
-                self.sweep_right_subspace_expansion()
-        elif self.method == "one-site":
+        if self.method == "one-site":
             for _ in range(maxiter):
                 self.sweep_left_one_site()
                 self.sweep_right_one_site()
+                self.all_energies.append(self.energy)
+                if self.convergence_check():
+                    break
+                elif self.sub_convergence_check():
+                    self.perform_bond_expansion()
         elif self.method == "two-site":
             for _ in range(maxiter):
                 self.sweep_left_two_site()
                 self.sweep_right_two_site()
+                self.all_energies.append(self.energy)
+                if self.convergence_check():
+                    break
+                elif self.sub_convergence_check():
+                    self.perform_bond_expansion()
 
         self.mps = self.remove_trivial_tensors_mps(self.mps)
         self.mpo = self.remove_trivial_tensors_mpo(self.mpo)
+
+        if self.hamiltonian_type == "fermionic":
+            self.energy = self.energy + self.nuc_energy
 
         return (self.energy, self.mps)
