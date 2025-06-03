@@ -322,8 +322,7 @@ class TensorNetwork:
         self.tensors.remove(tensors[0])
         self.tensors.remove(tensors[1])
         self.indices.remove(idx)
-
-        self.add_tensor(new_tensor, pos)
+        self.add_tensor(new_tensor, position=pos)
 
         return
 
@@ -432,7 +431,7 @@ class TensorNetwork:
         if add_label:
             unique_label = self.get_new_label("TN_T")
             tensor.labels.append(unique_label)
-        if not position:
+        if position is None:
             self.tensors.append(tensor)
         else:
             self.tensors.insert(position, tensor)
