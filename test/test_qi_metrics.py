@@ -30,13 +30,5 @@ def test_rdm1():
 
 def test_rdm2():
     h2_rdm2_dmrg = get_two_orbital_rdm(h2_mps, [1, 2])
-    for row_idx in range(len(h2_rdm2)):
-        for col_idx in range(len(h2_rdm2[row_idx])):
-            if h2_rdm2[row_idx, col_idx] > 1e-3:
-                print(row_idx, col_idx, h2_rdm2[row_idx, col_idx])
-    for row_idx in range(len(h2_rdm2_dmrg)):
-        for col_idx in range(len(h2_rdm2_dmrg[row_idx])):
-            if h2_rdm2_dmrg[row_idx, col_idx] > 1e-3:
-                print(row_idx, col_idx, h2_rdm2_dmrg[row_idx, col_idx])
 
     assert np.allclose(h2_rdm2, h2_rdm2_dmrg, atol=0.01)
