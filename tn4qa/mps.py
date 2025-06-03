@@ -631,38 +631,111 @@ class MatrixProductState(TensorNetwork):
         exp_val = mps1.compute_inner_product(mps2)
         return exp_val
 
-    def partial_trace(self, sites: list[int], matrix: bool = False) -> ndarray | Tensor:
+    def outer_product(self, other: "MatrixProductState") -> MatrixProductOperator:
+        """
+        Take the outer product with another MPS.
+
+        Args:
+            other: Another MPS
+
+        Returns:
+            |self><other| as a MPO
+        """
+        ket = copy.deepcopy(self)
+        bra = copy.deepcopy(other)
+        bra.dagger()
+
+        arrays = []
+        ket_tensors = [t.data for t in ket.tensors]
+        bra_tensors = [t.data for t in bra.tensors]
+        for A_ket, A_bra in zip(ket_tensors, bra_tensors):
+            if A_ket.ndim == 2:
+                D_ket, d = A_ket.shape
+                D_bra, d = A_bra.shape
+                coords = []
+                data = []
+
+                for s in range(d):
+                    for sp in range(d):
+                        ket_s = A_ket[:, s]
+                        bra_sp = A_bra[:, sp]
+                        kron = sparse.kron(ket_s, bra_sp)
+
+                        for idx, val in zip(kron.coords[0], kron.data):
+                            coords.append((idx, s, sp))
+                            data.append(val)
+
+                shape = (D_ket * D_bra, d, d)
+                array = sparse.COO(
+                    coords=np.array(coords).T, data=np.array(data), shape=shape
+                )
+                arrays.append(array)
+                continue
+
+            Dl_ket, Dr_ket, d = A_ket.shape
+            Dl_bra, Dr_bra, d = A_bra.shape
+
+            coords = []
+            data = []
+
+            for s in range(d):
+                for sp in range(d):
+                    ket_s = A_ket[:, :, s]
+                    bra_sp = A_bra[:, :, sp]
+
+                    kron = sparse.kron(ket_s, bra_sp)
+                    kron = kron.reshape((Dl_ket, Dl_bra, Dr_ket, Dr_bra))
+
+                    for (i, j, k, l), val in zip(zip(*kron.coords), kron.data):
+                        left_index = i * Dl_ket + j
+                        right_index = k * Dr_bra + l
+                        coords.append((left_index, right_index, s, sp))
+                        data.append(val)
+
+            shape = (Dl_ket * Dl_bra, Dr_ket * Dr_bra, d, d)
+            array = sparse.COO(
+                coords=np.array(coords).T, data=np.array(data), shape=shape
+            )
+            arrays.append(array)
+
+        mpdo = MatrixProductOperator.from_arrays(arrays)
+        return mpdo
+
+    def form_density_operator(self) -> MatrixProductOperator:
+        """
+        Form the density matrix representation of the state.
+
+        Returns:
+            An MPDO
+        """
+        return self.outer_product(self)
+
+    def partial_trace(
+        self, sites: list[int], matrix: bool = False
+    ) -> ndarray | MatrixProductOperator:
         """
         Compute the partial trace.
 
         Args:
             sites: The list of sites to trace over.
-            matrix: If True returns the reduced density matrix, otherwise returns a smaller MPS.
+            matrix: If True returns the reduced density matrix, otherwise returns a MPDO.
 
         Returns:
             The reduced state.
         """
-        mps1 = copy.deepcopy(self)
-        mps2 = copy.deepcopy(self)
-
-        mps1.set_default_indices()
-        mps2.set_default_indices(internal_prefix="C")
+        mpdo = self.form_density_operator()
 
         all_inds = list(range(1, self.num_sites + 1))
         for site in sites:
             all_inds.remove(site)
 
         for site in all_inds:
-            current_indices = mps2.tensors[site - 1].indices
-            mps2.tensors[site - 1].indices = [
-                x if x[0] == "C" else "_" + x for x in current_indices
+            current_indices = mpdo.tensors[site - 1].indices
+            mpdo.tensors[site - 1].indices = [
+                "R" + x[1:] if x[0] == "L" else x for x in current_indices
             ]
 
-        mps2.dagger()
-
-        all_tensors = mps1.tensors + mps2.tensors
-        tn = TensorNetwork(all_tensors, "TotalTN")
-        result = tn.contract_entire_network()
+        result = mpdo.contract_entire_network()
         if matrix:
             output_inds = [f"P{x}" for x in all_inds]
             input_inds = [f"_P{x}" for x in all_inds]
