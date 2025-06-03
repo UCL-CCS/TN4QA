@@ -766,24 +766,31 @@ class MatrixProductState(TensorNetwork):
         Returns:
             The reduced state.
         """
+        num_sites_to_trace = len(sites)
+        remaining_sites = list(range(1, self.num_sites + 1))
+        for site in sites:
+            remaining_sites.remove(site)
+
+        self.reorder_sites(sites + remaining_sites, set_default_indices=True)
         mpdo = self.form_density_operator()
 
-        all_inds = list(range(1, self.num_sites + 1))
-        for site in sites:
-            all_inds.remove(site)
-
-        for site in all_inds:
-            current_indices = mpdo.tensors[site - 1].indices
-            mpdo.tensors[site - 1].indices = [
+        for idx in range(num_sites_to_trace):
+            current_indices = mpdo.tensors[idx].indices
+            mpdo.tensors[idx].indices = [
                 "R" + x[1:] if x[0] == "L" else x for x in current_indices
             ]
 
-        result = mpdo.contract_entire_network()
-        if matrix:
-            output_inds = [f"P{x}" for x in all_inds]
-            input_inds = [f"_P{x}" for x in all_inds]
+        if not matrix:
+            for idx in range(num_sites_to_trace):
+                mpdo.contract_index("R" + str(idx + 1))
+                mpdo.contract_index("B" + str(idx + 1))
+            return mpdo
+        else:
+            result = mpdo.contract_entire_network()
+            output_inds = [f"L{x}" for x in remaining_sites]
+            input_inds = [f"R{x}" for x in remaining_sites]
             result.tensor_to_matrix(input_idxs=input_inds, output_idxs=output_inds)
-        return result
+            return result
 
     def normalise(self) -> None:
         """
