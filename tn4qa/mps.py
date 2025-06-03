@@ -680,6 +680,7 @@ class MatrixProductState(TensorNetwork):
 
         Args:
             other: Another MPS
+            normalise: Whether to normalise the resulting outer product
 
         Returns:
             |self><other| as a MPO
@@ -742,6 +743,7 @@ class MatrixProductState(TensorNetwork):
             arrays.append(array)
 
         mpdo = MatrixProductOperator.from_arrays(arrays)
+
         return mpdo
 
     def form_density_operator(self) -> MatrixProductOperator:
@@ -787,8 +789,14 @@ class MatrixProductState(TensorNetwork):
             return mpdo
         else:
             result = mpdo.contract_entire_network()
-            output_inds = [f"L{x}" for x in remaining_sites]
-            input_inds = [f"R{x}" for x in remaining_sites]
+            output_inds = [
+                f"L{x}"
+                for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))[::-1]
+            ]
+            input_inds = [
+                f"R{x}"
+                for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))[::-1]
+            ]
             result.tensor_to_matrix(input_idxs=input_inds, output_idxs=output_inds)
             return result
 

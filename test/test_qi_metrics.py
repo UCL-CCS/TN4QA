@@ -9,9 +9,9 @@ from tn4qa.utils import ReadMoleculeData
 with open("test/data/h2_rdm.json") as f:
     data = json.load(f)
     h2_rdm1 = data["RDM1"]
-    h2_rdm1 = [[n[0] + 1j * n[1] for n in row] for row in h2_rdm1]
+    h2_rdm1 = np.array([[n[0] + 1j * n[1] for n in row] for row in h2_rdm1])
     h2_rdm2 = data["RDM2"]
-    h2_rdm2 = [[n[0] + 1j * n[1] for n in row] for row in h2_rdm2]
+    h2_rdm2 = np.array([[n[0] + 1j * n[1] for n in row] for row in h2_rdm2])
 
 h2_file = "molecules/H2.json"
 h2_data = ReadMoleculeData(h2_file)
@@ -30,5 +30,13 @@ def test_rdm1():
 
 def test_rdm2():
     h2_rdm2_dmrg = get_two_orbital_rdm(h2_mps, [1, 2])
+    for row_idx in range(len(h2_rdm2)):
+        for col_idx in range(len(h2_rdm2[row_idx])):
+            if h2_rdm2[row_idx, col_idx] > 1e-3:
+                print(row_idx, col_idx, h2_rdm2[row_idx, col_idx])
+    for row_idx in range(len(h2_rdm2_dmrg)):
+        for col_idx in range(len(h2_rdm2_dmrg[row_idx])):
+            if h2_rdm2_dmrg[row_idx, col_idx] > 1e-3:
+                print(row_idx, col_idx, h2_rdm2_dmrg[row_idx, col_idx])
 
     assert np.allclose(h2_rdm2, h2_rdm2_dmrg, atol=0.01)
