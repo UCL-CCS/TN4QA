@@ -1201,7 +1201,7 @@ class MatrixProductOperator(TensorNetwork):
 
     def partial_trace(
         self, sites: list[int], matrix: bool = False, set_default_indices: bool = False
-    ) -> ndarray | "MatrixProductOperator":
+    ) -> Union[ndarray, "MatrixProductOperator"]:
         """
         Compute the partial trace.
 
