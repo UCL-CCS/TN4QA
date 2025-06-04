@@ -14,7 +14,7 @@ from sparse import SparseArray
 
 from .tensor import Tensor
 from .tn import TensorNetwork
-from .utils import _update_array
+from .utils import _update_array, _update_array_fermion
 
 # Visualisation
 from .visualisation import draw_mpo
@@ -516,21 +516,6 @@ class MatrixProductOperator(TensorNetwork):
                 mpo.compress(max_bond)
         return mpo
 
-    # @classmethod
-    # def tnqem_mpo_construction(cls, qc : QuantumCircuit, max_bond : int) -> "MatrixProductOperator":
-    #     """
-    #     Create an MPO that performs TN-QEM for a given quantum circuit.
-
-    #     Args:
-    #         qc: The quantum circuit.
-    #         max_bond: The maximum bond dimension allowed.
-
-    #     Returns:
-    #         An MPO.
-    #     """
-    #     # TODO
-    #     return
-
     @classmethod
     def zero_reflection_mpo(cls, num_sites: int) -> "MatrixProductOperator":
         """
@@ -628,6 +613,13 @@ class MatrixProductOperator(TensorNetwork):
         creation_op = np.array([[0, 0], [1, 0]], dtype=complex)
         annihilation_op = np.array([[0, 1], [0, 0]], dtype=complex)
         identity_op = np.array([[1, 0], [0, 1]], dtype=complex)
+        z_op = np.array([[1, 0], [0, -1]], dtype=complex)
+
+        strings = [""] * num_sites
+        for o_qubit, o_val in op_list:
+            for i in range(int(o_qubit)):
+                strings[i] += "Z"
+            strings[int(o_qubit)] += o_val
 
         arrays = [0] * num_sites
 
@@ -635,22 +627,16 @@ class MatrixProductOperator(TensorNetwork):
         if len(op_list) == 0:
             return MatrixProductOperator.identity_mpo(num_sites)
 
-        op = {}
-        for idx, o in op_list:
-            if idx in op:
-                op[idx] += o
-            else:
-                op[idx] = o
-
         for x in range(num_sites):
-            total_op = identity_op
-            if str(x) in op:
-                for y in op[str(x)]:
-                    total_op = (
-                        total_op @ creation_op
-                        if y == "+"
-                        else total_op @ annihilation_op
-                    )
+            total_op = identity_op.copy()
+            for y in strings[x]:
+                if x == "Z":
+                    total_op = total_op @ z_op
+                if x == "+":
+                    total_op = total_op @ creation_op
+                if x == "-":
+                    total_op = total_op @ annihilation_op
+
             arrays[x] = (
                 total_op.reshape(1, 2, 2)
                 if x == 0 or x == num_sites - 1
@@ -682,11 +668,11 @@ class MatrixProductOperator(TensorNetwork):
         return mpo
 
     @classmethod
-    def from_electron_integral_arrays(
+    def from_electron_integral_arrays_adder(
         cls, one_elec_integrals: ndarray, two_elec_integrals: ndarray
     ):
         """
-        Construct an MPO of a Fermionic Hamiltonian given as the arrays of one and two electron integrals.
+        Construct an MPO of a Fermionic Hamiltonian given as the arrays of one and two electron integrals. Slow method
 
         Args:
             one_elec_integrals: The 1e integrals in an (N,N) array.
@@ -715,6 +701,103 @@ class MatrixProductOperator(TensorNetwork):
                         ops.append((op_list, 0.5 * two_elec_integrals[i, j, k, l]))
 
         return MatrixProductOperator.from_fermionic_operator(num_sites, ops)
+
+    @classmethod
+    def from_electron_integral_arrays(
+        cls, one_elec_integrals: ndarray, two_elec_integrals: ndarray
+    ) -> "MatrixProductOperator":
+        """
+        Construct an MPO of a Fermionic Hamiltonian given as the arrays of one and two electron integrals. Fast method
+
+        Args:
+            one_elec_integrals: The 1e integrals in an (N,N) array.
+            two_elec_integrals: The 2e integrals in an (N,N,N,N) array.
+
+        Returns:
+            An MPO.
+        """
+        num_qubits = len(one_elec_integrals)
+
+        ops = []
+        for i in range(num_qubits):
+            for j in range(num_qubits):
+                op_list = [(f"{i}", "+"), (f"{j}", "-")]
+                ops.append((op_list, one_elec_integrals[i, j]))
+
+        for i in range(num_qubits):
+            for j in range(num_qubits):
+                for k in range(num_qubits):
+                    for l in range(num_qubits):
+                        op_list = [
+                            (f"{i}", "+"),
+                            (f"{j}", "+"),
+                            (f"{k}", "-"),
+                            (f"{l}", "-"),
+                        ]
+                        ops.append((op_list, 0.5 * two_elec_integrals[i, j, k, l]))
+
+        first_array_coords: list[list[int]] = [[], [], []]
+        middle_array_coords: list[list[list[int]]] = [
+            [[], [], [], []] for _ in range(1, num_qubits - 1)
+        ]
+        last_array_coords: list[list[int]] = [[], [], []]
+
+        first_array_data: list[complex] = []
+        middle_array_data: list[list[complex]] = [[] for _ in range(1, num_qubits - 1)]
+        last_array_data: list[complex] = []
+
+        op_idx = 0
+        for op_list, weight in ops:
+            if weight == 0.0:
+                continue
+
+            strings = [""] * num_qubits
+            for o_qubit, o_val in op_list:
+                for i in range(int(o_qubit)):
+                    strings[i] += "Z"
+                strings[int(o_qubit)] += o_val
+
+            # First Term
+            _update_array_fermion(
+                first_array_coords, first_array_data, weight, op_idx, strings[0]
+            )
+
+            # Middle Terms
+            for idx in range(1, num_qubits - 1):
+                _update_array_fermion(
+                    middle_array_coords[idx - 1],
+                    middle_array_data[idx - 1],
+                    1,
+                    op_idx,
+                    strings[idx],
+                    offset=True,
+                )
+
+            # Final Term
+            _update_array_fermion(
+                last_array_coords, last_array_data, 1, op_idx, strings[-1]
+            )
+
+            op_idx += 1
+
+        first_array = sparse.COO(
+            first_array_coords, first_array_data, shape=(op_idx, 2, 2)
+        )
+        middle_arrays = [
+            sparse.COO(
+                middle_array_coords[i - 1],
+                middle_array_data[i - 1],
+                shape=(op_idx, op_idx, 2, 2),
+            )
+            for i in range(1, num_qubits - 1)
+        ]
+        last_array = sparse.COO(
+            last_array_coords, last_array_data, shape=(op_idx, 2, 2)
+        )
+
+        return MatrixProductOperator.from_arrays(
+            [first_array] + middle_arrays + [last_array]
+        )
 
     def to_sparse_array(self) -> SparseArray:
         """

@@ -58,6 +58,74 @@ def _update_array(
         data.append(update_values.weights[i] * weight)
 
 
+@dataclass(frozen=True)
+class UpdateValuesFermion:
+    """
+    A helper class for buiding Hamiltonian MPOs.
+    """
+
+    indices: tuple[int, int]
+    weights: tuple[complex]
+
+
+def _update_array_fermion(
+    array: list,
+    data: list,
+    weight: complex,
+    string_idx: int,
+    term: str,
+    offset: bool = False,
+) -> None:
+    """
+    A helper function to build Hamiltonian MPOs.
+    """
+
+    I = np.array([[1, 0], [0, 1]], dtype=complex)
+    Z = np.array([[1, 0], [0, -1]], dtype=complex)
+    p = np.array([[0, 0], [1, 0]], dtype=complex)
+    m = np.array([[0, 1], [0, 0]], dtype=complex)
+
+    total_op = I.copy()
+    for x in term:
+        if x == "Z":
+            total_op = total_op @ Z
+        if x == "+":
+            total_op = total_op @ p
+        if x == "-":
+            total_op = total_op @ m
+
+    non_zero_vals = []
+    for row in [0, 1]:
+        for col in [0, 1]:
+            if total_op[row, col] == 0.0:
+                continue
+            non_zero_vals.append((row, col, total_op[row, col]))
+
+    if len(non_zero_vals) == 1:
+        update_values = UpdateValuesFermion(
+            (non_zero_vals[0][0], non_zero_vals[0][1]), (non_zero_vals[0][2],)
+        )
+    elif len(non_zero_vals) == 2:
+        update_values = UpdateValues(
+            (
+                non_zero_vals[0][0],
+                non_zero_vals[0][1],
+                non_zero_vals[1][0],
+                non_zero_vals[1][1],
+            ),
+            (non_zero_vals[0][2], non_zero_vals[1][2]),
+        )
+
+    for i in range(len(non_zero_vals)):
+        array[0].append(string_idx)
+        if offset:
+            array[1].append(string_idx)
+
+        array[1 + int(offset)].append(update_values.indices[2 * i])
+        array[2 + int(offset)].append(update_values.indices[(2 * i) + 1])
+        data.append(update_values.weights[i] * weight)
+
+
 def array_to_dict_nonzero_indices(arr, tol=1e-10):
     """
     A helper function to build Hamiltonians.
