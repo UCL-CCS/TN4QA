@@ -1035,3 +1035,277 @@ class MatrixProductOperator(TensorNetwork):
             Displays plot.
         """
         draw_mpo(self.tensors, node_size, x_len, y_len)
+
+    def dagger(self) -> None:
+        """
+        Take the conjugate transpose of the MPO.
+        """
+        for t in self.tensors:
+            new_index_order = copy.deepcopy(t.indices)
+            new_index_order[-2], new_index_order[-1] = (
+                new_index_order[-1],
+                new_index_order[-2],
+            )
+            t.reorder_indices(new_index_order)
+            t.data = sparse.COO.conj(t.data)
+        return
+
+    def swap_neighbouring_sites(self, idx: int) -> None:
+        """
+        Swap two neighbouring sites of the MPO.
+
+        Args:
+            idx: The index of the first site
+        """
+        self.reshape()
+        if idx == 1:
+            bond = self.tensors[0].indices[0]
+            right_idx1 = self.tensors[0].indices[1]
+            left_idx1 = self.tensors[0].indices[2]
+            right_idx2 = self.tensors[1].indices[2]
+            left_idx2 = self.tensors[1].indices[3]
+        elif idx == self.num_sites - 1:
+            bond = self.tensors[idx - 1].indices[1]
+            right_idx1 = self.tensors[idx - 1].indices[2]
+            left_idx1 = self.tensors[idx - 1].indices[3]
+            right_idx2 = self.tensors[idx].indices[1]
+            left_idx2 = self.tensors[idx].indices[2]
+        else:
+            bond = self.tensors[idx - 1].indices[1]
+            right_idx1 = self.tensors[idx - 1].indices[2]
+            left_idx1 = self.tensors[idx - 1].indices[3]
+            right_idx2 = self.tensors[idx].indices[2]
+            left_idx2 = self.tensors[idx].indices[3]
+
+        input_inds = copy.deepcopy(self.tensors[idx - 1].indices)
+        input_inds.remove(bond)
+        input_inds.remove(right_idx1)
+        input_inds.remove(left_idx1)
+        input_inds.append(right_idx2)
+        input_inds.append(left_idx2)
+        output_inds = copy.deepcopy(self.tensors[idx].indices)
+        output_inds.remove(bond)
+        output_inds.remove(right_idx2)
+        output_inds.remove(left_idx2)
+        output_inds.append(right_idx1)
+        output_inds.append(left_idx1)
+        self.contract_index(bond)
+        self.svd(self.tensors[idx - 1], input_inds, output_inds, new_index_name=bond)
+
+        if idx == 1:
+            self.tensors[idx - 1].reorder_indices([bond] + input_inds)
+        else:
+            self.tensors[idx - 1].reorder_indices(
+                [input_inds[0]] + [bond] + [input_inds[1], input_inds[2]]
+            )
+        self.tensors[idx].reorder_indices([bond] + output_inds)
+
+        return
+
+    def swap_sites(self, idx1: int, idx2: int) -> None:
+        """
+        Swap two sites of the MPO.
+
+        Args:
+            idx1: The index of the first site
+            idx2: The index of the second site
+        """
+        self.reshape()
+        if idx1 < idx2:
+            first_idx = idx1
+            second_idx = idx2
+        else:
+            first_idx = idx2
+            second_idx = idx1
+
+        for idx in range(first_idx, second_idx):
+            self.swap_neighbouring_sites(idx)
+        for idx in list(range(first_idx, second_idx - 1))[::-1]:
+            self.swap_neighbouring_sites(idx)
+        return
+
+    def reorder_sites(
+        self, site_mapping: list[int], set_default_indices: bool = False
+    ) -> None:
+        """
+        Reorder the sites of the MPO without changing the operator.
+
+        Args:
+            site_mapping: A list of the target ordering of sites
+        """
+        current_ordering = list(range(1, self.num_sites + 1))
+        for site_idx in range(1, self.num_sites + 1):
+            site_at_idx = site_mapping[site_idx - 1]
+            site_current_location = current_ordering.index(site_at_idx) + 1
+            self.swap_sites(site_idx, site_current_location)
+
+            idx1 = current_ordering.index(site_idx)
+            idx2 = current_ordering.index(site_at_idx)
+            current_ordering[idx1], current_ordering[idx2] = (
+                current_ordering[idx2],
+                current_ordering[idx1],
+            )
+
+        if set_default_indices:
+            self.set_default_indices()
+
+        return
+
+    def contract_sub_mps(
+        self, other: "MatrixProductOperator", sites: list[int]
+    ) -> "MatrixProductOperator":
+        """
+        Contract the MPO with a smaller MPO on the given sites
+
+        Args:
+            sites: The list of sites where the smaller MPO acts
+
+        Returns:
+            An MPO that is the output of the contraction
+        """
+
+        mpo1 = copy.deepcopy(self)
+        mpo2 = copy.deepcopy(other)
+        mpo1.set_default_indices()
+        mpo2.set_default_indices()
+        mpo1.reshape()
+        mpo2.reshape()
+
+        target_site_ordering = copy.deepcopy(sites)
+        for idx in range(1, self.num_sites + 1):
+            if idx not in sites:
+                target_site_ordering.append(idx)
+        mpo1.reorder_sites(target_site_ordering, set_default_indices=True)
+
+        for tidx in range(mpo2.num_sites):
+            t1 = mpo1.tensors[idx]
+            t2 = mpo2.tensors[tidx]
+            t1_current_indices = t1.indices
+            t1.indices = [f"D{idx+1}" if x[0] == "R" else x for x in t1_current_indices]
+            t2_current_indices = t2.indices
+            t2.indices = [
+                f"D{idx+1}" if x[0] == "L" else x + "_" for x in t2_current_indices
+            ]
+        all_tensors = mpo1.tensors + mpo2.tensors
+
+        tn = TensorNetwork(all_tensors, "TotalTN")
+        for n in range(len(sites) - 1):
+            tn.contract_index(f"D{n+1}")
+            tn.contract_index(f"B{n+1}")
+            tn.combine_indices([f"D{n+2}", f"B{n+2}_"], new_index_name=f"D{n+2}")
+        tn.contract_index(f"D{len(sites)}")
+        tn.contract_index(f"B{len(sites)}")
+
+        mpo = MatrixProductOperator(tn.tensors)
+        return mpo
+
+    def partial_trace(
+        self, sites: list[int], matrix: bool = False, set_default_indices: bool = False
+    ) -> ndarray | "MatrixProductOperator":
+        """
+        Compute the partial trace.
+
+        Args:
+            sites: The list of sites to trace over.
+            matrix: If True returns the reduced density matrix, otherwise returns a MPDO.
+            set_default_indices: If True resets the index labels to default values
+
+        Returns:
+            The reduced state.
+        """
+        mpo = copy.deepcopy(self)
+        num_sites_to_trace = len(sites)
+        remaining_sites = list(range(1, self.num_sites + 1))
+        for site in sites:
+            remaining_sites.remove(site)
+
+        self.reorder_sites(sites + remaining_sites, set_default_indices=True)
+
+        for idx in range(num_sites_to_trace):
+            current_indices = mpo.tensors[idx].indices
+            mpo.tensors[idx].indices = [
+                "R" + x[1:] if x[0] == "L" else x for x in current_indices
+            ]
+
+        if not matrix:
+            for idx in range(num_sites_to_trace):
+                mpo.contract_index("R" + str(idx + 1))
+                mpo.contract_index("B" + str(idx + 1))
+            if set_default_indices:
+                mpo.set_default_indices()
+            return mpo
+        else:
+            result = mpo.contract_entire_network()
+            output_inds = [
+                f"R{x}"
+                for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))[::-1]
+            ]
+            input_inds = [
+                f"L{x}"
+                for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))[::-1]
+            ]
+            result.tensor_to_matrix(input_idxs=input_inds, output_idxs=output_inds)
+            return result
+
+    def set_default_indices(
+        self,
+        internal_prefix: str | None = None,
+        input_prefix: str | None = None,
+        output_prefix: str | None = None,
+    ) -> None:
+        """
+        Set default indices to an MPO
+
+        Args:
+            internal_prefix: If provided the internal bonds will have the form internal_prefix + index
+            input_prefix: If provided the input bonds will have the form input_prefix + index
+            output_prefix: If provided the output bonds will have the form output_prefix + index
+        """
+        if not internal_prefix:
+            internal_prefix = "B"
+        if not input_prefix:
+            input_prefix = "L"
+        if not output_prefix:
+            output_prefix = "R"
+        self.reshape("udrl")
+
+        if self.num_sites == 1:
+            self.tensors[0].indices = [output_prefix + "1", input_prefix + "1"]
+            return
+
+        new_indices_first = [
+            internal_prefix + "1",
+            output_prefix + "1",
+            input_prefix + "1",
+        ]
+        self.tensors[0].indices = new_indices_first
+        for tidx in range(1, self.num_sites - 1):
+            t = self.tensors[tidx]
+            new_indices_t = [
+                internal_prefix + str(tidx),
+                internal_prefix + str(tidx + 1),
+                output_prefix + str(tidx + 1),
+                input_prefix + str(tidx + 1),
+            ]
+            t.indices = new_indices_t
+        new_indices_last = [
+            internal_prefix + str(self.num_sites - 1),
+            output_prefix + str(self.num_sites),
+            input_prefix + str(self.num_sites),
+        ]
+        self.tensors[-1].indices = new_indices_last
+        return
+
+    def trace(self) -> complex:
+        """
+        Calculate the trace of the MPO
+
+        Returns:
+            The trace
+        """
+        mpo = copy.deepcopy(self)
+        mpo.set_default_indices(
+            internal_prefix="B", output_prefix="R", input_prefix="R"
+        )
+        trace = mpo.contract_entire_network()
+        return trace

@@ -790,11 +790,11 @@ class MatrixProductState(TensorNetwork):
         else:
             result = mpdo.contract_entire_network()
             output_inds = [
-                f"L{x}"
+                f"R{x}"
                 for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))[::-1]
             ]
             input_inds = [
-                f"R{x}"
+                f"L{x}"
                 for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))[::-1]
             ]
             result.tensor_to_matrix(input_idxs=input_inds, output_idxs=output_inds)
@@ -915,9 +915,6 @@ class MatrixProductState(TensorNetwork):
         Args:
             idx1: The index of the first site
             idx2: The index of the second site
-
-        Returns:
-            An MPS with sites at idx1 and idx2 swapped.
         """
         self.reshape()
         if idx1 < idx2:
@@ -941,9 +938,6 @@ class MatrixProductState(TensorNetwork):
 
         Args:
             site_mapping: A list of the target ordering of sites
-
-        Returns:
-            An equivalent MPS with the sites reordered
         """
         current_ordering = list(range(1, self.num_sites + 1))
         for site_idx in range(1, self.num_sites + 1):
@@ -963,29 +957,18 @@ class MatrixProductState(TensorNetwork):
 
         return
 
-    def restore_order(self, physical_index_prefix="P", index_from=1) -> None:
-        """
-        Restore an MPS to the correct tensor ordering using the physical indices.
-
-        Args:
-            physical_index_prefix: The string used to label physical indices
-            index_from: The index number to start from
-        """
-        tensors_ordered = []
-        for i in range(index_from, index_from + len(self.tensors)):
-            index_name = physical_index_prefix + str(i)
-            tensors_ordered.append(self.get_tensors_from_index_name(index_name)[0])
-        self.tensors = tensors_ordered
-        return
-
     def contract_sub_mps(
-        self, other: "MatrixProductState", sites: list[int]
+        self,
+        other: "MatrixProductState",
+        sites: list[int],
+        set_default_indices: bool = False,
     ) -> "MatrixProductState":
         """
         Contract the MPS with a smaller MPS on the given sites
 
         Args:
             sites: The list of sites where the smaller MPS acts
+            set_default_indices: Whether or not to reset the index labels to default
 
         Returns:
             A smaller MPS that is the output of the partial inner product
@@ -1032,6 +1015,9 @@ class MatrixProductState(TensorNetwork):
                 output_indices[t_idx][1:] if t_idx == 0 else output_indices[t_idx]
             )
 
+        if set_default_indices:
+            self.set_default_indices()
+
         return mps
 
     def get_probability_distribution(self) -> dict[str, float]:
@@ -1050,6 +1036,15 @@ class MatrixProductState(TensorNetwork):
         return dist
 
     def sample_bitstrings(self, num_bitstrings: int = 1) -> dict[str, int]:
+        """
+        Sample bitstrings from an MPS
+
+        Args:
+            num_bitstrings: The number of samples to take
+
+        Returns:
+            A dictionary of the form {bitstring : counts}
+        """
         samples = {}
         zero = MatrixProductState.from_bitstring("0")
         one = MatrixProductState.from_bitstring("1")
@@ -1077,3 +1072,16 @@ class MatrixProductState(TensorNetwork):
                 samples[bitstring] = 1
 
         return samples
+
+    def get_approximate_probability_distribution(
+        self, sample_size: int = 1000
+    ) -> dict[str, float]:
+        """
+        Compute the approximate probability distribution of an MPS using samples
+
+        Returns:
+            A dictionary of the form {bitstring:probability}
+        """
+        samples = self.sample_bitstrings(sample_size)
+        approx_pd = {k: v / sample_size for k, v in samples.items()}
+        return approx_pd
