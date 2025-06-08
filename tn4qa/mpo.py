@@ -8,8 +8,10 @@ from numpy import ndarray
 
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
+from qiskit.circuit import CircuitInstruction
 from qiskit.circuit.library import UnitaryGate
 from qiskit.converters import circuit_to_dag, dag_to_circuit
+from qiskit.quantum_info import Operator
 from sparse import SparseArray
 
 from .tensor import Tensor
@@ -433,6 +435,42 @@ class MatrixProductOperator(TensorNetwork):
         )
 
     @classmethod
+    def from_qiskit_gate(cls, inst: CircuitInstruction) -> "MatrixProductOperator":  # type: ignore
+        """
+        Create an MPO from a single Qiskit gate
+
+        Args:
+            inst: The Qiskit CircuitInstruction
+
+        Returns:
+            An MPO
+        """
+        qidxs = [inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)]
+        indices = [f"O{qidxs[i]}" for i in range(inst.operation.num_qubits)] + [
+            f"I{qidxs[i]}" for i in range(inst.operation.num_qubits)
+        ]
+        if len(qidxs) == 2:
+            tensor = Tensor.from_qiskit_gate(inst, indices=indices)
+            tn = TensorNetwork([tensor])
+            tn.svd(
+                tn.tensors[0],
+                input_indices=[indices[0], indices[2]],
+                output_indices=[indices[1], indices[3]],
+                new_index_name=f"C{qidxs[0]}",
+            )
+            tn.tensors[0].reorder_indices(
+                [f"C{qidxs[0]}", f"O{qidxs[0]}", f"I{qidxs[0]}"]
+            )
+            tn.tensors[1].reorder_indices(
+                [f"C{qidxs[0]}", f"O{qidxs[1]}", f"I{qidxs[1]}"]
+            )
+            arrays = [tn.tensors[i].data for i in range(2)]
+        else:
+            arrays = [Operator(inst.operation).reverse_qargs().data]
+        mpo = cls.from_arrays(arrays)
+        return mpo
+
+    @classmethod
     def from_qiskit_layer(
         cls, layer: QuantumCircuit, layer_number: int = 1
     ) -> "MatrixProductOperator":
@@ -446,76 +484,13 @@ class MatrixProductOperator(TensorNetwork):
         Returns:
             An MPO.
         """
-        tn = TensorNetwork.from_qiskit_layer(layer, layer_number)
-        arrays = [0] * (layer.num_qubits)
-        tensors = [t for t in tn.tensors]
-        for t in tensors:
-            num_qubits = int(len(t.indices) / 2)
-            if num_qubits == 2:
-                qidx_labels = [label for label in t.labels if label[0] == "Q"]
-                q1, q2 = qidx_labels[0][1:], qidx_labels[1][1:]
-
-                q1_indices = [t.indices[0], t.indices[2]]
-                q2_indices = [t.indices[1], t.indices[3]]
-
-                new_index_name = "TEMP_INDEX"
-                new_labels = [["TEMP_LABEL_1"], ["TEMP_LABEL_2"]]
-                tn.svd(
-                    t,
-                    q1_indices,
-                    q2_indices,
-                    new_index_name=new_index_name,
-                    new_labels=new_labels,
-                )
-
-                tensor0 = tn.get_tensors_from_label("TEMP_LABEL_1")[0]
-                tensor1 = tn.get_tensors_from_label("TEMP_LABEL_2")[0]
-                tensor0.labels.remove("TEMP_LABEL_1")
-                tensor1.labels.remove("TEMP_LABEL_2")
-                tensor0.reorder_indices(["TEMP_INDEX"] + q1_indices)
-                tensor1.reorder_indices(["TEMP_INDEX"] + q2_indices)
-
-                tensor0_data = tensor0.data
-                tensor1_data = tensor1.data
-
-                if int(q1) == 0:
-                    tensor0_shape = tensor0_data.shape
-                else:
-                    tensor0_shape = (1,) + tensor0_data.shape
-
-                if int(q2) == layer.num_qubits - 1:
-                    tensor1_shape = tensor1_data.shape
-                else:
-                    tensor1_shape = (
-                        (tensor1_data.shape[0],)
-                        + (1,)
-                        + (tensor1_data.shape[1],)
-                        + (tensor1_data.shape[2],)
-                    )
-
-                tensor0_data = sparse.reshape(tensor0_data, tensor0_shape)
-                tensor1_data = sparse.reshape(tensor1_data, tensor1_shape)
-                arrays[int(q1)] = tensor0_data
-                arrays[int(q2)] = tensor1_data
-
-            else:
-                qidx_labels = [label for label in t.labels if label[0] == "Q"]
-                qidx = qidx_labels[0][1:]
-
-                data = t.data
-
-                if int(qidx) == 0 or int(qidx) == layer.num_qubits - 1:
-                    new_shape = (1,) + t.dimensions
-                else:
-                    new_shape = (
-                        1,
-                        1,
-                    ) + t.dimensions
-
-                data = sparse.reshape(data, new_shape)
-                arrays[int(qidx)] = data
-
-        mpo = cls.from_arrays(arrays)
+        mpo = MatrixProductOperator.identity_mpo(layer.num_qubits)
+        for inst in layer.data:
+            qidxs = [
+                inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
+            ]
+            gate = MatrixProductOperator.from_qiskit_gate(inst)
+            mpo = mpo.contract_sub_mpo(gate, qidxs)
         return mpo
 
     @classmethod
@@ -544,6 +519,32 @@ class MatrixProductOperator(TensorNetwork):
             mpo = mpo * temp_mpo
             if mpo.bond_dimension > max_bond:
                 mpo.compress(max_bond)
+        return mpo
+
+    @classmethod
+    def from_qiskit_circuit_zip_up(
+        cls, qc: QuantumCircuit, max_bond: int
+    ) -> "MatrixProductOperator":
+        """
+        Create an MPO for a circuit using a zip up method.
+
+        Args:
+            qc: The quantum circuit.
+            max_bond: The maximum bond dimension allowed.
+
+        Returns:
+            An MPO.
+        """
+        dag = circuit_to_dag(qc)
+        all_layers = [label for label in dag.layers()]
+        all_layers_circs = [dag_to_circuit(layer["graph"]) for layer in all_layers]
+        all_layers_mpo = [
+            MatrixProductOperator.from_qiskit_layer(circ) for circ in all_layers_circs
+        ]
+        mpo = all_layers_mpo[0]
+        for idx in range(1, len(all_layers_mpo)):
+            mpo_to_zip = all_layers_mpo[idx]
+            mpo = mpo.zip_up(mpo_to_zip)
         return mpo
 
     @classmethod
@@ -1036,6 +1037,72 @@ class MatrixProductOperator(TensorNetwork):
         output = MatrixProductOperator.from_arrays(arrays)
         return output
 
+    def zip_up(self, other: "MatrixProductOperator") -> "MatrixProductOperator":
+        """
+        Zip up two MPOs
+
+        Args:
+            other: The other MPO to zip up
+
+        Returns:
+            The new MPO
+        """
+        mpo1 = copy.deepcopy(self)
+        mpo2 = copy.deepcopy(other)
+        mpo1.set_default_indices()
+        mpo2.set_default_indices()
+
+        mpo1.move_orthogonality_centre()
+
+        for tidx in range(mpo1.num_sites):
+            t1 = mpo1.tensors[tidx]
+            t2 = mpo2.tensors[tidx]
+            t1_current_indices = t1.indices
+            t1.indices = [
+                f"D{tidx+1}" if x[0] == "R" else x for x in t1_current_indices
+            ]
+            t2_current_indices = t2.indices
+            t2.indices = [
+                f"D{tidx+1}" if x[0] == "L" else x + "_" for x in t2_current_indices
+            ]
+
+        all_tensors = mpo1.tensors + mpo2.tensors
+
+        tn = TensorNetwork(all_tensors, "TotalTN")
+        tn.contract_index(f"D{mpo1.num_sites}")
+        tensor = tn.get_tensors_from_index_name(f"L{mpo1.num_sites}")[0]
+        input_inds = [f"R{mpo1.num_sites}_", f"L{mpo1.num_sites}"]
+        output_inds = [f"B{mpo1.num_sites-1}", f"B{mpo1.num_sites-1}_"]
+        tn.svd(tensor, input_inds, output_inds, new_index_name=f"C{mpo1.num_sites-1}")
+        for n in list(range(1, mpo1.num_sites - 1))[::-1]:
+            tn.contract_index(f"D{n+1}")
+            tn.combine_indices([f"B{n}", f"B{n}_"], new_index_name=f"B{n}")
+            tn.contract_index(f"B{n}")
+            tensor = tn.get_tensors_from_index_name(f"L{n+1}")[0]
+            input_inds = [f"R{n+1}_", f"L{n+1}"]
+            output_inds = [f"B{n}", f"B{n}_"]
+            tn.svd(tensor, input_inds, output_inds, new_index_name=f"C{n}")
+        tn.contract_index("D1")
+        tn.combine_indices(["B1", "B1_"], new_index_name="B1")
+        tn.contract_index("B1")
+
+        for tidx in range(self.num_sites):
+            t = tn.tensors[tidx]
+            if tidx == 0:
+                t.reorder_indices(["C1", "R1_", "L1"])
+            elif tidx == self.num_sites - 1:
+                t.reorder_indices([f"C{tidx}", f"R{tidx+1}_", f"L{tidx+1}"])
+            else:
+                t.reorder_indices(
+                    [f"C{tidx}", f"C{tidx+1}", f"R{tidx+1}_", f"L{tidx+1}"]
+                )
+
+        arrays = [t.data for t in tn.tensors]
+        mpo = MatrixProductOperator.from_arrays(arrays)
+        mpo.move_orthogonality_centre()
+
+        return mpo
+
     def reshape(self, shape="udrl"):
         """
         Reshape the tensors in the MPO.
@@ -1185,13 +1252,6 @@ class MatrixProductOperator(TensorNetwork):
             self.tensors[1].reorder_indices([bond, right_idx1, left_idx1])
 
             self.indices = self.get_all_indices()
-
-            # right_idx1_pos = self.indices.index(right_idx1)
-            # left_idx1_pos = self.indices.index(left_idx1)
-            # right_idx2_pos = self.indices.index(right_idx2)
-            # left_idx2_pos = self.indices.index(left_idx2)
-            # self.indices[right_idx1_pos], self.indices[right_idx2_pos] = self.indices[right_idx2_pos], self.indices[right_idx1_pos]
-            # self.indices[left_idx1_pos], self.indices[left_idx2_pos] = self.indices[left_idx2_pos], self.indices[left_idx1_pos]
             return
 
         if idx == 1:
@@ -1327,6 +1387,11 @@ class MatrixProductOperator(TensorNetwork):
         for idx in range(1, self.num_sites + 1):
             restore_ordering.append(target_site_ordering.index(idx) + 1)
         mpo1.reorder_sites(target_site_ordering, set_default_indices=True)
+
+        if mpo2.num_sites == mpo1.num_sites:
+            mpo = mpo1 * mpo2
+            mpo.reorder_sites(restore_ordering, set_default_indices=True)
+            return mpo
 
         for tidx in range(mpo2.num_sites):
             t1 = mpo1.tensors[tidx]
