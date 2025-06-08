@@ -521,6 +521,61 @@ class MatrixProductState(TensorNetwork):
 
         return
 
+    def apply_sub_mpo(
+        self, mpo: MatrixProductOperator, sites: list[int]
+    ) -> "MatrixProductState":
+        """
+        Apply a smaller MPO to the MPS
+
+        Args:
+            mpo: The MPO to apply.
+            sites: The list of site indices where the MPO will apply.
+
+        Returns:
+            The new MPS.
+        """
+        mps = copy.deepcopy(self)
+        mpo = copy.deepcopy(mpo)
+        mps.set_default_indices()
+        mpo.set_default_indices()
+
+        target_site_ordering = copy.deepcopy(sites)
+        for idx in range(1, self.num_sites + 1):
+            if idx not in sites:
+                target_site_ordering.append(idx)
+        restore_ordering = []
+        for idx in range(1, self.num_sites + 1):
+            restore_ordering.append(target_site_ordering.index(idx) + 1)
+        mps.reorder_sites(target_site_ordering, set_default_indices=True)
+
+        for tidx in range(mpo.num_sites):
+            t1 = mps.tensors[tidx]
+            t2 = mpo.tensors[tidx]
+            t1_current_indices = t1.indices
+            t1.indices = [
+                f"D{tidx+1}" if x[0] == "P" else x for x in t1_current_indices
+            ]
+            t2_current_indices = t2.indices
+            t2.indices = [
+                f"D{tidx+1}" if x[0] == "L" else x + "_" for x in t2_current_indices
+            ]
+
+        all_tensors = mps.tensors + mpo.tensors
+
+        tn = TensorNetwork(all_tensors, "TotalTN")
+        for n in range(len(sites)):
+            tn.contract_index(f"D{n+1}")
+        for n in range(len(sites) - 1):
+            tn.combine_indices([f"B{n+1}", f"B{n+1}_"], new_index_name=f"B{n+1}")
+        tn.tensors[0].reorder_indices([f"B{n+1}", f"R{n+1}_"])
+        for n in range(1, len(sites)):
+            tn.tensors[n].reorder_indices([f"B{n}", f"B{n+1}", f"R{n+1}_"])
+
+        arrays = [t.data for t in tn.tensors]
+        mps = MatrixProductState.from_arrays(arrays)
+        mps.reorder_sites(restore_ordering, set_default_indices=True)
+        return mps
+
     def apply_mpo(self, mpo: MatrixProductOperator) -> "MatrixProductState":
         """
         Apply a MPO to the MPS.
@@ -618,6 +673,7 @@ class MatrixProductState(TensorNetwork):
             external_prefix + str(self.num_sites),
         ]
         self.tensors[-1].indices = new_indices_last
+        self.indices = self.get_all_indices()
         return
 
     def compute_inner_product(self, other: "MatrixProductState") -> complex:
