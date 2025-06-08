@@ -409,9 +409,47 @@ def test_compute_inner_product():
     return
 
 
+def test_swap_neighbouring_sites():
+    mps = MatrixProductState.from_bitstring("01")
+    mps.swap_neighbouring_sites(1)
+    expected_array = np.array([0.0, 0.0, 1.0, 0.0])
+    assert np.allclose(mps.to_dense_array(), expected_array)
+
+
+def test_swap_sites():
+    mps = MatrixProductState.from_bitstring("1000")
+    mps.swap_sites(1, 4)
+    expected_array = np.zeros(16)
+    expected_array[1] = 1
+    assert np.allclose(mps.to_dense_array(), expected_array)
+
+
+def test_reorder_sites():
+    mps = MatrixProductState.from_bitstring("0101")
+    mps.reorder_sites([2, 4, 1, 3])
+    expected_array = np.zeros(16)
+    expected_array[12] = 1
+    print(mps.to_dense_array())
+    assert np.allclose(mps.to_dense_array(), expected_array)
+
+
 def test_normalise():
     mps = MatrixProductState.random_mps(5, 4, 2)
     mps.normalise()
 
     prod = mps.compute_inner_product(mps)
     assert np.isclose(prod, 1.0), "Norm after normalise should be 1."
+
+
+def test_sample_bitstrings():
+    mps = MatrixProductState.from_bitstring("10101")
+    samples = mps.sample_bitstrings(10)
+
+    assert samples["10101"] == 10
+
+
+def test_sample_bitstrings_approx():
+    mps = MatrixProductState.equal_superposition_mps(3)
+    samples = mps.sample_bitstrings(100)
+
+    assert len(list(samples.keys())) == 8

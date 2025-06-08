@@ -38,27 +38,27 @@ class MatrixProductState(TensorNetwork):
             self.indices = tensors[0].indices
             self.num_sites = 1
             self.shape = shape
-            internal_inds = []
-            external_inds = [tensors[0].indices]
-            bond_dims = []
-            physical_dims = [tensors[0].dimensions[0]]
+            self.internal_inds = []
+            self.external_inds = [tensors[0].indices]
+            self.bond_dims = []
+            self.physical_dims = [tensors[0].dimensions[0]]
             self.bond_dimension = None
-            self.physical_dimension = physical_dims[0]
+            self.physical_dimension = self.physical_dims[0]
         else:
             super().__init__(tensors, "MPS")
             self.num_sites = len(tensors)
             self.shape = shape
 
-            internal_inds = self.get_internal_indices()
-            external_inds = self.get_external_indices()
-            bond_dims = []
-            physical_dims = []
-            for idx in internal_inds:
-                bond_dims.append(self.get_dimension_of_index(idx))
-            for idx in external_inds:
-                physical_dims.append(self.get_dimension_of_index(idx))
-            self.bond_dimension = max(bond_dims)
-            self.physical_dimension = max(physical_dims)
+            self.internal_inds = self.get_internal_indices()
+            self.external_inds = self.get_external_indices()
+            self.bond_dims = []
+            self.physical_dims = []
+            for idx in self.internal_inds:
+                self.bond_dims.append(self.get_dimension_of_index(idx))
+            for idx in self.external_inds:
+                self.physical_dims.append(self.get_dimension_of_index(idx))
+            self.bond_dimension = max(self.bond_dims)
+            self.physical_dimension = max(self.physical_dims)
 
     @classmethod
     def from_arrays(
@@ -685,6 +685,12 @@ class MatrixProductState(TensorNetwork):
         Returns:
             |self><other| as a MPO
         """
+        if self.num_sites == 1:
+            ket = self.to_dense_array()
+            bra = other.to_dense_array()
+            prod = np.outer(ket, bra)
+            return MatrixProductOperator.from_arrays([prod])
+
         ket = copy.deepcopy(self)
         bra = copy.deepcopy(other)
         bra.dagger()
@@ -757,7 +763,7 @@ class MatrixProductState(TensorNetwork):
 
     def partial_trace(
         self, sites: list[int], matrix: bool = False
-    ) -> ndarray | MatrixProductOperator:
+    ) -> Tensor | MatrixProductOperator:
         """
         Compute the partial trace.
 
@@ -873,7 +879,21 @@ class MatrixProductState(TensorNetwork):
         Args:
             idx: The index of the first site
         """
+        if idx == self.num_sites:
+            return
+
         self.reshape()
+
+        if self.num_sites == 2:
+            bond = self.tensors[0].indices[0]
+            phys_idx1 = self.tensors[0].indices[1]
+            phys_idx2 = self.tensors[1].indices[1]
+            self.contract_index(bond)
+            self.svd(self.tensors[0], [phys_idx2], [phys_idx1], new_index_name=bond)
+            self.tensors[0].reorder_indices([bond, phys_idx2])
+            self.tensors[1].reorder_indices([bond, phys_idx1])
+            return
+
         if idx == 1:
             bond = self.tensors[0].indices[0]
             phys_idx1 = self.tensors[0].indices[1]
@@ -916,6 +936,9 @@ class MatrixProductState(TensorNetwork):
             idx1: The index of the first site
             idx2: The index of the second site
         """
+        if idx1 == idx2:
+            return
+
         self.reshape()
         if idx1 < idx2:
             first_idx = idx1
@@ -939,18 +962,28 @@ class MatrixProductState(TensorNetwork):
         Args:
             site_mapping: A list of the target ordering of sites
         """
-        current_ordering = list(range(1, self.num_sites + 1))
-        for site_idx in range(1, self.num_sites + 1):
-            site_at_idx = site_mapping[site_idx - 1]
-            site_current_location = current_ordering.index(site_at_idx) + 1
-            self.swap_sites(site_idx, site_current_location)
 
-            idx1 = current_ordering.index(site_idx)
-            idx2 = current_ordering.index(site_at_idx)
-            current_ordering[idx1], current_ordering[idx2] = (
-                current_ordering[idx2],
-                current_ordering[idx1],
-            )
+        target_pos = [i - 1 for i in site_mapping]
+
+        n = len(site_mapping)
+        visited = [False] * n
+
+        for i in range(n):
+            if visited[i] or target_pos[i] == i:
+                continue
+
+            j = i
+            cycle = []
+
+            # Follow the cycle of positions
+            while not visited[j]:
+                visited[j] = True
+                cycle.append(j)
+                j = target_pos[j]
+
+            # Now perform swaps to rotate elements in the cycle
+            for k in range(len(cycle) - 1, 0, -1):
+                self.swap_sites(cycle[0] + 1, cycle[k] + 1)
 
         if set_default_indices:
             self.set_default_indices()
@@ -1052,10 +1085,14 @@ class MatrixProductState(TensorNetwork):
             bitstring = ""
             current_mps = copy.deepcopy(self)
             for site in range(1, self.num_sites + 1):
-                site_rdm = current_mps.partial_trace(
-                    list(range(2, current_mps.num_sites + 1)), matrix=True
-                ).data.todense()
-                prob0 = site_rdm[0, 0].real
+                if site != self.num_sites:
+                    site_rdm = current_mps.partial_trace(
+                        list(range(2, current_mps.num_sites + 1)), matrix=True
+                    ).data.todense()
+                else:
+                    site_rdm = current_mps.form_density_operator()
+                    site_rdm = site_rdm.to_dense_array()
+                prob0 = min(site_rdm[0, 0], 1.0)  # min to account for precision errors
                 prob1 = 1.0 - prob0
                 site_bit = np.random.choice(["0", "1"], p=[prob0, prob1])
                 bitstring += site_bit
