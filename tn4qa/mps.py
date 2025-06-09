@@ -774,13 +774,13 @@ class MatrixProductState(TensorNetwork):
         Returns:
             The reduced state.
         """
+        mps = copy.deepcopy(self)
         num_sites_to_trace = len(sites)
-        remaining_sites = list(range(1, self.num_sites + 1))
+        remaining_sites = list(range(1, mps.num_sites + 1))
         for site in sites:
             remaining_sites.remove(site)
-
-        self.reorder_sites(sites + remaining_sites, set_default_indices=True)
-        mpdo = self.form_density_operator()
+        mps.reorder_sites(sites + remaining_sites, set_default_indices=True)
+        mpdo = mps.form_density_operator()
 
         for idx in range(num_sites_to_trace):
             current_indices = mpdo.tensors[idx].indices
@@ -1100,9 +1100,11 @@ class MatrixProductState(TensorNetwork):
                     if site_bit == "0":
                         current_mps = current_mps.contract_sub_mps(zero, [1])
                         current_mps.multiply_by_constant(1 / np.sqrt(prob0))
+                        current_mps.indices = current_mps.get_all_indices()
                     else:
                         current_mps = current_mps.contract_sub_mps(one, [1])
                         current_mps.multiply_by_constant(1 / np.sqrt(prob1))
+                        current_mps.indices = current_mps.get_all_indices()
             if bitstring in samples:
                 samples[bitstring] += 1
             else:
