@@ -796,12 +796,10 @@ class MatrixProductState(TensorNetwork):
         else:
             result = mpdo.contract_entire_network()
             output_inds = [
-                f"R{x}"
-                for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))[::-1]
+                f"R{x}" for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))
             ]
             input_inds = [
-                f"L{x}"
-                for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))[::-1]
+                f"L{x}" for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))
             ]
             result.tensor_to_matrix(input_idxs=input_inds, output_idxs=output_inds)
             return result

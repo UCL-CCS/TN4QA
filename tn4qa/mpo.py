@@ -1375,8 +1375,7 @@ class MatrixProductOperator(TensorNetwork):
         remaining_sites = list(range(1, self.num_sites + 1))
         for site in sites:
             remaining_sites.remove(site)
-
-        self.reorder_sites(sites + remaining_sites, set_default_indices=True)
+        mpo.reorder_sites(sites + remaining_sites, set_default_indices=True)
 
         for idx in range(num_sites_to_trace):
             current_indices = mpo.tensors[idx].indices
@@ -1394,12 +1393,10 @@ class MatrixProductOperator(TensorNetwork):
         else:
             result = mpo.contract_entire_network()
             output_inds = [
-                f"R{x}"
-                for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))[::-1]
+                f"R{x}" for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))
             ]
             input_inds = [
-                f"L{x}"
-                for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))[::-1]
+                f"L{x}" for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))
             ]
             result.tensor_to_matrix(input_idxs=input_inds, output_idxs=output_inds)
             return result
