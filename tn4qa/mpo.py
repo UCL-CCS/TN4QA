@@ -446,8 +446,8 @@ class MatrixProductOperator(TensorNetwork):
             An MPO
         """
         qidxs = [inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)]
-        indices = [f"O{qidxs[i]}" for i in range(inst.operation.num_qubits)] + [
-            f"I{qidxs[i]}" for i in range(inst.operation.num_qubits)
+        indices = [f"out{qidxs[i]}" for i in range(inst.operation.num_qubits)] + [
+            f"in{qidxs[i]}" for i in range(inst.operation.num_qubits)
         ]
         if len(qidxs) == 2:
             tensor = Tensor.from_qiskit_gate(inst, indices=indices)
@@ -459,10 +459,10 @@ class MatrixProductOperator(TensorNetwork):
                 new_index_name=f"C{qidxs[0]}",
             )
             tn.tensors[0].reorder_indices(
-                [f"C{qidxs[0]}", f"O{qidxs[0]}", f"I{qidxs[0]}"]
+                [f"C{qidxs[0]}", f"out{qidxs[0]}", f"in{qidxs[0]}"]
             )
             tn.tensors[1].reorder_indices(
-                [f"C{qidxs[0]}", f"O{qidxs[1]}", f"I{qidxs[1]}"]
+                [f"C{qidxs[0]}", f"out{qidxs[1]}", f"in{qidxs[1]}"]
             )
             arrays = [tn.tensors[i].data for i in range(2)]
         else:

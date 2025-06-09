@@ -566,7 +566,6 @@ class TensorNetwork:
         original_output_dims = [
             tensor.get_dimension_of_index(x) for x in output_indices
         ]
-
         tensor.tensor_to_matrix(input_indices, output_indices)
         if not max_bond:
             bond_dim = min([tensor.dimensions[0], tensor.dimensions[1]])

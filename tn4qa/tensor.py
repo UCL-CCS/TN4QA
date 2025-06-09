@@ -367,7 +367,6 @@ class Tensor:
                 temp_index_ordering.append(idx)
                 temp_shape.append(self.get_dimension_of_index(idx))
         self.reorder_indices(temp_index_ordering)
-
         new_shape = [combined_index_dim] + temp_shape[len(idxs) :]
         new_data = sparse.reshape(self.data, new_shape)
         if not new_index_name:
