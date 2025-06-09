@@ -569,7 +569,9 @@ class MatrixProductOperator(TensorNetwork):
         )
 
         mpo = copy.deepcopy(x_layer_mpo)
+        print(mpo)
         mpo = mpo * mcz_mpo
+        print(mpo)
         mpo = mpo * x_layer_mpo
 
         return mpo
