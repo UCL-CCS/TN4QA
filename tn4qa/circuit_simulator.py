@@ -50,6 +50,6 @@ class CircuitSimulator:
                 inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
             ]
             mpo = MatrixProductOperator.from_qiskit_gate(inst)
-            current_state = current_state.apply_sub_mpo(mpo, qidxs)
+            current_state = current_state.apply_sub_mpo(mpo, qidxs, max_bond_dimension)
 
         return current_state

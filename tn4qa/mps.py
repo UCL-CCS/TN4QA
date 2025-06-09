@@ -9,6 +9,7 @@ from numpy import ndarray
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
 from sparse import SparseArray
+from symmer import QuantumState
 
 from .mpo import MatrixProductOperator
 from .tensor import Tensor
@@ -186,7 +187,9 @@ class MatrixProductState(TensorNetwork):
         return cls.from_bitstring(bitstring)
 
     @classmethod
-    def from_symmer_quantumstate(cls, quantum_state: "QuantumState"):  # type: ignore # noqa: F821
+    def from_symmer_quantumstate(
+        cls, quantum_state: QuantumState, max_bond: int | None = None
+    ):
         """
         Create an MPS from a Symmer QuantumState object.
 
@@ -205,6 +208,9 @@ class MatrixProductState(TensorNetwork):
             temp_mps = MatrixProductState.from_bitstring(bitstrings[idx])
             temp_mps.multiply_by_constant(weights[idx])
             mps = mps + temp_mps
+            if max_bond:
+                if mps.bond_dimension > max_bond:
+                    mps.compress(max_bond)
 
         return mps
 
@@ -301,7 +307,7 @@ class MatrixProductState(TensorNetwork):
             mps = cls.all_zero_mps(qc.num_qubits)
         else:
             mps = input_mps
-        mps = mps.apply_mpo(qc_mpo)
+        mps = mps.apply_mpo(qc_mpo, max_bond)
         return mps
 
     def __add__(self, other: "MatrixProductState") -> "MatrixProductState":
@@ -522,7 +528,7 @@ class MatrixProductState(TensorNetwork):
         return
 
     def apply_sub_mpo(
-        self, mpo: MatrixProductOperator, sites: list[int]
+        self, mpo: MatrixProductOperator, sites: list[int], max_bond: int | None = None
     ) -> "MatrixProductState":
         """
         Apply a smaller MPO to the MPS
@@ -574,9 +580,14 @@ class MatrixProductState(TensorNetwork):
         arrays = [t.data for t in tn.tensors]
         mps = MatrixProductState.from_arrays(arrays)
         mps.reorder_sites(restore_ordering, set_default_indices=True)
+        if max_bond:
+            if mps.bond_dimension > max_bond:
+                mps.compress(max_bond)
         return mps
 
-    def apply_mpo(self, mpo: MatrixProductOperator) -> "MatrixProductState":
+    def apply_mpo(
+        self, mpo: MatrixProductOperator, max_bond: int | None = None
+    ) -> "MatrixProductState":
         """
         Apply a MPO to the MPS.
 
@@ -636,6 +647,9 @@ class MatrixProductState(TensorNetwork):
         tensor.reorder_indices(["UP", "T2_RIGHT"])
         arrays.append(tensor.data)
         mps = MatrixProductState.from_arrays(arrays)
+        if max_bond:
+            if mps.bond_dimension > max_bond:
+                mps.compress(max_bond)
         return mps
 
     def set_default_indices(
@@ -943,7 +957,13 @@ class MatrixProductState(TensorNetwork):
             phys_idx1 = self.tensors[0].indices[1]
             phys_idx2 = self.tensors[1].indices[1]
             self.contract_index(bond)
-            self.svd(self.tensors[0], [phys_idx2], [phys_idx1], new_index_name=bond)
+            self.svd(
+                self.tensors[0],
+                [phys_idx2],
+                [phys_idx1],
+                max_bond=self.bond_dimension,
+                new_index_name=bond,
+            )
             self.tensors[0].reorder_indices([bond, phys_idx2])
             self.tensors[1].reorder_indices([bond, phys_idx1])
             return
@@ -970,7 +990,13 @@ class MatrixProductState(TensorNetwork):
         output_inds.remove(phys_idx2)
         output_inds.append(phys_idx1)
         self.contract_index(bond)
-        self.svd(self.tensors[idx - 1], input_inds, output_inds, new_index_name=bond)
+        self.svd(
+            self.tensors[idx - 1],
+            input_inds,
+            output_inds,
+            max_bond=self.bond_dimension,
+            new_index_name=bond,
+        )
 
         if idx == 1:
             self.tensors[idx - 1].reorder_indices([bond] + input_inds)
@@ -1104,6 +1130,10 @@ class MatrixProductState(TensorNetwork):
 
         if set_default_indices:
             self.set_default_indices()
+
+        if mps.bond_dimension and self.bond_dimension:
+            if mps.bond_dimension > self.bond_dimension:
+                mps.compress(self.bond_dimension)
 
         return mps
 

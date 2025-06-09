@@ -11,6 +11,7 @@ from numpy.linalg import svd
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag, dag_to_circuit
+from scipy.sparse.linalg import svds
 
 from .tensor import Tensor
 
@@ -360,8 +361,12 @@ class TensorNetwork:
         input_idxs = [i for i in indices0 if i != idx]
         output_idxs = [i for i in indices1 if i != idx]
         temp_tensor.tensor_to_matrix(input_idxs, output_idxs)
-        u, s, vh = svd(temp_tensor.data.todense(), full_matrices=True)
         bond_dim = min([max_bond, temp_tensor.data.shape[0], temp_tensor.data.shape[1]])
+        if bond_dim >= min([temp_tensor.data.shape[0], temp_tensor.data.shape[1]]) - 1:
+            u, s, vh = svd(temp_tensor.data.todense(), full_matrices=True)
+        else:
+            u, s, vh = svds(temp_tensor.data, k=bond_dim)
+
         new_data0 = sparse.COO.from_numpy(vh[:bond_dim, :])
         new_data1 = sparse.COO.from_numpy(u[:, :bond_dim] * s[:bond_dim])
 
@@ -568,11 +573,15 @@ class TensorNetwork:
         ]
         tensor.tensor_to_matrix(input_indices, output_indices)
         if not max_bond:
-            bond_dim = min([tensor.dimensions[0], tensor.dimensions[1]])
+            max_bond = min([tensor.dimensions[0], tensor.dimensions[1]])
         else:
-            bond_dim = min([max_bond, tensor.dimensions[0], tensor.dimensions[1]])
+            max_bond = min([max_bond, tensor.dimensions[0], tensor.dimensions[1]])
 
-        u, s, vh = svd(tensor.data.todense(), full_matrices=False)
+        if max_bond >= min([tensor.dimensions[0], tensor.dimensions[1]]) - 1:
+            u, s, vh = svd(tensor.data.todense(), full_matrices=False)
+        else:
+            u, s, vh = svds(tensor.data, k=max_bond)
+
         tensor0_data = sparse.COO.from_numpy(vh[:max_bond, :])
         tensor1_data = sparse.COO.from_numpy(u[:, :max_bond] * s[:max_bond])
 
@@ -588,8 +597,8 @@ class TensorNetwork:
         tensor0_indices = [new_index_name] + input_indices
         tensor1_indices = output_indices + [new_index_name]
 
-        tensor0_dims = [bond_dim] + original_input_dims
-        tensor1_dims = original_output_dims + [bond_dim]
+        tensor0_dims = [max_bond] + original_input_dims
+        tensor1_dims = original_output_dims + [max_bond]
 
         tensor0_data = sparse.reshape(tensor0_data, tensor0_dims)
         tensor1_data = sparse.reshape(tensor1_data, tensor1_dims)

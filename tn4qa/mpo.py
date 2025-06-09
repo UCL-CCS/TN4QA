@@ -340,7 +340,7 @@ class MatrixProductOperator(TensorNetwork):
 
     @classmethod
     def from_hamiltonian_adder(
-        cls, ham: dict[str, complex], max_bond: int
+        cls, ham: dict[str, complex], max_bond: int | None = None
     ) -> "MatrixProductOperator":
         """
         Create an MPO for a Hamiltonian.
@@ -361,14 +361,15 @@ class MatrixProductOperator(TensorNetwork):
             temp_mpo = cls.from_pauli_string(ps)
             temp_mpo.multiply_by_constant(ham[ps])
             mpo = mpo + temp_mpo
-        if mpo.bond_dimension > max_bond:
-            mpo.compress(max_bond)
+            if max_bond:
+                if mpo.bond_dimension > max_bond:
+                    mpo.compress(max_bond)
 
         return mpo
 
     @classmethod
     def from_hamiltonian(
-        cls, ham_dict: dict[str, complex], max_bond: int
+        cls, ham_dict: dict[str, complex], max_bond: int | None = None
     ) -> "MatrixProductOperator":
         """
         Create an MPO for a Hamiltonian.
@@ -430,9 +431,13 @@ class MatrixProductOperator(TensorNetwork):
             last_array_coords, last_array_data, shape=(num_ham_terms, 2, 2)
         )
 
-        return MatrixProductOperator.from_arrays(
+        mpo = MatrixProductOperator.from_arrays(
             [first_array] + middle_arrays + [last_array]
         )
+        if max_bond:
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
+        return mpo
 
     @classmethod
     def from_qiskit_gate(cls, inst: CircuitInstruction) -> "MatrixProductOperator":  # type: ignore
@@ -472,7 +477,7 @@ class MatrixProductOperator(TensorNetwork):
 
     @classmethod
     def from_qiskit_layer(
-        cls, layer: QuantumCircuit, layer_number: int = 1
+        cls, layer: QuantumCircuit, max_bond: int | None = None
     ) -> "MatrixProductOperator":
         """
         Create an MPO for a circuit layer.
@@ -490,12 +495,12 @@ class MatrixProductOperator(TensorNetwork):
                 inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
             ]
             gate = MatrixProductOperator.from_qiskit_gate(inst)
-            mpo = mpo.contract_sub_mpo(gate, qidxs)
+            mpo = mpo.contract_sub_mpo(gate, qidxs, max_bond)
         return mpo
 
     @classmethod
     def from_qiskit_circuit(
-        cls, qc: QuantumCircuit, max_bond: int
+        cls, qc: QuantumCircuit, max_bond: int | None = None
     ) -> "MatrixProductOperator":
         """
         Create an MPO for a circuit.
@@ -511,14 +516,14 @@ class MatrixProductOperator(TensorNetwork):
         all_layers = [label for label in dag.layers()]
         first_layer = all_layers[0]
         first_layer_as_circ = dag_to_circuit(first_layer["graph"])
-        mpo = cls.from_qiskit_layer(first_layer_as_circ, layer_number=1)
-        layer_number = 2
+        mpo = cls.from_qiskit_layer(first_layer_as_circ, max_bond)
         for layer in all_layers[1:]:
             layer_as_circ = dag_to_circuit(layer["graph"])
-            temp_mpo = cls.from_qiskit_layer(layer_as_circ, layer_number)
+            temp_mpo = cls.from_qiskit_layer(layer_as_circ, max_bond)
             mpo = mpo * temp_mpo
-            if mpo.bond_dimension > max_bond:
-                mpo.compress(max_bond)
+            if max_bond:
+                if mpo.bond_dimension > max_bond:
+                    mpo.compress(max_bond)
         return mpo
 
     @classmethod
@@ -544,7 +549,7 @@ class MatrixProductOperator(TensorNetwork):
         mpo = all_layers_mpo[0]
         for idx in range(1, len(all_layers_mpo)):
             mpo_to_zip = all_layers_mpo[idx]
-            mpo = mpo.zip_up(mpo_to_zip)
+            mpo = mpo.zip_up(mpo_to_zip, max_bond)
         return mpo
 
     @classmethod
@@ -569,9 +574,7 @@ class MatrixProductOperator(TensorNetwork):
         )
 
         mpo = copy.deepcopy(x_layer_mpo)
-        print(mpo)
         mpo = mpo * mcz_mpo
-        print(mpo)
         mpo = mpo * x_layer_mpo
 
         return mpo
@@ -680,7 +683,7 @@ class MatrixProductOperator(TensorNetwork):
 
     @classmethod
     def from_fermionic_operator(
-        cls, num_sites: int, ops: list[tuple]
+        cls, num_sites: int, ops: list[tuple], max_bond: int | None = None
     ) -> "MatrixProductOperator":
         """
         Construct an MPO from a linear combination of strings of fermionic creation and annihilation operators.
@@ -698,11 +701,17 @@ class MatrixProductOperator(TensorNetwork):
             temp_mpo = MatrixProductOperator.from_fermionic_string(num_sites, op)
             temp_mpo.multiply_by_constant(weight)
             mpo = mpo + temp_mpo
+            if max_bond:
+                if mpo.bond_dimension > max_bond:
+                    mpo.compress(max_bond)
         return mpo
 
     @classmethod
     def from_electron_integral_arrays_adder(
-        cls, one_elec_integrals: ndarray, two_elec_integrals: ndarray
+        cls,
+        one_elec_integrals: ndarray,
+        two_elec_integrals: ndarray,
+        max_bond: int | None = None,
     ):
         """
         Construct an MPO of a Fermionic Hamiltonian given as the arrays of one and two electron integrals. Slow method
@@ -733,11 +742,18 @@ class MatrixProductOperator(TensorNetwork):
                         ]
                         ops.append((op_list, 0.5 * two_elec_integrals[i, j, k, l]))
 
-        return MatrixProductOperator.from_fermionic_operator(num_sites, ops)
+        mpo = MatrixProductOperator.from_fermionic_operator(num_sites, ops)
+        if max_bond:
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
+        return mpo
 
     @classmethod
     def from_electron_integral_arrays(
-        cls, one_elec_integrals: ndarray, two_elec_integrals: ndarray
+        cls,
+        one_elec_integrals: ndarray,
+        two_elec_integrals: ndarray,
+        max_bond: int | None = None,
     ) -> "MatrixProductOperator":
         """
         Construct an MPO of a Fermionic Hamiltonian given as the arrays of one and two electron integrals. Fast method
@@ -828,9 +844,14 @@ class MatrixProductOperator(TensorNetwork):
             last_array_coords, last_array_data, shape=(op_idx, 2, 2)
         )
 
-        return MatrixProductOperator.from_arrays(
+        mpo = MatrixProductOperator.from_arrays(
             [first_array] + middle_arrays + [last_array]
         )
+        if max_bond:
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
+
+        return mpo
 
     def to_sparse_array(self) -> SparseArray:
         """
@@ -1039,7 +1060,9 @@ class MatrixProductOperator(TensorNetwork):
         output = MatrixProductOperator.from_arrays(arrays)
         return output
 
-    def zip_up(self, other: "MatrixProductOperator") -> "MatrixProductOperator":
+    def zip_up(
+        self, other: "MatrixProductOperator", max_bond: int | None = None
+    ) -> "MatrixProductOperator":
         """
         Zip up two MPOs
 
@@ -1101,6 +1124,9 @@ class MatrixProductOperator(TensorNetwork):
 
         arrays = [t.data for t in tn.tensors]
         mpo = MatrixProductOperator.from_arrays(arrays)
+        if max_bond:
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
         mpo.move_orthogonality_centre()
 
         return mpo
@@ -1178,9 +1204,12 @@ class MatrixProductOperator(TensorNetwork):
         Args:
             projector: The projector onto the subspace in MPO form.
         """
+        max_bond = self.bond_dimension
         self_copy = copy.deepcopy(self)
         mpo = projector * self_copy
+        mpo.compress(max_bond)
         mpo = mpo * projector
+        mpo.compress(max_bond)
         return mpo
 
     def multiply_by_constant(self, const: complex) -> None:
@@ -1288,7 +1317,13 @@ class MatrixProductOperator(TensorNetwork):
         output_inds.append(right_idx1)
         output_inds.append(left_idx1)
         self.contract_index(bond)
-        self.svd(self.tensors[idx - 1], input_inds, output_inds, new_index_name=bond)
+        self.svd(
+            self.tensors[idx - 1],
+            input_inds,
+            output_inds,
+            max_bond=self.bond_dimension,
+            new_index_name=bond,
+        )
 
         if idx == 1:
             self.tensors[idx - 1].reorder_indices([bond] + input_inds)
@@ -1364,7 +1399,10 @@ class MatrixProductOperator(TensorNetwork):
         return
 
     def contract_sub_mpo(
-        self, other: "MatrixProductOperator", sites: list[int]
+        self,
+        other: "MatrixProductOperator",
+        sites: list[int],
+        max_bond: int | None = None,
     ) -> "MatrixProductOperator":
         """
         Contract the MPO with a smaller MPO on the given sites
@@ -1393,6 +1431,9 @@ class MatrixProductOperator(TensorNetwork):
         if mpo2.num_sites == mpo1.num_sites:
             mpo = mpo1 * mpo2
             mpo.reorder_sites(restore_ordering, set_default_indices=True)
+            if max_bond:
+                if mpo.bond_dimension > max_bond:
+                    mpo.compress(max_bond)
             return mpo
 
         for tidx in range(mpo2.num_sites):
@@ -1421,6 +1462,9 @@ class MatrixProductOperator(TensorNetwork):
         arrays = [t.data for t in tn.tensors]
         mpo = MatrixProductOperator.from_arrays(arrays)
         mpo.reorder_sites(restore_ordering, set_default_indices=True)
+        if max_bond:
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(self.bond_dimension)
         return mpo
 
     def partial_trace(
