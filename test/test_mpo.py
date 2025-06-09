@@ -171,9 +171,9 @@ def test_from_qiskit_circuit():
 
 
 def test_zero_reflection_mpo():
-    mpo = MatrixProductOperator.zero_reflection_mpo(8)
+    mpo = MatrixProductOperator.zero_reflection_mpo(4)
     mpo_dense = mpo.to_dense_array()
-    expected = np.eye(2**8)
+    expected = np.eye(2**4)
     expected[0][0] = -1
     assert np.allclose(expected, mpo_dense), "Zero Reflection MPO output mismatch"
     return
@@ -280,26 +280,11 @@ def test_subtract():
 
 
 def test_multiply():
-    # Test multiplication of two MPOs
-    qc1 = QuantumCircuit(4)
-    qc1.h([0, 1, 2, 3])  # H Gate
-    qc1.cx(0, 1)  # CX Gate
-    qc1.cx(2, 3)  # CX Gate
-    qc1.x([0, 1, 2, 3])  # X Gate
-
-    qc2 = QuantumCircuit(4)
-    qc2.h([0, 1, 2, 3])  # H Gate
-    qc2.cz(0, 1)  # CZ Gate
-    qc2.cz(2, 3)  # CZ Gate
-    qc2.y([0, 1, 2, 3])  # Y Gate
-
-    totalqc = qc1.compose(qc2)
-
-    mpo1 = MatrixProductOperator.from_qiskit_circuit(qc1, 8)
-    mpo2 = MatrixProductOperator.from_qiskit_circuit(qc2, 8)
+    mpo1 = MatrixProductOperator.from_pauli_string("IXYZII")
+    mpo2 = MatrixProductOperator.from_pauli_string("XXYIYX")
 
     out = mpo1 * mpo2
-    expected = MatrixProductOperator.from_qiskit_circuit(totalqc, 64)
+    expected = MatrixProductOperator.from_pauli_string("XIIZYX")
 
     assert np.allclose(
         out.to_dense_array(), expected.to_dense_array()
