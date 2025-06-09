@@ -444,6 +444,7 @@ def test_normalise():
 def test_sample_bitstrings():
     mps = MatrixProductState.from_bitstring("10101")
     samples = mps.sample_bitstrings(10)
+    print(samples)
 
     assert samples["10101"] == 10
 
