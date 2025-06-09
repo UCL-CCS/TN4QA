@@ -421,3 +421,33 @@ def test_multiply_by_constant():
         assert result_a.all() == result_b.all(), "Multiply by constant test failed"
 
         return
+
+
+def test_swap_neighbouring_sites():
+    mpo = MatrixProductOperator.from_pauli_string("XI")
+    print(mpo.to_dense_array())
+    mpo.swap_neighbouring_sites(1)
+    print(mpo.to_dense_array().round(3))
+    expected_output = MatrixProductOperator.from_pauli_string("IX")
+    assert np.allclose(mpo.to_dense_array(), expected_output.to_dense_array())
+
+
+def test_reorder_sites():
+    mpo = MatrixProductOperator.from_pauli_string("IXYZ")
+    mpo.reorder_sites([3, 4, 2, 1])
+    expected_output = MatrixProductOperator.from_pauli_string("YZXI")
+    assert np.allclose(mpo.to_dense_array(), expected_output.to_dense_array())
+
+
+def test_contract_sub_mpo():
+    mpo = MatrixProductOperator.identity_mpo(4)
+    mpo_to_contract = MatrixProductOperator.from_pauli_string("Y")
+    second_mpo_to_contract = MatrixProductOperator.from_pauli_string("XX")
+    third_mpo_to_contract = MatrixProductOperator.from_pauli_string("Z")
+
+    contracted_mpo = mpo.contract_sub_mpo(mpo_to_contract, [2])
+    contracted_mpo = contracted_mpo.contract_sub_mpo(second_mpo_to_contract, [1, 4])
+    contracted_mpo = contracted_mpo.contract_sub_mpo(third_mpo_to_contract, [3])
+    expected_mpo = MatrixProductOperator.from_pauli_string("XYZX")
+
+    assert np.allclose(contracted_mpo.to_dense_array(), expected_mpo.to_dense_array())

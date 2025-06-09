@@ -9,9 +9,9 @@ from tn4qa.utils import ReadMoleculeData
 with open("test/data/h2_rdm.json") as f:
     data = json.load(f)
     h2_rdm1 = data["RDM1"]
-    h2_rdm1 = [[n[0] + 1j * n[1] for n in row] for row in h2_rdm1]
+    h2_rdm1 = np.array([[n[0] + 1j * n[1] for n in row] for row in h2_rdm1])
     h2_rdm2 = data["RDM2"]
-    h2_rdm2 = [[n[0] + 1j * n[1] for n in row] for row in h2_rdm2]
+    h2_rdm2 = np.array([[n[0] + 1j * n[1] for n in row] for row in h2_rdm2])
 
 h2_file = "molecules/H2.json"
 h2_data = ReadMoleculeData(h2_file)
