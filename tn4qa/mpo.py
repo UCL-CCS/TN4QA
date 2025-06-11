@@ -977,6 +977,25 @@ class MatrixProductOperator(TensorNetwork):
 
         return mpo
 
+    @classmethod
+    def random_mpo(cls, num_sites: int, max_bond: int) -> "MatrixProductOperator":
+        """
+        Create a random MPO
+
+        Args:
+            num_sites: The number of sites
+            max_bond: Maximum bond dimension
+        """
+        first_array = np.random.random((max_bond, 2, 2))
+        arrays = [first_array]
+        for _ in range(num_sites - 2):
+            array = np.random.random((max_bond, max_bond, 2, 2))
+            arrays.append(array)
+        last_array = np.random.random((max_bond, 2, 2))
+        arrays.append(last_array)
+        mpo = MatrixProductOperator.from_arrays(arrays)
+        return mpo
+
     def to_sparse_array(self) -> SparseArray:
         """
         Converts MPO to a sparse matrix.

@@ -405,6 +405,13 @@ class Tensor:
         self.data = self.data * const
         return
 
+    def dagger(self) -> None:
+        """
+        Get the conjugate transpose
+        """
+        self.data = self.data.conj()
+        return
+
     def get_closest_unitary(
         self, input_indices: list[str], output_indices: list[str]
     ) -> "Tensor":
@@ -419,7 +426,7 @@ class Tensor:
             A new tensor that is unitary as a matrix with index ordering same as self
         """
         matrix = self.tensor_to_matrix(input_indices, output_indices)
-        u, s, vh = svd(matrix, full_matrices=True)
+        u, s, vh = svd(matrix, full_matrices=False)
         unitary_part = u @ vh
         input_dims = [self.get_dimension_of_index(i) for i in input_indices]
         output_dims = [self.get_dimension_of_index(i) for i in output_indices]
