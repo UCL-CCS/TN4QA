@@ -853,6 +853,130 @@ class MatrixProductOperator(TensorNetwork):
 
         return mpo
 
+    @classmethod
+    def from_diagonal_matrix(
+        cls, diag: list[complex], max_bond: int | None = None
+    ) -> "MatrixProductOperator":
+        """
+        Construct an MPO representation of a diagonal matrix.
+
+        Args:
+            diag: The list of diagonal entries, should be length 2^N
+            max_bond: Maximum allowed bond dimension
+        """
+        num_sites = int(np.log2(len(diag)))
+        mpo = MatrixProductOperator.from_bitstring("0" * num_sites)
+        mpo.multiply_by_constant(diag[0])
+        for i in range(1, len(diag)):
+            bitstring = bin(i)[2:].zfill(num_sites)
+            temp_mpo = MatrixProductOperator.from_bitstring(bitstring)
+            temp_mpo.multiply_by_constant(diag[i])
+            mpo = mpo + temp_mpo
+            if max_bond:
+                if mpo.bond_dimension > max_bond:
+                    mpo.compress(max_bond)
+        return mpo
+
+    @classmethod
+    def from_diagonal_matrix_approx(
+        cls, diag: list[complex]
+    ) -> "MatrixProductOperator":
+        """
+        Constructs an MPO of bond dimension 2 that approximates a diagonal matrix.
+
+        Args:
+            diag: The list of entries defining the diagonal matrix
+        """
+        num_sites = int(np.log2(len(diag)))
+        arrays = []
+
+        # Loop over all positions
+        for i in range(num_sites):
+            if i == 0 or i == num_sites - 1:
+                shape = (1, 2, 2)
+            else:
+                shape = (1, 1, 2, 2)
+            site_tensor = np.zeros(shape, dtype=complex)
+            for s in [0, 1]:
+                # for every s, we filter the entries that have s at the i-th bit (from left)
+                filtered_diag = [
+                    d
+                    for idx, d in enumerate(diag)
+                    if ((idx >> (num_sites - 1 - i)) & 1) == s
+                ]
+                avg_value = np.mean(filtered_diag)
+                if i == 0 or i == num_sites - 1:
+                    site_tensor[0, s, s] = avg_value
+                else:
+                    site_tensor[0, 0, s, s] = avg_value
+            arrays.append(site_tensor)
+
+        mpo = MatrixProductOperator.from_arrays(arrays)
+
+        return mpo
+
+    @classmethod
+    def from_increasing_diagonal_matrix(cls, num_sites: int) -> "MatrixProductOperator":
+        """
+        Construct an MPO representation of a diagonal matrix where the entries are increasing in size
+
+        Args:
+            num_sites: Number of sites.
+
+        Returns:
+            An MPO representing the diagonal matrix where the (i,i)-th entry is i/2^num_sites
+        """
+        arrays = []
+        D = 2
+        I = np.eye(2)
+        P1 = np.array([[0, 0], [0, 1]])
+
+        for site in range(num_sites):
+            weight = 2 ** (num_sites - site - 1)
+            A = weight * P1
+
+            if site == 0:
+                W = np.zeros((D, 2, 2))
+                W[0] = I
+                W[1] = A
+            elif site == num_sites - 1:
+                W = np.zeros((D, 2, 2))
+                W[0] = A
+                W[1] = I
+            else:
+                W = np.zeros((D, D, 2, 2))
+                W[0, 0] = I
+                W[0, 1] = A
+                W[1, 1] = I
+
+            arrays.append(W)
+
+        mpo = MatrixProductOperator.from_arrays(arrays)
+        mpo.multiply_by_constant(1 / 2**num_sites)
+        return mpo
+
+    @classmethod
+    def from_short_increasing_diagonal_matrix(
+        cls, num_sites: int, k: int
+    ) -> "MatrixProductOperator":
+        """
+        Construct an MPO representing a diagonal matrix where the first k entries increase up to a value of 1
+        after which point every entry is a 1
+
+        Args:
+            num_sites: Number of sites
+            k: Number of increasing entries
+        """
+        mpo = MatrixProductOperator.identity_mpo(num_sites)
+        for idx in range(k):
+            weight = 1 - idx / k
+            bitstring = bin(idx)[2:].zfill(num_sites)
+            temp_mpo = MatrixProductOperator.from_bitstring(bitstring)
+            temp_mpo.multiply_by_constant(weight)
+            mpo -= temp_mpo
+
+        return mpo
+
     def to_sparse_array(self) -> SparseArray:
         """
         Converts MPO to a sparse matrix.
