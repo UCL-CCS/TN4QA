@@ -225,22 +225,14 @@ class ApproximateDiagonalisation(TNOptimiser):
         local_dims = [local_tensor.get_dimension_of_index(idx) for idx in local_indices]
         local_labels = local_tensor.labels
 
-        # local_dag_tensor = self.ansatz_dag.tensors[variational_index-1]
-        # local_dag_indices = local_dag_tensor.indices
-        # local_dag_labels = local_dag_tensor.labels
-
         env_mat = self.form_environment_matrix(variational_index)
         max_evec = self.get_maximum_eigenvector(env_mat)
         new_site_data = max_evec.reshape(tuple(local_dims))
         new_site_data = self.get_closest_isometry(new_site_data, variational_index)
         new_tensor = Tensor(new_site_data, indices=local_indices, labels=local_labels)
-        # new_dag_tensor = Tensor(new_site_data, indices=local_dag_indices, labels=local_dag_labels)
-        # new_dag_tensor.dagger()
         site_label = f"variational_site_{variational_index}"
         self.ansatz.pop_tensors_by_label([site_label])
         self.ansatz.add_tensor(new_tensor, variational_index - 1)
-        # self.ansatz_dag.pop_tensors_by_label([site_label])
-        # self.ansatz_dag.add_tensor(new_dag_tensor, variational_index-1)
         self.ansatz_dag = copy.deepcopy(self.ansatz)
         self.ansatz_dag.dagger()
         self.ansatz_dag.set_default_indices(
