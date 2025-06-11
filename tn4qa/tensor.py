@@ -4,6 +4,7 @@ from typing import List, TypeAlias, Union
 import numpy as np
 import sparse
 from numpy import ndarray
+from numpy.linalg import svd
 from qiskit.circuit import CircuitInstruction, Operation
 
 # Qiskit quantum circuit integration
@@ -367,6 +368,7 @@ class Tensor:
                 temp_index_ordering.append(idx)
                 temp_shape.append(self.get_dimension_of_index(idx))
         self.reorder_indices(temp_index_ordering)
+
         new_shape = [combined_index_dim] + temp_shape[len(idxs) :]
         new_data = sparse.reshape(self.data, new_shape)
         if not new_index_name:
@@ -402,3 +404,29 @@ class Tensor:
         """
         self.data = self.data * const
         return
+
+    def get_closest_unitary(
+        self, input_indices: list[str], output_indices: list[str]
+    ) -> "Tensor":
+        """
+        Perform a polar decomposition to determine the closest unitary matrix to the given tensor.
+
+        Args:
+            input_indices: The indices to treat as the input indices for the matrix representation
+            output_indices: The indices to treat as the output indices for the matrix representation
+
+        Returns:
+            A new tensor that is unitary as a matrix with index ordering same as self
+        """
+        matrix = self.tensor_to_matrix(input_indices, output_indices)
+        u, s, vh = svd(matrix, full_matrices=True)
+        unitary_part = u @ vh
+        input_dims = [self.get_dimension_of_index(i) for i in input_indices]
+        output_dims = [self.get_dimension_of_index(i) for i in output_indices]
+        shape = tuple(input_dims + output_dims)
+        unitary_part = unitary_part.reshape(
+            shape
+        )  # This will have index ordering output_inds, input_inds
+        new_t = Tensor(unitary_part, output_indices + input_indices, labels=self.labels)
+        new_t.reorder_indices(self.indices)
+        return new_t
