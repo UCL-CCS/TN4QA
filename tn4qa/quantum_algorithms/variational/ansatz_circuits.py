@@ -101,7 +101,7 @@ def number_preserving_ansatz(
 
 
 def identity_brickwork_circuit(
-    n_qubits: int, layers: int, qubits_per_gate: int, gap: int
+    n_qubits: int, layers: int, qubits_per_gate: int = 2, gap: int = 1
 ) -> QuantumCircuit:
     """
     Brickwork circuit of identity gates.
@@ -117,18 +117,18 @@ def identity_brickwork_circuit(
     """
     id_gate = Operator(np.eye(2**qubits_per_gate)).to_instruction()
     qc = QuantumCircuit(n_qubits)
-    for _ in layers:
+    for _ in range(layers):
         for idx in range(int(np.floor(n_qubits / qubits_per_gate))):
-            qidxs = [idx + x for x in range(qubits_per_gate)]
+            qidxs = [qubits_per_gate * idx + x for x in range(qubits_per_gate)]
             qc.append(id_gate, qidxs)
         for idx in range(int(np.floor((n_qubits - gap) / qubits_per_gate))):
-            qidxs = [idx + gap + x for x in range(qubits_per_gate)]
+            qidxs = [qubits_per_gate * idx + gap + x for x in range(qubits_per_gate)]
             qc.append(id_gate, qidxs)
     return qc
 
 
 def random_brickwork_circuit(
-    n_qubits: int, layers: int, qubits_per_gate: int, gap: int
+    n_qubits: int, layers: int, qubits_per_gate: int = 2, gap: int = 1
 ) -> QuantumCircuit:
     """
     Brickwork circuit of random gates.
@@ -143,14 +143,14 @@ def random_brickwork_circuit(
         A quantum circuit
     """
     qc = QuantumCircuit(n_qubits)
-    for _ in layers:
+    for _ in range(layers):
         for idx in range(int(np.floor(n_qubits / qubits_per_gate))):
             random_gate = random_unitary(2**qubits_per_gate)
-            qidxs = [idx + x for x in range(qubits_per_gate)]
+            qidxs = [qubits_per_gate * idx + x for x in range(qubits_per_gate)]
             qc.append(random_gate, qidxs)
         for idx in range(int(np.floor((n_qubits - gap) / qubits_per_gate))):
             random_gate = random_unitary(2**qubits_per_gate)
-            qidxs = [idx + gap + x for x in range(qubits_per_gate)]
+            qidxs = [qubits_per_gate * idx + gap + x for x in range(qubits_per_gate)]
             qc.append(random_gate, qidxs)
     return qc
 
@@ -171,7 +171,7 @@ def identity_staircase_circuit(
     """
     id_gate = Operator(np.eye(2**qubits_per_gate)).to_instruction()
     qc = QuantumCircuit(n_qubits)
-    for _ in layers:
+    for _ in range(layers):
         for idx in range(n_qubits + 1 - qubits_per_gate):
             qidxs = [idx + x for x in range(qubits_per_gate)]
             qc.append(id_gate, qidxs)
@@ -193,7 +193,7 @@ def random_staircase_circuit(
         A quantum circuit
     """
     qc = QuantumCircuit(n_qubits)
-    for _ in layers:
+    for _ in range(layers):
         for idx in range(n_qubits + 1 - qubits_per_gate):
             random_gate = random_unitary(2**qubits_per_gate)
             qidxs = [idx + x for x in range(qubits_per_gate)]

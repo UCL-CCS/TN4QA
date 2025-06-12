@@ -1,26 +1,28 @@
-from ..mps import MatrixProductState
+from qiskit import QuantumCircuit
+
+from ..mps import MatrixProductOperator
 from ..tn import TensorNetwork
 
 
-class MPSOptimiser(TensorNetwork):
+class MPOOptimiser:
     """
-    A class for locally optimising tensors in a TN with respect to a reference MPS and the HS distance
+    A class for locally optimising a quantum circuit with respect to a reference MPO and the HS distance
     """
 
-    def __init__(self, tn: TensorNetwork, reference: MatrixProductState) -> None:
+    def __init__(self, qc: QuantumCircuit, reference: MatrixProductOperator) -> None:
         """
         Constructor
 
         Args:
-            tn: The tensor network that will be optimised. Should be contractable to an MPS
-            reference: The reference MPS
+            qc: The quantum circuit that will be optimised
+            reference: The reference MPO
         """
-        if isinstance(reference, TensorNetwork):
-            tensors = tn.tensors + reference.tensors
-        else:
-            tensors = tn.tensors
-        super().__init__(tensors, name="TNOptimiser")
-        self.tn = tn
+        self.tn = TensorNetwork.from_qiskit_circuit(qc)
+        self.tn_dag = TensorNetwork.from_qiskit_circuit(qc, dagger=True)
+        for t in self.tn.tensors:
+            t.labels.append(f"variational_site_{self.tn.tensors.index(t)+1}")
+        for t in self.tn_dag.tensors:
+            t.labels.append(
+                f"variational_site_{len(self.tn_dag.tensors)-self.tn_dag.tensors.index(t)}"
+            )
         self.reference = reference
-        label_to_tensor_dict = tn.get_label_to_tensor_dict()
-        self.variational_tensors = label_to_tensor_dict.get("variational", [])

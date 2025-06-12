@@ -1,5 +1,3 @@
-import copy
-
 from ..mps import MatrixProductState
 from ..tn import TensorNetwork
 
@@ -21,8 +19,6 @@ class MPSOptimiser:
             t.labels.append("variational")
             t.labels.append(f"variational_site_{tn.tensors.index(t)+1}")
         self.tn = tn
-        self.tn_dag = copy.deepcopy(self.tn)
-        self.tn_dag
         self.reference = reference
         label_to_tensor_dict = tn.get_label_to_tensor_dict()
         self.variational_tensors = label_to_tensor_dict.get("variational", [])
