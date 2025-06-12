@@ -71,7 +71,11 @@ class Tensor:
 
     @classmethod
     def from_qiskit_gate(
-        cls, gate: QiskitOptions, indices: List[str] = None, labels: List[str] = ["T1"]
+        cls,
+        gate: QiskitOptions,
+        indices: List[str] = None,
+        labels: List[str] = ["T1"],
+        dagger: bool = False,
     ) -> "Tensor":
         """
         Construct a tensor object from the array.
@@ -80,6 +84,7 @@ class Tensor:
             gate: the underlying qiskit object.
             indices (optional): Default is "I<int>" for inputs and "O<int>" for outputs.
             labels (optional): Default is "T1".
+            dagger: If True will construct a tensor for the conjugate transpose of the gate
 
         Returns:
             tensor: The Tensor object.
@@ -92,13 +97,14 @@ class Tensor:
         num_dims = 2 * num_qubits
         shape = [2] * num_dims
         data = Operator(gate).reverse_qargs().data
+        if dagger:
+            data = data.conj().T
         data = np.reshape(data, shape)
-        if not indices and num_qubits == 1:
-            indices = ["O1", "I1"]
-        elif not indices:
-            indices = ["O1", "O2", "I1", "I2"]
-        else:
-            indices = indices
+        if not indices:
+            indices = [0] * num_dims
+            for idx in range(1, num_qubits + 1):
+                indices[idx - 1] = "O" + str(idx)
+                indices[num_qubits + idx - 1] = "I" + str(idx)
         labels = labels + [gate.name]
 
         tensor = cls(data, indices, labels)

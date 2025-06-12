@@ -59,12 +59,15 @@ class TensorNetwork:
         return tn
 
     @classmethod
-    def from_qiskit_circuit(cls, qc: QuantumCircuit) -> "TensorNetwork":
+    def from_qiskit_circuit(
+        cls, qc: QuantumCircuit, dagger: bool = False
+    ) -> "TensorNetwork":
         """
         Construct a tensor network from a Qiskit QuantumCircuit object.
 
         Args:
             qc: The QuantumCircuit.
+            dagger: If True will construct a TN for the inverse circuit
 
         Returns:
             A tensor network.
@@ -74,8 +77,12 @@ class TensorNetwork:
         wire_counts = {str(x): 0 for x in range(num_qubits)}
         tensors = []
 
+        data = qc.data
+        if dagger:
+            data = data[::-1]
+
         tensor_number = 1
-        for inst in qc.data:
+        for inst in data:
             inst_num_qubits = inst.operation.num_qubits
             qidxs = [inst.qubits[i]._index for i in range(inst_num_qubits)]
             indices = [0] * (2 * len(qidxs))
@@ -88,7 +95,7 @@ class TensorNetwork:
                 indices[len(qidxs) + qidxs.index(qidx)] = qw + "N" + wire_in
                 labels.append(f"Q{qidx}")
                 wire_counts[str(qidx)] += 1
-            inst_tensor = Tensor.from_qiskit_gate(inst, indices, labels)
+            inst_tensor = Tensor.from_qiskit_gate(inst, indices, labels, dagger)
             tensors.append(inst_tensor)
             tensor_number += 1
 
