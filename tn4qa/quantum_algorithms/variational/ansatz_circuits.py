@@ -1,3 +1,4 @@
+import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit.circuit.library import (
@@ -9,6 +10,7 @@ from qiskit.circuit.library import (
     RYGate,
     RZGate,
 )
+from qiskit.quantum_info import Operator, random_unitary
 
 
 def hea_ansatz(
@@ -96,3 +98,104 @@ def number_preserving_ansatz(
     return ExcitationPreserving(
         n_qubits, reps=layers, entanglement=entanglement
     ).decompose()
+
+
+def identity_brickwork_circuit(
+    n_qubits: int, layers: int, qubits_per_gate: int, gap: int
+) -> QuantumCircuit:
+    """
+    Brickwork circuit of identity gates.
+
+    Args:
+        n_qubits: The number of qubits
+        layers: The number of layers
+        qubits_per_gate: The number of qubits per gate
+        gap: The number of qubits to skip between layers
+
+    Returns:
+        A quantum circuit
+    """
+    id_gate = Operator(np.eye(2**qubits_per_gate)).to_instruction()
+    qc = QuantumCircuit(n_qubits)
+    for _ in layers:
+        for idx in range(int(np.floor(n_qubits / qubits_per_gate))):
+            qidxs = [idx + x for x in range(qubits_per_gate)]
+            qc.append(id_gate, qidxs)
+        for idx in range(int(np.floor((n_qubits - gap) / qubits_per_gate))):
+            qidxs = [idx + gap + x for x in range(qubits_per_gate)]
+            qc.append(id_gate, qidxs)
+    return qc
+
+
+def random_brickwork_circuit(
+    n_qubits: int, layers: int, qubits_per_gate: int, gap: int
+) -> QuantumCircuit:
+    """
+    Brickwork circuit of random gates.
+
+    Args:
+        n_qubits: The number of qubits
+        layers: The number of layers
+        qubits_per_gate: The number of qubits per gate
+        gap: The number of qubits to skip between layers
+
+    Returns:
+        A quantum circuit
+    """
+    qc = QuantumCircuit(n_qubits)
+    for _ in layers:
+        for idx in range(int(np.floor(n_qubits / qubits_per_gate))):
+            random_gate = random_unitary(2**qubits_per_gate)
+            qidxs = [idx + x for x in range(qubits_per_gate)]
+            qc.append(random_gate, qidxs)
+        for idx in range(int(np.floor((n_qubits - gap) / qubits_per_gate))):
+            random_gate = random_unitary(2**qubits_per_gate)
+            qidxs = [idx + gap + x for x in range(qubits_per_gate)]
+            qc.append(random_gate, qidxs)
+    return qc
+
+
+def identity_staircase_circuit(
+    n_qubits: int, layers: int, qubits_per_gate: int
+) -> QuantumCircuit:
+    """
+    Staircase circuit of identity gates.
+
+    Args:
+        n_qubits: The number of qubits
+        layers: The number of layers
+        qubits_per_gate: The number of qubits per gate
+
+    Returns:
+        A quantum circuit
+    """
+    id_gate = Operator(np.eye(2**qubits_per_gate)).to_instruction()
+    qc = QuantumCircuit(n_qubits)
+    for _ in layers:
+        for idx in range(n_qubits + 1 - qubits_per_gate):
+            qidxs = [idx + x for x in range(qubits_per_gate)]
+            qc.append(id_gate, qidxs)
+    return qc
+
+
+def random_staircase_circuit(
+    n_qubits: int, layers: int, qubits_per_gate: int
+) -> QuantumCircuit:
+    """
+    Staircase circuit of random gates.
+
+    Args:
+        n_qubits: The number of qubits
+        layers: The number of layers
+        qubits_per_gate: The number of qubits per gate
+
+    Returns:
+        A quantum circuit
+    """
+    qc = QuantumCircuit(n_qubits)
+    for _ in layers:
+        for idx in range(n_qubits + 1 - qubits_per_gate):
+            random_gate = random_unitary(2**qubits_per_gate)
+            qidxs = [idx + x for x in range(qubits_per_gate)]
+            qc.append(random_gate, qidxs)
+    return qc
