@@ -1,71 +1,13 @@
 import copy
-from typing import Any
 
 import numpy as np
 from numpy import ndarray
 from numpy.linalg import eig, svd
 
-from .fidelity_metrics import hilbert_schmidt_inner_product
-from .mpo import MatrixProductOperator
-from .mps import MatrixProductState
-from .tensor import Tensor
-from .tn import TensorNetwork
-
-
-class TNOptimiser(TensorNetwork):
-    """
-    A base class for optimisers.
-    """
-
-    def __init__(self, tn: TensorNetwork, reference: Any) -> None:
-        """
-        Constructor
-
-        Args:
-            tn: The tensor network that will be optimised. Should be contractable to an MPS or MPO
-            reference: The reference state or operator
-        """
-        if isinstance(reference, TensorNetwork):
-            tensors = tn.tensors + reference.tensors
-        else:
-            tensors = tn.tensors
-        super().__init__(tensors, name="TNOptimiser")
-        self.tn = tn
-        self.reference = reference
-        label_to_tensor_dict = tn.get_label_to_tensor_dict()
-        self.variational_tensors = label_to_tensor_dict.get("variational", [])
-
-
-class MPSOptimiser(TNOptimiser):
-    """
-    A class for locally optimising tensors in a TN with respect to a reference MPS and the HS distance
-    """
-
-    def __init__(self, tn: TensorNetwork, reference: MatrixProductState) -> None:
-        """
-        Class constructor.
-
-        Args:
-            tn: The tensor network that will be optimised. Should be contractable to an MPS
-            reference: The reference state or operator
-        """
-        super().__init__(tn, reference)
-
-
-class MPOOptimiser(TNOptimiser):
-    """
-    A class for locally optimising tensors in a TN with respect to a reference MPO and the HS distance
-    """
-
-    def __init__(self, tn: TensorNetwork, reference: MatrixProductOperator) -> None:
-        """
-        Class constructor.
-
-        Args:
-            tn: The tensor network that will be optimised. Should be contractable to an MPO
-            reference: The reference state or operator
-        """
-        super().__init__(tn, reference)
+from ..fidelity_metrics import hilbert_schmidt_inner_product
+from ..mpo import MatrixProductOperator
+from ..tensor import Tensor
+from ..tn import TensorNetwork
 
 
 class ApproximateDiagonalisation:
