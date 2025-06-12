@@ -454,7 +454,9 @@ class MatrixProductOperator(TensorNetwork):
         indices = [f"out{qidxs[i]}" for i in range(inst.operation.num_qubits)] + [
             f"in{qidxs[i]}" for i in range(inst.operation.num_qubits)
         ]
-        if len(qidxs) == 2:
+        if len(qidxs) == 1:
+            arrays = [Operator(inst.operation).reverse_qargs().data]
+        elif len(qidxs) == 2:
             tensor = Tensor.from_qiskit_gate(inst, indices=indices)
             tn = TensorNetwork([tensor])
             tn.svd(
@@ -471,7 +473,41 @@ class MatrixProductOperator(TensorNetwork):
             )
             arrays = [tn.tensors[i].data for i in range(2)]
         else:
-            arrays = [Operator(inst.operation).reverse_qargs().data]
+            tensor = Tensor.from_qiskit_gate(inst, indices=indices)
+            tn = TensorNetwork([tensor])
+            for idx in range(len(qidxs) - 1):
+                t = tn.tensors[idx]
+                input_inds = [indices[idx], indices[len(qidxs) + idx]]
+                output_inds = (
+                    indices[idx + 1 : len(qidxs)] + indices[len(qidxs) + idx + 1 :]
+                )
+                if idx != 0:
+                    input_inds.insert(0, f"C{idx}")
+                tn.svd(
+                    t,
+                    input_indices=input_inds,
+                    output_indices=output_inds,
+                    new_index_name=f"C{idx+1}",
+                    new_labels=[[f"T{idx+1}"], [f"T{idx+2}"]],
+                )
+                if idx == 0:
+                    new_idx_order1 = [
+                        f"C{idx+1}",
+                        f"out{qidxs[idx]}",
+                        f"in{qidxs[idx]}",
+                    ]
+                    new_idx_order2 = [f"C{idx+1}"] + output_inds
+                else:
+                    new_idx_order1 = [
+                        f"C{idx}",
+                        f"C{idx+1}",
+                        f"out{qidxs[idx]}",
+                        f"in{qidxs[idx]}",
+                    ]
+                new_idx_order2 = [f"C{idx+1}"] + output_inds
+                tn.tensors[idx].reorder_indices(new_idx_order1)
+                tn.tensors[idx + 1].reorder_indices(new_idx_order2)
+            arrays = [tn.tensors[i].data for i in range(len(qidxs))]
         mpo = cls.from_arrays(arrays)
         return mpo
 
