@@ -1,8 +1,10 @@
+import copy
+
 from ..mps import MatrixProductState
 from ..tn import TensorNetwork
 
 
-class MPSOptimiser(TensorNetwork):
+class MPSOptimiser:
     """
     A class for locally optimising tensors in a TN with respect to a reference MPS and the HS distance
     """
@@ -15,12 +17,12 @@ class MPSOptimiser(TensorNetwork):
             tn: The tensor network that will be optimised. Should be contractable to an MPS
             reference: The reference MPS
         """
-        if isinstance(reference, TensorNetwork):
-            tensors = tn.tensors + reference.tensors
-        else:
-            tensors = tn.tensors
-        super().__init__(tensors, name="TNOptimiser")
+        for t in tn.tensors:
+            t.labels.append("variational")
+            t.labels.append(f"variational_site_{tn.tensors.index(t)+1}")
         self.tn = tn
+        self.tn_dag = copy.deepcopy(self.tn)
+        self.tn_dag
         self.reference = reference
         label_to_tensor_dict = tn.get_label_to_tensor_dict()
         self.variational_tensors = label_to_tensor_dict.get("variational", [])

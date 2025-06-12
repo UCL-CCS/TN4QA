@@ -4,13 +4,11 @@ from typing import List, Union
 import cotengra as ctg
 
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
-import numpy as np
 import sparse
 from numpy.linalg import svd
 
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
-from qiskit.converters import circuit_to_dag, dag_to_circuit
 from scipy.sparse.linalg import svds
 
 from .tensor import Tensor
@@ -61,96 +59,40 @@ class TensorNetwork:
         return tn
 
     @classmethod
-    def from_qiskit_layer(
-        cls, layer: QuantumCircuit, layer_number: int = 1
-    ) -> "TensorNetwork":
-        """
-        Construct a tensor network from a Qiskit QuantumCircuit object (single layer).
-
-        Args:
-            layer: The QuantumCircuit layer.
-            layer_number (optional): The layer number within a larger circuit. Default to 1.
-
-        Returns:
-            A tensor network.
-        """
-        num_qubits = layer.num_qubits
-        index_prefixes = [f"QW{x}" for x in range(num_qubits)]
-        wire_counts = {str(x): layer_number - 1 for x in range(num_qubits)}
-        tensors = []
-
-        tensor_number = 1
-        for inst in layer.data:
-            inst_num_qubits = inst.operation.num_qubits
-            qidxs = [inst.qubits[i]._index for i in range(inst_num_qubits)]
-            if inst_num_qubits == 1:
-                indices = [
-                    index_prefixes[qidxs[0]]
-                    + "N"
-                    + str(wire_counts[str(qidxs[0])] + 1),
-                    index_prefixes[qidxs[0]] + "N" + str(wire_counts[str(qidxs[0])]),
-                ]
-                labels = [f"L{layer_number}", f"Q{qidxs[0]}"]
-                wire_counts[str(qidxs[0])] += 1
-            else:
-                indices = [
-                    index_prefixes[qidxs[0]]
-                    + "N"
-                    + str(wire_counts[str(qidxs[0])] + 1),
-                    index_prefixes[qidxs[1]]
-                    + "N"
-                    + str(wire_counts[str(qidxs[1])] + 1),
-                    index_prefixes[qidxs[0]] + "N" + str(wire_counts[str(qidxs[0])]),
-                    index_prefixes[qidxs[1]] + "N" + str(wire_counts[str(qidxs[1])]),
-                ]
-                labels = [f"L{layer_number}", f"Q{qidxs[0]}", f"Q{qidxs[1]}"]
-                wire_counts[str(qidxs[0])] += 1
-                wire_counts[str(qidxs[1])] += 1
-
-            inst_tensor = Tensor.from_qiskit_gate(inst, indices, labels)
-            tensors.append(inst_tensor)
-            tensor_number += 1
-
-        unused_qubits = [x for x in wire_counts if wire_counts[x] == layer_number - 1]
-        for qidx in unused_qubits:
-            array = np.array([[1, 0], [0, 1]], dtype=complex).reshape(2, 2)
-            indices = [
-                f"QW{qidx}" + "N" + str(layer_number),
-                f"QW{qidx}" + "N" + str(layer_number - 1),
-            ]
-            labels = [f"L{layer_number}", f"Q{qidx}"]
-            tensor = Tensor(array, indices, labels)
-            tensors.append(tensor)
-            tensor_number += 1
-
-        tn = TensorNetwork(
-            tensors,
-            name="QuantumCircuit",
-            count_from=1 + num_qubits * (layer_number - 1),
-        )
-        return tn
-
-    @classmethod
     def from_qiskit_circuit(cls, qc: QuantumCircuit) -> "TensorNetwork":
         """
         Construct a tensor network from a Qiskit QuantumCircuit object.
 
         Args:
-            gc: The QuantumCircuit object.
+            qc: The QuantumCircuit.
 
         Returns:
             A tensor network.
         """
-        dag = circuit_to_dag(qc)
-        all_layers = [x for x in dag.layers()]
-        first_layer = all_layers[0]
-        first_layer_as_circ = dag_to_circuit(first_layer["graph"])
-        tn = TensorNetwork.from_qiskit_layer(first_layer_as_circ, layer_number=1)
-        layer_number = 2
-        for layer in all_layers[1:]:
-            layer_as_circ = dag_to_circuit(layer["graph"])
-            tn = tn + TensorNetwork.from_qiskit_layer(layer_as_circ, layer_number)
-            layer_number += 1
+        num_qubits = qc.num_qubits
+        index_prefixes = [f"QW{x}" for x in range(1, num_qubits + 1)]
+        wire_counts = {str(x): 0 for x in range(num_qubits)}
+        tensors = []
+
+        tensor_number = 1
+        for inst in qc.data:
+            inst_num_qubits = inst.operation.num_qubits
+            qidxs = [inst.qubits[i]._index for i in range(inst_num_qubits)]
+            indices = [0] * (2 * len(qidxs))
+            labels = [f"T{tensor_number}"]
+            for qidx in qidxs:
+                qw = index_prefixes[qidx]
+                wire_in = str(wire_counts[str(qidx)])
+                wire_out = str(wire_counts[str(qidx)] + 1)
+                indices[qidxs.index(qidx)] = qw + "N" + wire_out
+                indices[len(qidxs) + qidxs.index(qidx)] = qw + "N" + wire_in
+                labels.append(f"Q{qidx}")
+                wire_counts[str(qidx)] += 1
+            inst_tensor = Tensor.from_qiskit_gate(inst, indices, labels)
+            tensors.append(inst_tensor)
+            tensor_number += 1
+
+        tn = TensorNetwork(tensors, name="QuantumCircuit")
         return tn
 
     def get_index_to_tensor_dict(self) -> dict:

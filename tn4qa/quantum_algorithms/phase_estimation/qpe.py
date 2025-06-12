@@ -10,7 +10,7 @@ from ..base import QuantumAlgorithm
 from ..utils import add_controls, count_qubits, to_QuantumCircuit
 
 TypeOptions: TypeAlias = Union[
-    QuantumCircuit, Operation, CircuitInstruction, ndarray, SparseArray
+    QuantumCircuit, Operation, CircuitInstruction, ndarray, SparseArray  # type: ignore
 ]  # type: ignore
 
 
