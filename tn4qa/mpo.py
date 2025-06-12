@@ -1582,12 +1582,17 @@ class MatrixProductOperator(TensorNetwork):
         other: "MatrixProductOperator",
         sites: list[int],
         max_bond: int | None = None,
+        contract_right: bool = True,
     ) -> "MatrixProductOperator":
         """
         Contract the MPO with a smaller MPO on the given sites
 
         Args:
+            other: The smaller MPO
             sites: The list of sites where the smaller MPO acts
+            max_bond: Maximum allowed bond dimension
+            contract_right: If set to False the sub-MPO will be contracted on the left
+
 
         Returns:
             An MPO that is the output of the contraction
@@ -1615,16 +1620,21 @@ class MatrixProductOperator(TensorNetwork):
                     mpo.compress(max_bond)
             return mpo
 
+        contraction_prefix = "R" if contract_right else "L"
+        sub_mpo_prefix = "L" if contract_right else "R"
+
         for tidx in range(mpo2.num_sites):
             t1 = mpo1.tensors[tidx]
             t2 = mpo2.tensors[tidx]
             t1_current_indices = t1.indices
             t1.indices = [
-                f"D{tidx+1}" if x[0] == "R" else x for x in t1_current_indices
+                f"D{tidx+1}" if x[0] == contraction_prefix else x
+                for x in t1_current_indices
             ]
             t2_current_indices = t2.indices
             t2.indices = [
-                f"D{tidx+1}" if x[0] == "L" else x + "_" for x in t2_current_indices
+                f"D{tidx+1}" if x[0] == sub_mpo_prefix else x + "_"
+                for x in t2_current_indices
             ]
 
         all_tensors = mpo1.tensors + mpo2.tensors
