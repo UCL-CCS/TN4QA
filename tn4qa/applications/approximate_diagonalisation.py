@@ -27,8 +27,20 @@ class ApproximateDiagonalisation:
             mpo: The MPO that will be appoximately diagonalised
             num_layers: The number of layers to use in the ansatz circuit
         """
-        self.reference = MatrixProductOperator.from_increasing_diagonal_matrix(
-            mpo.num_sites
+        # self.reference = MatrixProductOperator.from_increasing_diagonal_matrix(
+        #     mpo.num_sites
+        # )
+        self.reference = MatrixProductOperator.from_diagonal_matrix(
+            [
+                -0.91622777 + 9.65721264e-19j,
+                -0.28377223 + 5.78156048e-18j,
+                -2.28377223 - 3.64397338e-17j,
+                -2.91622777 - 4.46812494e-17j,
+                -2.51622777 - 4.45865986e-18j,
+                -1.88377223 + 2.47637168e-17j,
+                -0.68377223 + 2.82883920e-17j,
+                -1.31622777 - 5.03281725e-17j,
+            ]
         )
         self.qc = random_brickwork_circuit(mpo.num_sites, num_layers, 3)
         self.num_qubits = mpo.num_sites
@@ -79,23 +91,20 @@ class ApproximateDiagonalisation:
         left_tn_indices = _get_left_tn_indices()
         right_tn_indies = _get_right_tn_indices()
 
-        self.reference.set_default_indices(
-            internal_prefix="A", input_prefix="T", output_prefix="V"
-        )
         for t in self.ansatz_dag.tensors:
             original_t_indices = t.indices
             new_t_indices = []
             for idx in original_t_indices:
                 qw, _ = _index_splitter(idx)
                 if idx in left_tn_indices:
-                    new_t_indices.append(f"V{qw[2:]}")
+                    new_t_indices.append(f"T{qw[2:]}")
                 elif idx in right_tn_indies:
-                    new_t_indices.append(f"W{qw[2:]}")
+                    new_t_indices.append(f"V{qw[2:]}")
                 else:
                     new_t_indices.append(idx)
             t.indices = new_t_indices
         self.mpo_to_diag.set_default_indices(
-            internal_prefix="B", input_prefix="W", output_prefix="X"
+            internal_prefix="A", input_prefix="V", output_prefix="W"
         )
         for t in self.ansatz.tensors:
             original_t_indices = t.indices
@@ -103,12 +112,15 @@ class ApproximateDiagonalisation:
             for idx in original_t_indices:
                 qw, _ = _index_splitter(idx)
                 if idx in left_tn_indices:
-                    new_t_indices.append(f"X{qw[2:]}")
+                    new_t_indices.append(f"W{qw[2:]}")
                 elif idx in right_tn_indies:
-                    new_t_indices.append(f"T{qw[2:]}")
+                    new_t_indices.append(f"X{qw[2:]}")
                 else:
                     new_t_indices.append(idx + "_")
             t.indices = new_t_indices
+        self.reference.set_default_indices(
+            internal_prefix="B", input_prefix="X", output_prefix="T"
+        )
         return
 
     def update_circuit(self, variational_index: int, optimal_update: ndarray) -> None:
@@ -159,18 +171,18 @@ class ApproximateDiagonalisation:
         mpo = copy.deepcopy(self.mpo_to_diag)
         ansatz_circ = copy.deepcopy(self.qc)
         ansatz_dag = ansatz_circ.inverse()
-        for inst in ansatz_circ.data:
-            qidxs = [
-                inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
-            ]
-            submpo = MatrixProductOperator.from_qiskit_gate(inst)
-            mpo = mpo.contract_sub_mpo(submpo, qidxs, contract_right=True)
-        for inst in ansatz_dag.data[::-1]:
+        for inst in ansatz_circ.data[::-1]:
             qidxs = [
                 inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
             ]
             submpo = MatrixProductOperator.from_qiskit_gate(inst)
             mpo = mpo.contract_sub_mpo(submpo, qidxs, contract_right=False)
+        for inst in ansatz_dag.data:
+            qidxs = [
+                inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
+            ]
+            submpo = MatrixProductOperator.from_qiskit_gate(inst)
+            mpo = mpo.contract_sub_mpo(submpo, qidxs, contract_right=True)
         return mpo
 
     def get_local_indices(self, variational_idx: int) -> tuple[list[str], list[str]]:
@@ -220,22 +232,10 @@ class ApproximateDiagonalisation:
             The maximum eigenvector
         """
         evals, evecs = eig(mat)
-
-        # Sort evals
-        idx = np.argsort(evals)[::-1]
-        evals = evals[idx]
-        evecs = evecs[:, idx]
-
-        # Find degeneracy in maximum eigenvector
-        tol = 1e-8
-        maxval = evals[0]
-        degenerate_indices = np.where(np.abs(evals - maxval) < tol)[0]
-
-        # Take a linear combination
-        max_evec = evecs[:, degenerate_indices[0]]
-        for idx in degenerate_indices[1:]:
-            max_evec += evecs[:, idx]
-
+        max_eval = max(evals)
+        max_eval_idx = list(evals).index(max_eval)
+        max_evec = evecs[:, max_eval_idx]
+        max_evec = evecs[:, max_eval_idx]
         return max_evec
 
     def get_closest_unitary(self, mat: ndarray) -> ndarray:

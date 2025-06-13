@@ -1615,7 +1615,10 @@ class MatrixProductOperator(TensorNetwork):
         mpo1.reorder_sites(target_site_ordering, set_default_indices=True)
 
         if mpo2.num_sites == mpo1.num_sites:
-            mpo = mpo1 * mpo2
+            if contract_right:
+                mpo = mpo1 * mpo2
+            else:
+                mpo = mpo2 * mpo1
             mpo.reorder_sites(restore_ordering, set_default_indices=True)
             if max_bond:
                 if mpo.bond_dimension > max_bond:
