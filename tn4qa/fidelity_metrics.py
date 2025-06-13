@@ -193,7 +193,7 @@ def hilbert_schmidt_fidelity(
         phi: The second state or operator
 
     Returns:
-        F_HS = Tr(psi phi)
+        F_HS = Tr(psi phi) / Tr(psi psi)
     """
     # Pure states is easy
     if isinstance(psi, MatrixProductState) and isinstance(phi, MatrixProductState):
@@ -211,7 +211,7 @@ def hilbert_schmidt_fidelity(
     if isinstance(phi, MatrixProductState):
         phi = phi.form_density_operator()
     ip = hilbert_schmidt_inner_product(psi, phi)
-    return np.abs(ip) ** 2 / (frobenius_norm(psi) * frobenius_norm(phi))
+    return np.abs(ip) ** 2 / (frobenius_norm(psi) ** 2)
 
 
 def total_variation_distance(

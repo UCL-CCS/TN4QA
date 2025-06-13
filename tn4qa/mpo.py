@@ -1186,12 +1186,14 @@ class MatrixProductOperator(TensorNetwork):
         """
         Defines MPO multiplication.
         """
-        self.reshape()
-        other.reshape()
+        mpo1 = copy.deepcopy(self)
+        mpo2 = copy.deepcopy(other)
+        mpo1.set_default_indices()
+        mpo2.set_default_indices()
         arrays = []
 
-        t1 = self.tensors[0]
-        t2 = other.tensors[0]
+        t1 = mpo1.tensors[0]
+        t2 = mpo2.tensors[0]
 
         t1.indices = ["T1_DOWN", "TO_CONTRACT", "T1_LEFT"]
         t2.indices = ["T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
@@ -1205,8 +1207,8 @@ class MatrixProductOperator(TensorNetwork):
         arrays.append(tensor.data)
 
         for t_idx in range(1, self.num_sites - 1):
-            t1 = self.tensors[t_idx]
-            t2 = other.tensors[t_idx]
+            t1 = mpo1.tensors[t_idx]
+            t2 = mpo2.tensors[t_idx]
 
             t1.indices = ["T1_UP", "T1_DOWN", "TO_CONTRACT", "T1_LEFT"]
             t2.indices = ["T2_UP", "T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
@@ -1222,8 +1224,8 @@ class MatrixProductOperator(TensorNetwork):
             tensor.reorder_indices(["UP", "DOWN", "T2_RIGHT", "T1_LEFT"])
             arrays.append(tensor.data)
 
-        t1 = self.tensors[-1]
-        t2 = other.tensors[-1]
+        t1 = mpo1.tensors[-1]
+        t2 = mpo2.tensors[-1]
 
         t1.indices = ["T1_UP", "TO_CONTRACT", "T1_LEFT"]
         t2.indices = ["T2_UP", "T2_RIGHT", "TO_CONTRACT"]
@@ -1644,9 +1646,19 @@ class MatrixProductOperator(TensorNetwork):
             tn.contract_index(f"D{n+1}")
         for n in range(len(sites) - 1):
             tn.combine_indices([f"B{n+1}", f"B{n+1}_"], new_index_name=f"B{n+1}")
-        tn.tensors[0].reorder_indices([f"B{n+1}", f"R{n+1}_", f"L{n+1}"])
+        if contract_right:
+            tn.tensors[0].reorder_indices([f"B{n+1}", f"R{n+1}_", f"L{n+1}"])
+        else:
+            tn.tensors[0].reorder_indices([f"B{n+1}", f"R{n+1}", f"L{n+1}_"])
         for n in range(1, len(sites)):
-            tn.tensors[n].reorder_indices([f"B{n}", f"B{n+1}", f"R{n+1}_", f"L{n+1}"])
+            if contract_right:
+                tn.tensors[n].reorder_indices(
+                    [f"B{n}", f"B{n+1}", f"R{n+1}_", f"L{n+1}"]
+                )
+            else:
+                tn.tensors[n].reorder_indices(
+                    [f"B{n}", f"B{n+1}", f"R{n+1}", f"L{n+1}_"]
+                )
 
         arrays = [t.data for t in tn.tensors]
         mpo = MatrixProductOperator.from_arrays(arrays)
