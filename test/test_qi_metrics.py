@@ -3,7 +3,11 @@ import json
 import numpy as np
 
 from tn4qa.dmrg import DMRG
-from tn4qa.qi_metrics import get_one_orbital_rdm, get_two_orbital_rdm
+from tn4qa.qi_metrics import (
+    get_all_mutual_information,
+    get_one_orbital_rdm,
+    get_two_orbital_rdm,
+)
 from tn4qa.utils import ReadMoleculeData
 
 with open("test/data/h2_rdm.json") as f:
@@ -32,3 +36,11 @@ def test_rdm2():
     h2_rdm2_dmrg = get_two_orbital_rdm(h2_mps, [1, 2])
 
     assert np.allclose(h2_rdm2, h2_rdm2_dmrg, atol=0.01)
+
+
+def test_get_all_mutual_information(water_DMRG):
+    water_mi = get_all_mutual_information(water_DMRG)
+
+    assert np.trace(water_mi) == 0.0
+    assert np.all(np.diag(water_mi) == 0.0)
+    assert np.all(water_mi == water_mi.T)
