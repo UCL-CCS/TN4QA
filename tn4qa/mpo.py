@@ -548,18 +548,16 @@ class MatrixProductOperator(TensorNetwork):
         Returns:
             An MPO.
         """
-        dag = circuit_to_dag(qc)
-        all_layers = [label for label in dag.layers()]
-        first_layer = all_layers[0]
-        first_layer_as_circ = dag_to_circuit(first_layer["graph"])
-        mpo = cls.from_qiskit_layer(first_layer_as_circ, max_bond)
-        for layer in all_layers[1:]:
-            layer_as_circ = dag_to_circuit(layer["graph"])
-            temp_mpo = cls.from_qiskit_layer(layer_as_circ, max_bond)
-            mpo = mpo * temp_mpo
-            if max_bond:
-                if mpo.bond_dimension > max_bond:
-                    mpo.compress(max_bond)
+        mpo = MatrixProductOperator.identity_mpo(qc.num_qubits)
+        for inst in qc.data:
+            qidxs = [
+                inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
+            ]
+            gate = MatrixProductOperator.from_qiskit_gate(inst)
+            mpo = mpo.contract_sub_mpo(gate, qidxs, max_bond)
+        if max_bond:
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
         return mpo
 
     @classmethod

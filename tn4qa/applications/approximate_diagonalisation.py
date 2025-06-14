@@ -2,6 +2,8 @@ import copy
 import re
 
 import numpy as np
+import scipy
+import scipy.optimize
 from numpy import ndarray
 from numpy.linalg import eig, svd
 from qiskit import QuantumCircuit
@@ -12,6 +14,7 @@ from ..mpo import MatrixProductOperator
 from ..quantum_algorithms.variational.ansatz_circuits import random_brickwork_circuit
 from ..tensor import Tensor
 from ..tn import TensorNetwork
+from .utils import kak_recomposition
 
 
 class ApproximateDiagonalisation:
@@ -27,22 +30,10 @@ class ApproximateDiagonalisation:
             mpo: The MPO that will be appoximately diagonalised
             num_layers: The number of layers to use in the ansatz circuit
         """
-        # self.reference = MatrixProductOperator.from_increasing_diagonal_matrix(
-        #     mpo.num_sites
-        # )
-        self.reference = MatrixProductOperator.from_diagonal_matrix(
-            [
-                -0.91622777 + 9.65721264e-19j,
-                -0.28377223 + 5.78156048e-18j,
-                -2.28377223 - 3.64397338e-17j,
-                -2.91622777 - 4.46812494e-17j,
-                -2.51622777 - 4.45865986e-18j,
-                -1.88377223 + 2.47637168e-17j,
-                -0.68377223 + 2.82883920e-17j,
-                -1.31622777 - 5.03281725e-17j,
-            ]
+        self.reference = MatrixProductOperator.from_increasing_diagonal_matrix(
+            mpo.num_sites
         )
-        self.qc = random_brickwork_circuit(mpo.num_sites, num_layers, 3)
+        self.qc = random_brickwork_circuit(mpo.num_sites, num_layers)
         self.num_qubits = mpo.num_sites
         self.mpo_to_diag = mpo
         self.set_ansatz()
@@ -252,6 +243,45 @@ class ApproximateDiagonalisation:
         unitary_part = u @ vh
         return unitary_part
 
+    def quadratic_optimisation_over_unitaries(self, mat: ndarray) -> ndarray:
+        """
+        Perform a quadratic optimisation over the unitary group with the given matrix
+
+        Args:
+            mat: A matrix
+
+        Returns:
+            The optimised unitary
+        """
+
+        def _cost_function(params):
+            uni = kak_recomposition(
+                params[:3], params[3:6], params[6:9], params[9:12], params[12:]
+            )
+            uni_vec = uni.reshape((16,), order="F")
+            quad = uni_vec.conj().T @ mat @ uni_vec
+            return -1.0 * quad.real
+
+        initial_params = [0.0] * 15
+        method = "COBYLA"
+        bounds = (
+            [(0.0, 2 * np.pi) for _ in range(6)]
+            + [(0.0, np.pi / 4) for _ in range(3)]
+            + [(0.0, 2 * np.pi) for _ in range(6)]
+        )
+        result = scipy.optimize.minimize(
+            _cost_function, initial_params, method=method, bounds=bounds
+        )
+        optimised_params = result.x
+        optimised_uni = kak_recomposition(
+            optimised_params[:3],
+            optimised_params[3:6],
+            optimised_params[6:9],
+            optimised_params[9:12],
+            optimised_params[12:],
+        )
+        return optimised_uni
+
     def local_update(self, variational_index: int) -> None:
         """
         Perform a local optimisation at the given index
@@ -259,13 +289,15 @@ class ApproximateDiagonalisation:
         Args:
             variational_index: The index of the current local site
         """
-        local_tensor = self.ansatz.tensors[variational_index - 1]
-        dim = int(2 ** (len(local_tensor.indices) / 2))
+        # local_tensor = self.ansatz.tensors[variational_index - 1]
+        # dim = int(2 ** (len(local_tensor.indices) / 2))
 
         env_mat = self.form_environment_matrix(variational_index)
-        max_evec = self.get_maximum_eigenvector(env_mat)
-        new_site_data = max_evec.reshape((dim, dim))
-        new_site_data = self.get_closest_unitary(new_site_data)
+        new_site_data = self.quadratic_optimisation_over_unitaries(env_mat)
+
+        # max_evec = self.get_maximum_eigenvector(env_mat)
+        # new_site_data = max_evec.reshape((dim, dim))
+        # new_site_data = self.get_closest_unitary(new_site_data)
 
         self.update_circuit(variational_index, new_site_data)
         self.set_ansatz()
