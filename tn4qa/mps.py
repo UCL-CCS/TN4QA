@@ -994,7 +994,7 @@ class MatrixProductState(TensorNetwork):
             self.tensors[idx - 1],
             input_inds,
             output_inds,
-            max_bond=self.bond_dimension,
+            max_bond=None,
             new_index_name=bond,
         )
 
