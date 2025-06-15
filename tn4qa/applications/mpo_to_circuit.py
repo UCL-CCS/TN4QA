@@ -34,7 +34,10 @@ class MPOOptimiser:
             self.tn
         )
         self.fidelity = self.calculate_fidelity()
-        print("initial fidelity = ", self.fidelity)
+        self.optimisation_dict = {
+            "optimisation_iteration": [0],
+            "fidelity": [self.fidelity],
+        }
 
     def get_tn_external_indices(self, tn: TensorNetwork) -> tuple[list[str], list[str]]:
         """
@@ -265,12 +268,12 @@ class MPOOptimiser:
         Returns:
             The optimised quantum circuit
         """
-        for _ in range(num_sweeps):
+        for it_number in range(num_sweeps):
             for idx in range(1, len(self.qc.data) + 1):
                 self.local_update(idx)
             for idx in list(range(1, len(self.qc.data) + 1))[::-1]:
                 self.local_update(idx)
             self.fidelity = self.calculate_fidelity()
-            print(self.fidelity)
-        print("output fidelity = ", self.fidelity)
+            self.optimisation_dict["optimisation_iteration"].append(it_number + 1)
+            self.optimisation_dict["fidelity"].append(self.fidelity)
         return self.qc
