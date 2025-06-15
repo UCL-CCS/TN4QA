@@ -1500,7 +1500,7 @@ class MatrixProductOperator(TensorNetwork):
             self.tensors[idx - 1],
             input_inds,
             output_inds,
-            max_bond=self.bond_dimension,
+            max_bond=None,
             new_index_name=bond,
         )
 
@@ -1660,7 +1660,6 @@ class MatrixProductOperator(TensorNetwork):
                 tn.tensors[n].reorder_indices(
                     [f"B{n}", f"B{n+1}", f"R{n+1}", f"L{n+1}_"]
                 )
-
         arrays = [t.data for t in tn.tensors]
         mpo = MatrixProductOperator.from_arrays(arrays)
         mpo.reorder_sites(restore_ordering, set_default_indices=True)
