@@ -80,7 +80,7 @@ class MPSOptimiser:
         """
         for idx in self.left_tn_indices:
             zero_data = np.array([1, 0], dtype=complex).reshape((2,))
-            zero_tensor = Tensor(zero_data, [idx])
+            zero_tensor = Tensor(zero_data, [idx], ["Zero"])
             self.tn.add_tensor(zero_tensor)
         return
 
@@ -205,7 +205,7 @@ class MPSOptimiser:
             variational_index: The index of the current site
         """
         site_index = f"variational_site_{variational_index}"
-        local_tensor = self.tn.get_tensors_from_index_name(site_index)[0]
+        local_tensor = self.tn.get_tensors_from_label(site_index)[0]
         local_indices = local_tensor.indices
         local_dimensions = [
             local_tensor.get_dimension_of_index(idx) for idx in local_indices
