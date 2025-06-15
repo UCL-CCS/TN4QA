@@ -144,7 +144,7 @@ class MPOOptimiser:
             + self.trace_ttdag()
         )
         scale_factor = 4 * (2**self.num_qubits)
-        return fid.real / scale_factor  # It will be real anyway
+        return max(fid.real / scale_factor, 0.0)  # It will be real anyway
 
     def build_trace_rdagt_tn(self) -> TensorNetwork:
         """
