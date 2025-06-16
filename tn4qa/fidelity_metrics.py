@@ -211,7 +211,7 @@ def hilbert_schmidt_fidelity(
     if isinstance(phi, MatrixProductState):
         phi = phi.form_density_operator()
     ip = hilbert_schmidt_inner_product(psi, phi)
-    return np.abs(ip) ** 2 / (frobenius_norm(psi) ** 2)
+    return np.abs(ip) ** 2 / ((frobenius_norm(psi) ** 2) * (frobenius_norm(phi) ** 2))
 
 
 def total_variation_distance(
