@@ -314,6 +314,7 @@ def test_contract_entire_network():
     t4 = Tensor(TEST_ARRAY_2, ["D", "E"], [])
 
     tn = TensorNetwork([t1, t2, t3, t4], "TEST_TN")
+    print(tn)
     t = tn.contract_entire_network()
 
     assert np.allclose(

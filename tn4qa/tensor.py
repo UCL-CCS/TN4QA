@@ -333,12 +333,7 @@ class Tensor:
         Returns:
             The dimension associated to index_name.
         """
-        dimensions = self.dimensions
-        indices = self.indices
-        loc = indices.index(index_name)
-        dim = dimensions[loc]
-
-        return dim
+        return self.dimensions[self.indices.index(index_name)]
 
     def get_total_dimension_of_indices(self, idxs: List[str]) -> int:
         """
@@ -351,9 +346,7 @@ class Tensor:
             The product of dimensions associated to each index in idxs.
         """
         dims = [self.get_dimension_of_index(idx) for idx in idxs]
-        total = 1
-        for d in dims:
-            total = total * d
+        total = np.prod(dims)
         return total
 
     def combine_indices(self, idxs: List[str], new_index_name: str = None) -> None:
@@ -432,7 +425,7 @@ class Tensor:
             A new tensor that is unitary as a matrix with index ordering same as self
         """
         matrix = self.tensor_to_matrix(input_indices, output_indices)
-        u, s, vh = svd(matrix, full_matrices=False)
+        u, _, vh = svd(matrix, full_matrices=False)
         unitary_part = u @ vh
         input_dims = [self.get_dimension_of_index(i) for i in input_indices]
         output_dims = [self.get_dimension_of_index(i) for i in output_indices]

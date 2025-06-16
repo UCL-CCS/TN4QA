@@ -166,7 +166,6 @@ class MatrixProductState(TensorNetwork):
         Returns:
             An MPS.
         """
-
         return cls.from_bitstring("0" * num_sites)
 
     @classmethod
@@ -183,7 +182,6 @@ class MatrixProductState(TensorNetwork):
             A MPS.
         """
         bitstring = "1" * num_electrons + "0" * (num_spin_orbs - num_electrons)
-
         return cls.from_bitstring(bitstring)
 
     @classmethod
@@ -583,6 +581,7 @@ class MatrixProductState(TensorNetwork):
         if max_bond:
             if mps.bond_dimension > max_bond:
                 mps.compress(max_bond)
+
         return mps
 
     def apply_mpo(
@@ -702,9 +701,12 @@ class MatrixProductState(TensorNetwork):
         """
         mps1 = copy.deepcopy(self)
         mps2 = copy.deepcopy(other)
-        mps1.reshape("udp")
-        mps2.reshape("udp")
+        mps1.reshape()
+        mps2.reshape()
         mps2.dagger()
+        mps1.set_default_indices()
+        mps2.set_default_indices()
+
         for t in mps2.tensors:
             current_indices = t.indices
             new_indices = [x if x[0] == "P" else x + "_" for x in current_indices]
@@ -961,8 +963,9 @@ class MatrixProductState(TensorNetwork):
                 self.tensors[0],
                 [phys_idx2],
                 [phys_idx1],
-                max_bond=self.bond_dimension,
+                max_bond=None,
                 new_index_name=bond,
+                tol=1e-12,
             )
             self.tensors[0].reorder_indices([bond, phys_idx2])
             self.tensors[1].reorder_indices([bond, phys_idx1])
@@ -996,6 +999,7 @@ class MatrixProductState(TensorNetwork):
             output_inds,
             max_bond=None,
             new_index_name=bond,
+            tol=1e-12,
         )
 
         if idx == 1:
@@ -1176,7 +1180,9 @@ class MatrixProductState(TensorNetwork):
                 else:
                     site_rdm = current_mps.form_density_operator()
                     site_rdm = site_rdm.to_dense_array()
-                prob0 = min(site_rdm[0, 0], 1.0)  # min to account for precision errors
+                prob0 = min(
+                    site_rdm[0, 0].real, 1.0
+                )  # min to account for precision errors
                 prob1 = 1.0 - prob0
                 site_bit = np.random.choice(["0", "1"], p=[prob0, prob1])
                 bitstring += site_bit

@@ -1,4 +1,5 @@
 import copy
+from itertools import islice
 from typing import List, TypeAlias, Union
 
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
@@ -369,7 +370,10 @@ class MatrixProductOperator(TensorNetwork):
 
     @classmethod
     def from_hamiltonian(
-        cls, ham_dict: dict[str, complex], max_bond: int | None = None
+        cls,
+        ham_dict: dict[str, complex],
+        max_bond: int | None = None,
+        batch: bool = False,
     ) -> "MatrixProductOperator":
         """
         Create an MPO for a Hamiltonian.
@@ -377,12 +381,33 @@ class MatrixProductOperator(TensorNetwork):
         Args:
             ham: The dict representation of the Hamiltonian {pauli_string : weight}.
             max_bond: The maximum bond dimension allowed.
+            batch: If True, batches the items in the Hamiltonian
 
         Returns:
             An MPO.
         """
         num_qubits = len(list(ham_dict.keys())[0])
         num_ham_terms = len(ham_dict.keys())
+
+        if batch:
+            if num_ham_terms / 2 > max_bond:
+                first_batch = dict(
+                    islice(ham_dict.items(), int(np.floor(max_bond / 2)))
+                )
+                mpo = cls.from_hamiltonian(first_batch)
+                used = int(np.floor(max_bond / 2))
+                while used < num_ham_terms:
+                    batch = dict(
+                        islice(
+                            ham_dict.items(), used, used + int(np.floor(max_bond / 2))
+                        )
+                    )
+                    temp_mpo = cls.from_hamiltonian(batch)
+                    mpo = mpo + temp_mpo
+                    if mpo.bond_dimension > max_bond:
+                        mpo.compress(max_bond)
+                    used += int(np.floor(max_bond / 2))
+                return mpo
 
         first_array_coords: list[list[int]] = [[], [], []]
         middle_array_coords: list[list[list[int]]] = [
@@ -437,6 +462,30 @@ class MatrixProductOperator(TensorNetwork):
         if max_bond:
             if mpo.bond_dimension > max_bond:
                 mpo.compress(max_bond)
+        return mpo
+
+    @classmethod
+    def from_hamiltonian_approx(
+        cls,
+        ham_dict: dict[str, complex],
+        max_bond: int | None = None,
+        threshold: float = 1e-4,
+    ) -> "MatrixProductOperator":
+        """
+        Create an approximate MPO representation of the Hamiltonian by discarding strings with small weights
+
+        Args:
+            ham_dict: The Hamiltonian
+            max_bond: Maximum bond dimension
+            threshold: Sets the cutoff parameter for which strings to keep
+
+        Returns:
+            An MPO
+        """
+        ham_norm = np.sum([np.abs(w) for w in list(ham_dict.values())])
+        cutoff = ham_norm * threshold
+        ham = {k: v for k, v in ham_dict.items() if np.abs(v) > cutoff}
+        mpo = cls.from_hamiltonian(ham, max_bond)
         return mpo
 
     @classmethod
@@ -888,6 +937,49 @@ class MatrixProductOperator(TensorNetwork):
         return mpo
 
     @classmethod
+    def from_electron_integral_arrays_approx(
+        cls,
+        one_elec_integrals: ndarray,
+        two_elec_integrals: ndarray,
+        max_bond: int | None = None,
+        threshold: float = 1e-4,
+    ) -> "MatrixProductOperator":
+        """
+        Construct an approximate MPO for second quantised Hamiltonian by discarding terms with small weights
+
+        Args:
+            one_elec_integrals: The 1e integrals in an (N,N) array.
+            two_elec_integrals: The 2e integrals in an (N,N,N,N) array.
+
+        Returns:
+            An MPO.
+        """
+        n = len(one_elec_integrals)
+        one_elec_vals = [one_elec_integrals[i, j] for i in range(n) for j in range(n)]
+        two_elec_vals = [
+            two_elec_integrals[i, j, k, l]
+            for i in range(n)
+            for j in range(n)
+            for k in range(n)
+            for l in range(n)
+        ]
+        all_vals = [np.abs(v) for v in one_elec_vals] + [
+            0.5 * np.abs(v) for v in two_elec_vals
+        ]
+        norm = np.sum(all_vals)
+        cutoff = norm * threshold
+        one_elec_integrals = np.where(
+            one_elec_integrals > cutoff, one_elec_integrals, 0.0
+        )
+        two_elec_integrals = np.where(
+            two_elec_integrals > cutoff, two_elec_integrals, 0.0
+        )
+        mpo = cls.from_electron_integral_arrays(
+            one_elec_integrals, two_elec_integrals, max_bond
+        )
+        return mpo
+
+    @classmethod
     def from_diagonal_matrix(
         cls, diag: list[complex], max_bond: int | None = None
     ) -> "MatrixProductOperator":
@@ -1029,106 +1121,6 @@ class MatrixProductOperator(TensorNetwork):
         arrays.append(last_array)
         mpo = MatrixProductOperator.from_arrays(arrays)
         return mpo
-
-    @classmethod
-    def swap_sites_mpo(
-        cls, num_sites: int, site1: int, site2: int
-    ) -> "MatrixProductOperator":
-        """
-        Create an MPO to swap site 1 with site 2
-
-        Args:
-            num_sites: The total number of sites for the MPO
-            site1: The index of the first site to swap
-            site2: The index of the second site to swap
-
-        Returns:
-            An MPO
-        """
-        if site1 < site2:
-            first_site = site1
-            second_site = site2
-        else:
-            first_site = site2
-            second_site = site1
-
-        arrays = []
-
-        if first_site == 1:
-            array1 = np.zeros((1, 2, 2))
-            for i in range(2):
-                for j in range(2):
-                    array1[0, i, j] = int(i == j)
-        else:
-            array1 = np.zeros((1, 1, 2, 2))
-            for i in range(2):
-                for j in range(2):
-                    array1[0, 0, i, j] = int(i == j)
-        if second_site == num_sites:
-            array2 = np.zeros((1, 2, 2))
-            for i in range(2):
-                for j in range(2):
-                    array2[0, j, i] = int(i == j)
-        else:
-            array2 = np.zeros((1, 1, 2, 2))
-            for i in range(2):
-                for j in range(2):
-                    array2[0, 0, j, i] = int(i == j)
-
-        for idx in range(1, num_sites + 1):
-            if idx == first_site:
-                arrays.append(array1)
-            elif idx == second_site:
-                arrays.append(array2)
-            else:
-                i = np.eye(2)
-                if idx == 1 or idx == num_sites:
-                    i = i.reshape((1, 2, 2))
-                else:
-                    i = i.reshape((1, 1, 2, 2))
-                arrays.append(i)
-
-        swap_mpo = MatrixProductOperator.from_arrays(arrays)
-        return swap_mpo
-
-    @classmethod
-    def permutation_mpo(cls, perm: list[int]) -> "MatrixProductOperator":
-        """
-        Create an MPO to map sites to the given permutation
-
-        Args:
-            perm: The permutation matrix to define as an MPO
-
-        Returns:
-            An MPO
-        """
-        perm_mpo = MatrixProductOperator.identity_mpo(len(perm))
-
-        target_pos = [i - 1 for i in perm]
-
-        n = len(perm)
-        visited = [False] * n
-
-        for i in range(n):
-            if visited[i] or target_pos[i] == i:
-                continue
-
-            j = i
-            cycle = []
-
-            # Follow the cycle of positions
-            while not visited[j]:
-                visited[j] = True
-                cycle.append(j)
-                j = target_pos[j]
-
-            # Now perform swaps to rotate elements in the cycle
-            for k in range(len(cycle) - 1, 0, -1):
-                mpo = MatrixProductOperator.swap_sites_mpo(
-                    len(perm), cycle[0] + 1, cycle[k] + 1
-                )
-                perm_mpo = perm_mpo * mpo
-        return perm_mpo
 
     def to_sparse_array(self) -> SparseArray:
         """
@@ -1557,6 +1549,8 @@ class MatrixProductOperator(TensorNetwork):
                 [right_idx2, left_idx2],
                 [right_idx1, left_idx1],
                 new_index_name=bond,
+                max_bond=None,
+                tol=1e-12,
             )
             self.tensors[0].reorder_indices([bond, right_idx2, left_idx2])
             self.tensors[1].reorder_indices([bond, right_idx1, left_idx1])
@@ -1601,6 +1595,7 @@ class MatrixProductOperator(TensorNetwork):
             input_inds,
             output_inds,
             max_bond=None,
+            tol=1e-14,
             new_index_name=bond,
         )
 
@@ -1613,7 +1608,6 @@ class MatrixProductOperator(TensorNetwork):
         self.tensors[idx].reorder_indices([bond] + output_inds)
 
         self.indices = self.get_all_indices()
-
         return
 
     def swap_sites(self, idx1: int, idx2: int) -> None:

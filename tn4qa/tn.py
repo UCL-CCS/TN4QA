@@ -2,6 +2,7 @@ from typing import List, Union
 
 # Contraction path finding is offloaded to Cotengra
 import cotengra as ctg
+import numpy as np
 
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
 import sparse
@@ -54,9 +55,14 @@ class TensorNetwork:
         """
         Defines addition for tensor networks.
         """
-        all_tensors = self.tensors + other.tensors
-        tn = TensorNetwork(all_tensors, name=self.name)
-        return tn
+        current_tensor_number = len(self.tensors)
+        self.tensors = self.tensors + other.tensors
+        i = current_tensor_number
+        for t in self.tensors[current_tensor_number:]:
+            t.labels.append(f"TN_T{i}")
+            i += 1
+        self.indices = self.get_all_indices()
+        return self
 
     @classmethod
     def from_qiskit_circuit(
@@ -144,10 +150,10 @@ class TensorNetwork:
         Returns:
             The dimension of idx.
         """
-        tn_dict = self.get_index_to_tensor_dict()
-        t = tn_dict[idx][0]
-        dim = t.get_dimension_of_index(idx)
-        return dim
+        for t in self.tensors:
+            if idx in t.indices:
+                return t.dimensions[t.indices.index(idx)]
+        raise ValueError
 
     def get_internal_indices(self) -> List[str]:
         """
@@ -178,8 +184,8 @@ class TensorNetwork:
         Returns:
             A list of all index names.
         """
-        tn_dict = self.get_index_to_tensor_dict()
-        return list(tn_dict.keys())
+        dict = self.get_index_to_tensor_dict()
+        return list(dict.keys())
 
     def get_all_labels(self) -> List[str]:
         """
@@ -188,8 +194,11 @@ class TensorNetwork:
         Returns:
             A list of all label names.
         """
-        tn_dict = self.get_label_to_tensor_dict()
-        return list(tn_dict.keys())
+        all_labels = []
+        for t in self.tensors:
+            for l in t.labels:
+                all_labels.append(l)
+        return list(set(all_labels))
 
     def get_new_label(self, tensor_prefix: str = "TN_T") -> str:
         """
@@ -277,7 +286,11 @@ class TensorNetwork:
         return
 
     def compress_index(
-        self, idx: str, max_bond: int, reverse_direction: bool = False
+        self,
+        idx: str,
+        max_bond: int,
+        reverse_direction: bool = False,
+        tol: float = 1e-12,
     ) -> None:
         """
         Compress a given index using SVD.
@@ -285,6 +298,8 @@ class TensorNetwork:
         Args:
             idx: The index to compress.
             max_bond: The maximum bond dimension for this index.
+            reverse_direction: If True the second tensor will become an isometry
+            tol: Tolerance for discarding singular values
         """
         if reverse_direction:
             tensors = self.get_tensors_from_index_name(idx)[::-1]
@@ -310,19 +325,30 @@ class TensorNetwork:
         input_idxs = [i for i in indices0 if i != idx]
         output_idxs = [i for i in indices1 if i != idx]
         temp_tensor.tensor_to_matrix(input_idxs, output_idxs)
+
         bond_dim = min([max_bond, temp_tensor.data.shape[0], temp_tensor.data.shape[1]])
         if bond_dim >= min([temp_tensor.data.shape[0], temp_tensor.data.shape[1]]) - 1:
-            u, s, vh = svd(temp_tensor.data.todense(), full_matrices=True)
+            u, s, vh = svd(temp_tensor.data.todense(), full_matrices=False)
         else:
             u, s, vh = svds(temp_tensor.data, k=bond_dim)
 
-        new_data0 = sparse.COO.from_numpy(vh[:bond_dim, :])
-        new_data1 = sparse.COO.from_numpy(u[:, :bond_dim] * s[:bond_dim])
+        s = s[s > 1e-14]
+        sq = s**2
+        cumulative = np.cumsum(sq[::-1])[::-1]
+        keep_dim = len(s)
+        for k in range(len(s)):
+            if cumulative[k] < tol**2:
+                keep_dim = k + 1
+                break
+        keep_dim = min(keep_dim, bond_dim)
+
+        new_data0 = sparse.COO.from_numpy(vh[:keep_dim, :])
+        new_data1 = sparse.COO.from_numpy(u[:, :keep_dim] * s[:keep_dim])
 
         idx_pos0 = indices0.index(idx)
         idx_pos1 = indices1.index(idx)
-        new_dims0 = (bond_dim,) + dims0[:idx_pos0] + dims0[idx_pos0 + 1 :]
-        new_dims1 = dims1[:idx_pos1] + dims1[idx_pos1 + 1 :] + (bond_dim,)
+        new_dims0 = (keep_dim,) + dims0[:idx_pos0] + dims0[idx_pos0 + 1 :]
+        new_dims1 = dims1[:idx_pos1] + dims1[idx_pos1 + 1 :] + (keep_dim,)
         new_indices0 = [idx] + indices0[:idx_pos0] + indices0[idx_pos0 + 1 :]
         new_indices1 = indices1[:idx_pos1] + indices1[idx_pos1 + 1 :] + [idx]
 
@@ -403,11 +429,8 @@ class TensorNetwork:
         """
         output_indices = self.get_external_indices()
         output_labels = [self.get_new_label("TN_T")]
-        arrays = []
-        input_indices = []
-        for t in self.tensors:
-            arrays.append(t.data)
-            input_indices.append(t.indices)
+        arrays = [t.data for t in self.tensors]
+        input_indices = [t.indices for t in self.tensors]
 
         output_tensor_data = ctg.array_contract(
             arrays=arrays,
@@ -438,7 +461,7 @@ class TensorNetwork:
         output_tensor = self.contract_entire_network()
 
         if replace_tensor:
-            self.add_tensor(output_tensor)
+            self = TensorNetwork([output_tensor])
         else:
             self.add_tensor(popped_tensor)
             return output_tensor
@@ -503,6 +526,7 @@ class TensorNetwork:
         max_bond: int | None = None,
         new_index_name: str | None = None,
         new_labels: List[List[str]] | None = None,
+        tol: float | None = 1e-12,
     ) -> None:
         """
         Perform an SVD on a tensor.
@@ -513,6 +537,7 @@ class TensorNetwork:
             output_indices: Indices to be treated as other side of SVD.
             max_bond: The maximum bond dimension allwoed.
             new_index_name (optional): What to call the resulting new index.
+            tol: Tolerance for keeping singular values
         """
         original_position = self.tensors.index(tensor)
         original_labels = tensor.labels
@@ -531,8 +556,18 @@ class TensorNetwork:
         else:
             u, s, vh = svds(tensor.data, k=max_bond)
 
-        tensor0_data = sparse.COO.from_numpy(vh[:max_bond, :])
-        tensor1_data = sparse.COO.from_numpy(u[:, :max_bond] * s[:max_bond])
+        s = s[s > 1e-14]
+        sq = s**2
+        cumulative = np.cumsum(sq[::-1])[::-1]
+        keep_dim = len(s)
+        for k in range(len(s)):
+            if cumulative[k] < tol**2:
+                keep_dim = k + 1
+                break
+        keep_dim = min(keep_dim, max_bond)
+
+        tensor0_data = sparse.COO.from_numpy(vh[:keep_dim, :])
+        tensor1_data = sparse.COO.from_numpy(u[:, :keep_dim] * s[:keep_dim])
 
         if not new_index_name:
             new_index_name = self.new_index_name()
@@ -546,8 +581,8 @@ class TensorNetwork:
         tensor0_indices = [new_index_name] + input_indices
         tensor1_indices = output_indices + [new_index_name]
 
-        tensor0_dims = [max_bond] + original_input_dims
-        tensor1_dims = original_output_dims + [max_bond]
+        tensor0_dims = [keep_dim] + original_input_dims
+        tensor1_dims = original_output_dims + [keep_dim]
 
         tensor0_data = sparse.reshape(tensor0_data, tensor0_dims)
         tensor1_data = sparse.reshape(tensor1_data, tensor1_dims)
@@ -555,7 +590,7 @@ class TensorNetwork:
         tensor0 = Tensor(tensor0_data, tensor0_indices, tensor0_labels)
         tensor1 = Tensor(tensor1_data, tensor1_indices, tensor1_labels)
 
-        _ = self.pop_tensors_by_label(original_labels)
+        self.pop_tensors_by_label(original_labels)
         self.add_tensor(tensor0, original_position)
         self.add_tensor(tensor1, original_position + 1)
         return
