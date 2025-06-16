@@ -1030,6 +1030,106 @@ class MatrixProductOperator(TensorNetwork):
         mpo = MatrixProductOperator.from_arrays(arrays)
         return mpo
 
+    @classmethod
+    def swap_sites_mpo(
+        cls, num_sites: int, site1: int, site2: int
+    ) -> "MatrixProductOperator":
+        """
+        Create an MPO to swap site 1 with site 2
+
+        Args:
+            num_sites: The total number of sites for the MPO
+            site1: The index of the first site to swap
+            site2: The index of the second site to swap
+
+        Returns:
+            An MPO
+        """
+        if site1 < site2:
+            first_site = site1
+            second_site = site2
+        else:
+            first_site = site2
+            second_site = site1
+
+        arrays = []
+
+        if first_site == 1:
+            array1 = np.zeros((1, 2, 2))
+            for i in range(2):
+                for j in range(2):
+                    array1[0, i, j] = int(i == j)
+        else:
+            array1 = np.zeros((1, 1, 2, 2))
+            for i in range(2):
+                for j in range(2):
+                    array1[0, 0, i, j] = int(i == j)
+        if second_site == num_sites:
+            array2 = np.zeros((1, 2, 2))
+            for i in range(2):
+                for j in range(2):
+                    array2[0, j, i] = int(i == j)
+        else:
+            array2 = np.zeros((1, 1, 2, 2))
+            for i in range(2):
+                for j in range(2):
+                    array2[0, 0, j, i] = int(i == j)
+
+        for idx in range(1, num_sites + 1):
+            if idx == first_site:
+                arrays.append(array1)
+            elif idx == second_site:
+                arrays.append(array2)
+            else:
+                i = np.eye(2)
+                if idx == 1 or idx == num_sites:
+                    i = i.reshape((1, 2, 2))
+                else:
+                    i = i.reshape((1, 1, 2, 2))
+                arrays.append(i)
+
+        swap_mpo = MatrixProductOperator.from_arrays(arrays)
+        return swap_mpo
+
+    @classmethod
+    def permutation_mpo(cls, perm: list[int]) -> "MatrixProductOperator":
+        """
+        Create an MPO to map sites to the given permutation
+
+        Args:
+            perm: The permutation matrix to define as an MPO
+
+        Returns:
+            An MPO
+        """
+        perm_mpo = MatrixProductOperator.identity_mpo(len(perm))
+
+        target_pos = [i - 1 for i in perm]
+
+        n = len(perm)
+        visited = [False] * n
+
+        for i in range(n):
+            if visited[i] or target_pos[i] == i:
+                continue
+
+            j = i
+            cycle = []
+
+            # Follow the cycle of positions
+            while not visited[j]:
+                visited[j] = True
+                cycle.append(j)
+                j = target_pos[j]
+
+            # Now perform swaps to rotate elements in the cycle
+            for k in range(len(cycle) - 1, 0, -1):
+                mpo = MatrixProductOperator.swap_sites_mpo(
+                    len(perm), cycle[0] + 1, cycle[k] + 1
+                )
+                perm_mpo = perm_mpo * mpo
+        return perm_mpo
+
     def to_sparse_array(self) -> SparseArray:
         """
         Converts MPO to a sparse matrix.

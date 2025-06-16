@@ -53,3 +53,9 @@ class CircuitSimulator:
             current_state = current_state.apply_sub_mpo(mpo, qidxs, max_bond_dimension)
 
         return current_state
+
+    # def build_mpo(self, max_bond: int | None = None) -> MatrixProductOperator:
+    #     """
+    #     Build the MPO representing the quantum circuit
+    #     """
+    #     return
