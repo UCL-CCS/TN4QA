@@ -1049,25 +1049,25 @@ class MatrixProductState(TensorNetwork):
 
         target_pos = [i - 1 for i in site_mapping]
 
-        n = len(site_mapping)
-        visited = [False] * n
+        visited = [False] * self.num_sites
 
-        for i in range(n):
+        for i in range(self.num_sites):
             if visited[i] or target_pos[i] == i:
                 continue
 
             j = i
             cycle = []
 
-            # Follow the cycle of positions
             while not visited[j]:
                 visited[j] = True
                 cycle.append(j)
                 j = target_pos[j]
 
-            # Now perform swaps to rotate elements in the cycle
             for k in range(len(cycle) - 1, 0, -1):
-                self.swap_sites(cycle[0] + 1, cycle[k] + 1)
+                # Apply swaps on logical site indices (1-based)
+                a = cycle[k - 1] + 1
+                b = cycle[k] + 1
+                self.swap_sites(a, b)
 
         if set_default_indices:
             self.set_default_indices()
@@ -1099,10 +1099,15 @@ class MatrixProductState(TensorNetwork):
 
         mps1.reshape()
         mps2.reshape()
-        target_site_ordering = copy.deepcopy(sites)
-        for idx in range(1, self.num_sites + 1):
-            if idx not in sites:
-                target_site_ordering.append(idx)
+
+        all_sites = list(range(1, self.num_sites + 1))
+        target_site_ordering = [0] * self.num_sites
+        for idx in sites:
+            target_site_ordering[idx - 1] = sites.index(idx) + 1
+            all_sites.remove(sites.index(idx) + 1)
+        for site in all_sites:
+            target_site_ordering[target_site_ordering.index(0)] = site
+
         mps1.reorder_sites(target_site_ordering, set_default_indices=True)
 
         output_indices = []
@@ -1167,38 +1172,82 @@ class MatrixProductState(TensorNetwork):
             A dictionary of the form {bitstring : counts}
         """
         samples = {}
-        zero = MatrixProductState.from_bitstring("0")
-        one = MatrixProductState.from_bitstring("1")
-        for _ in range(num_bitstrings):
+        prefix_prob_dict = {}  # {prefix : (prob0, prob1)}
+        sample_prob_dict = {}  # {bitstring : probabiity}
+
+        samples_collected = 0
+        while samples_collected < num_bitstrings:
+            prob_existing_sample = np.sum(list(sample_prob_dict.values()))
+            choose_existing_sample = np.random.choice(
+                ["y", "n"], p=[prob_existing_sample, 1 - prob_existing_sample]
+            )
+            if choose_existing_sample == "y":
+                probs_norm = np.sum(list(sample_prob_dict.values()))
+                normalised_probs = [x / probs_norm for x in sample_prob_dict.values()]
+                bitstring = np.random.choice(
+                    list(sample_prob_dict.keys()), p=normalised_probs
+                )
+                samples[bitstring] += 1
+                continue
             bitstring = ""
             current_mps = copy.deepcopy(self)
+            current_mpo = current_mps.form_density_operator()
+            total_prob = 1.0
+            temp_prob = 1.0
             for site in range(1, self.num_sites + 1):
-                if site != self.num_sites:
-                    site_rdm = current_mps.partial_trace(
-                        list(range(2, current_mps.num_sites + 1)), matrix=True
-                    ).data.todense()
+                if bitstring in prefix_prob_dict:
+                    prob0, prob1 = prefix_prob_dict[bitstring]
                 else:
-                    site_rdm = current_mps.form_density_operator()
-                    site_rdm = site_rdm.to_dense_array()
-                prob0 = min(
-                    site_rdm[0, 0].real, 1.0
-                )  # min to account for precision errors
-                prob1 = 1.0 - prob0
+                    num_sites_to_trace = len(bitstring) - (
+                        self.num_sites - current_mpo.num_sites
+                    )
+                    if len(bitstring) > 0 and num_sites_to_trace > 0:
+                        sub_mpo_bitstring = bitstring[-num_sites_to_trace:]
+                        sub_mpo = MatrixProductOperator.from_bitstring(
+                            sub_mpo_bitstring
+                        )
+                        current_mpo = current_mpo.contract_sub_mpo(
+                            sub_mpo, list(range(1, num_sites_to_trace + 1))
+                        )
+                        current_mpo = current_mpo.partial_trace(
+                            list(range(1, num_sites_to_trace + 1)),
+                            set_default_indices=True,
+                        )
+                        current_mpo.multiply_by_constant(1 / temp_prob)
+                        current_mpo.indices = current_mpo.get_all_indices()
+                        temp_prob = 1.0
+                    if site != self.num_sites:
+                        site_rdm = (
+                            current_mpo.partial_trace(
+                                list(range(2, current_mpo.num_sites + 1))
+                            )
+                            .tensors[0]
+                            .data.todense()
+                        )
+                    else:
+                        site_rdm = current_mpo.tensors[0].data.todense()
+                    prob0 = min(site_rdm[0, 0].real, 1.0)
+                    prob1 = 1.0 - prob0
+
                 site_bit = np.random.choice(["0", "1"], p=[prob0, prob1])
                 bitstring += site_bit
-                if site != self.num_sites:
-                    if site_bit == "0":
-                        current_mps = current_mps.contract_sub_mps(zero, [1])
-                        current_mps.multiply_by_constant(1 / np.sqrt(prob0))
-                        current_mps.indices = current_mps.get_all_indices()
-                    else:
-                        current_mps = current_mps.contract_sub_mps(one, [1])
-                        current_mps.multiply_by_constant(1 / np.sqrt(prob1))
-                        current_mps.indices = current_mps.get_all_indices()
-            if bitstring in samples:
-                samples[bitstring] += 1
+                if site_bit == "0":
+                    temp_prob *= prob0
+                    total_prob *= prob0
+                else:
+                    temp_prob *= prob1
+                    total_prob *= prob1
+                if bitstring[:-1] not in prefix_prob_dict:
+                    prefix_prob_dict[bitstring[:-1]] = (prob0, prob1)
+
+            if bitstring not in sample_prob_dict:
+                if bitstring in samples:
+                    samples[bitstring] += 1
+                else:
+                    samples[bitstring] = 1
+                samples_collected += 1
             else:
-                samples[bitstring] = 1
+                sample_prob_dict[bitstring] = total_prob
 
         return samples
 

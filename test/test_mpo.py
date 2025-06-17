@@ -136,22 +136,6 @@ def test_from_hamiltonian():
     return
 
 
-def test_from_qiskit_layer():
-    qc = QuantumCircuit(6)
-    qc.h(0)  # H Gate
-    qc.x(1)  # X Gate
-    qc.cx(2, 3)  # CX Gate
-    qc.cz(4, 5)  # CZ Gate
-    expected_op = Operator.from_circuit(qc).reverse_qargs().data
-    mpo = MatrixProductOperator.from_qiskit_layer(qc, 64)
-    mpo_dense = mpo.to_dense_array()
-    assert np.allclose(
-        mpo_dense, expected_op, atol=0.1
-    ), "Qiskit Layer MPO output mismatch"
-
-    return
-
-
 def test_from_qiskit_circuit():
     qc = QuantumCircuit(5)
     for _ in range(5):
@@ -164,7 +148,7 @@ def test_from_qiskit_circuit():
         qc.h([2, 3, 4])  # H Gate
 
     expected_op = Operator.from_circuit(qc).reverse_qargs().data
-    mpo = MatrixProductOperator.from_qiskit_circuit(qc, 64)
+    mpo = MatrixProductOperator.from_qiskit_circuit(qc)
     mpo_dense = mpo.to_dense_array()
     assert np.allclose(
         mpo_dense, expected_op, atol=0.1
@@ -422,7 +406,7 @@ def test_swap_neighbouring_sites():
 def test_reorder_sites():
     mpo = MatrixProductOperator.from_pauli_string("IXYZ")
     mpo.reorder_sites([3, 4, 2, 1])
-    expected_output = MatrixProductOperator.from_pauli_string("YZXI")
+    expected_output = MatrixProductOperator.from_pauli_string("ZYIX")
     assert np.allclose(mpo.to_dense_array(), expected_output.to_dense_array())
 
 

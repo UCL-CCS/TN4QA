@@ -35,6 +35,7 @@ def test_total_variation_distance_exact():
 def test_total_variation_distance_approx():
     expected_dist = {bin(k)[2:].zfill(3): (1 / 2**3) for k in range(8)}
     psi = MatrixProductState.equal_superposition_mps(3)
-    tvd = total_variation_distance(psi, expected_dist, sample_size=200)
+    tvd = total_variation_distance(psi, expected_dist, sample_size=1000)
+    print(tvd)
 
     assert np.isclose(tvd, 0.0, atol=0.1)

@@ -5,6 +5,7 @@ import sparse
 from numpy.linalg import svd
 from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitInstruction
+from qiskit.circuit.library import UnitaryGate
 from qiskit.quantum_info import Operator
 from scipy.sparse.linalg import svds
 from sparse import COO
@@ -60,11 +61,13 @@ class CircuitSimulator:
         """
         site_loc = int(self.site_mapping[str(site)])
         tensor = self.current_state.tensors[site_loc - 1]
-        if site_loc == 1:
+        if site_loc == 1 or site_loc == self.num_qubits:
             contraction = "ij,kj->ik"
         else:
             contraction = "ijk,lk->ijl"
-        tensor.data = sparse.einsum(contraction, tensor.data, data)
+        self.current_state.tensors[site_loc - 1].data = sparse.einsum(
+            contraction, tensor.data, data
+        )
         return
 
     def move_site_to_location(self, site_source: int, site_destination: int) -> None:
@@ -78,16 +81,24 @@ class CircuitSimulator:
         if site_source < site_destination:
             for site in range(site_source, site_destination):
                 self.current_state.swap_neighbouring_sites(site)
-                self.site_mapping[str(site)], self.site_mapping[str(site + 1)] = (
-                    self.site_mapping[str(site + 1)],
-                    self.site_mapping[str(site)],
+                reverse_mapping = {v: k for k, v in self.site_mapping.items()}
+                (
+                    self.site_mapping[reverse_mapping[str(site)]],
+                    self.site_mapping[reverse_mapping[str(site + 1)]],
+                ) = (
+                    str(site + 1),
+                    str(site),
                 )
         else:
             for site in range(site_source, site_destination, -1):
                 self.current_state.swap_neighbouring_sites(site - 1)
-                self.site_mapping[str(site - 1)], self.site_mapping[str(site)] = (
-                    self.site_mapping[str(site)],
-                    self.site_mapping[str(site - 1)],
+                reverse_mapping = {v: k for k, v in self.site_mapping.items()}
+                (
+                    self.site_mapping[reverse_mapping[str(site - 1)]],
+                    self.site_mapping[reverse_mapping[str(site)]],
+                ) = (
+                    str(site),
+                    str(site - 1),
                 )
         return
 
@@ -110,8 +121,20 @@ class CircuitSimulator:
         site0, site1 = sites_locs[0], sites_locs[1]
         data = sparse.reshape(data, (2, 2, 2, 2))
 
+        if self.num_qubits == 2:
+            data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
+            if site1 < site0:
+                data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
+            data = sparse.reshape(data, (4, 4))
+            gate = UnitaryGate(data.todense())
+            qc = QuantumCircuit(2)
+            qc.append(gate, [site0 - 1, site1 - 1])
+            gate_mpo = MatrixProductOperator.from_qiskit_gate(qc.data[0])
+            self.current_state = self.current_state.apply_mpo(gate_mpo)
+            return
+
         if site1 < site0:
-            data = sparse.moveaxis(data, [0, 1, 2, 3], [2, 3, 0, 1])
+            data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
             if site1 == site0 - 1:
                 pass
             else:
@@ -119,16 +142,16 @@ class CircuitSimulator:
             tensor0 = self.current_state.tensors[site0 - 2]
             tensor1 = self.current_state.tensors[site0 - 1]
             if site0 - 1 == 1:
-                contraction = "ij,ikl,mnjl->mkn"
-                output_shape = (2, tensor1.dimensions[1], 2)
+                contraction = "ij,ikl,mnjl->knm"
+                output_shape = (tensor1.dimensions[1], 2, 2)
                 mat_shape = (2 * tensor1.dimensions[1], 2)
             elif site0 == self.num_qubits:
-                contraction = "hij,ik,lmjk->hlm"
-                output_shape = (tensor0.dimensions[0], 2, 2)
+                contraction = "hij,ik,lmjk->mhl"
+                output_shape = (2, tensor0.dimensions[0], 2)
                 mat_shape = (2, tensor0.dimensions[0] * 2)
             else:
-                contraction = "hij,ikl,mnjl->hmkn"
-                output_shape = (tensor0.dimensions[0], 2, tensor1.dimensions[1], 2)
+                contraction = "hij,ikl,mnjl->knhm"
+                output_shape = (tensor1.dimensions[1], 2, tensor0.dimensions[0], 2)
                 mat_shape = (tensor1.dimensions[1] * 2, tensor0.dimensions[0] * 2)
         else:
             if site1 == site0 + 1:
@@ -138,16 +161,16 @@ class CircuitSimulator:
             tensor0 = self.current_state.tensors[site0 - 1]
             tensor1 = self.current_state.tensors[site0]
             if site0 == 1:
-                contraction = "ij,ikl,mnjl->mkn"
-                output_shape = (2, tensor1.dimensions[1], 2)
+                contraction = "ij,ikl,mnjl->knm"
+                output_shape = (tensor1.dimensions[1], 2, 2)
                 mat_shape = (2 * tensor1.dimensions[1], 2)
             elif site0 + 1 == self.num_qubits:
-                contraction = "hij,ik,lmjk->hlm"
-                output_shape = (tensor0.dimensions[0], 2, 2)
+                contraction = "hij,ik,lmjk->mhl"
+                output_shape = (2, tensor0.dimensions[0], 2)
                 mat_shape = (2, tensor0.dimensions[0] * 2)
             else:
-                contraction = "hij,ikl,mnjl->hmkn"
-                output_shape = (tensor0.dimensions[0], 2, tensor1.dimensions[1], 2)
+                contraction = "hij,ikl,mnjl->knhm"
+                output_shape = (tensor1.dimensions[1], 2, tensor0.dimensions[0], 2)
                 mat_shape = (tensor1.dimensions[1] * 2, tensor0.dimensions[0] * 2)
 
         output_data = sparse.einsum(contraction, tensor0.data, tensor1.data, data)
@@ -178,18 +201,18 @@ class CircuitSimulator:
 
         if site1 < site0:
             if site0 - 1 == 1:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + (output_shape[0],))
-                new_data1 = sparse.reshape(new_data1, output_shape[-2:] + (keep_dim,))
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + (output_shape[2],))
+                new_data1 = sparse.reshape(new_data1, output_shape[:2] + (keep_dim,))
                 new_data1 = sparse.moveaxis(new_data1, [2], [0])
             elif site0 == self.num_qubits:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[:2])
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-2:])
                 new_data0 = sparse.moveaxis(new_data0, [0], [1])
-                new_data1 = sparse.reshape(new_data1, (output_shape[-1],) + (keep_dim,))
+                new_data1 = sparse.reshape(new_data1, (output_shape[0],) + (keep_dim,))
                 new_data1 = sparse.moveaxis(new_data1, [0], [1])
             else:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[:2])
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-2:])
                 new_data0 = sparse.moveaxis(new_data0, [0], [1])
-                new_data1 = sparse.reshape(new_data1, output_shape[-2:] + (keep_dim,))
+                new_data1 = sparse.reshape(new_data1, output_shape[:2] + (keep_dim,))
                 new_data1 = sparse.moveaxis(new_data1, [2], [0])
             self.current_state.tensors[site0 - 2].data = new_data0
             self.current_state.tensors[
@@ -205,26 +228,26 @@ class CircuitSimulator:
             self.current_state.bond_dimension = max(self.current_state.bond_dims)
         else:
             if site0 == 1:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + (output_shape[0],))
-                new_data1 = sparse.reshape(new_data1, output_shape[-2:] + (keep_dim,))
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + (output_shape[2],))
+                new_data1 = sparse.reshape(new_data1, output_shape[:2] + (keep_dim,))
                 new_data1 = sparse.moveaxis(new_data1, [2], [0])
             elif site0 + 1 == self.num_qubits:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[:2])
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-2:])
                 new_data0 = sparse.moveaxis(new_data0, [0], [1])
-                new_data1 = sparse.reshape(new_data1, (output_shape[-1],) + (keep_dim,))
+                new_data1 = sparse.reshape(new_data1, (output_shape[0],) + (keep_dim,))
                 new_data1 = sparse.moveaxis(new_data1, [0], [1])
             else:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[:2])
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-2:])
                 new_data0 = sparse.moveaxis(new_data0, [0], [1])
-                new_data1 = sparse.reshape(new_data1, output_shape[-2:] + (keep_dim,))
+                new_data1 = sparse.reshape(new_data1, output_shape[:2] + (keep_dim,))
                 new_data1 = sparse.moveaxis(new_data1, [2], [0])
             self.current_state.tensors[site0 - 1].data = new_data0
             self.current_state.tensors[
                 site0 - 1
-            ].dimensions = self.current_state.tensors[site0 - 2].data.shape
+            ].dimensions = self.current_state.tensors[site0 - 1].data.shape
             self.current_state.tensors[site0].data = new_data1
             self.current_state.tensors[site0].dimensions = self.current_state.tensors[
-                site0 - 1
+                site0
             ].data.shape
             self.current_state.bond_dims = [
                 t.dimensions[0] for t in self.current_state.tensors[1:]
@@ -244,7 +267,7 @@ class CircuitSimulator:
             inst: The circuit instruction
         """
         qidxs = [inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)]
-        qidxs = [self.site_mapping[qidx] for qidx in qidxs]
+        qidxs = [int(self.site_mapping[str(qidx)]) for qidx in qidxs]
         mpo = MatrixProductOperator.from_qiskit_gate(inst)
         self.current_state = self.current_state.apply_sub_mpo(mpo, qidxs, max_bond)
         return
@@ -258,6 +281,9 @@ class CircuitSimulator:
             int(reversed_mapping[str(site)]) for site in range(1, self.num_qubits + 1)
         ]
         self.current_state.reorder_sites(target_site_ordering)
+        self.site_mapping = {
+            str(idx): str(idx) for idx in range(1, self.num_qubits + 1)
+        }
         return
 
     def run(self, max_bond_dimension: int | None = None) -> MatrixProductState:
@@ -282,8 +308,28 @@ class CircuitSimulator:
         self.output_state = self.current_state
         return self.output_state
 
-    # def build_mpo(self, max_bond: int | None = None) -> MatrixProductOperator:
+    # def get_operator_mpo_mpo(self, after_gate: int | None = None, max_bond: int | None = None) -> MatrixProductOperator:
     #     """
     #     Build the MPO representing the quantum circuit
+
+    #     Args:
+    #         after_gate: Builds the MPO representing the circuit up to after the given gate number. Defaults to full circuit
+    #         max_bond: Maximum allowed bond dimension
+
+    #     Returns:
+    #         An MPO
     #     """
+    #     for inst in self.circuit.data:
+    #         qidxs = [
+    #             inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
+    #         ]
+    #         data = COO.from_numpy(Operator(inst.operation).reverse_qargs().data)
+    #         if len(qidxs) == 1:
+    #             self.apply_one_qubit_gate(data, qidxs[0])
+    #         elif len(qidxs) == 2:
+    #             self.apply_two_qubit_gate(data, qidxs, max_bond_dimension)
+    #         else:
+    #             self.apply_general_gate(inst, max_bond_dimension)
+    #     self.restore_ordering()
+    #     self.output_state = self.current_state
     #     return

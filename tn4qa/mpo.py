@@ -6,6 +6,7 @@ from typing import List, TypeAlias, Union
 import numpy as np
 import sparse
 from numpy import ndarray
+from numpy.linalg import svd
 
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
@@ -13,6 +14,7 @@ from qiskit.circuit import CircuitInstruction
 from qiskit.circuit.library import UnitaryGate
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.quantum_info import Operator
+from scipy.sparse.linalg import svds
 from sparse import SparseArray
 
 from .tensor import Tensor
@@ -140,6 +142,7 @@ class MatrixProductOperator(TensorNetwork):
         if num_sites == 1:
             arrays = [np.array([[1, 0], [0, 1]]).reshape(2, 2)]
             mpo = cls.from_arrays(arrays)
+            return mpo
         end_array = np.array([[1, 0], [0, 1]]).reshape(1, 2, 2)
         middle_arrays = np.array([[1, 0], [0, 1]]).reshape(1, 1, 2, 2)
         arrays = [end_array] + [middle_arrays] * (num_sites - 2) + [end_array]
@@ -488,6 +491,326 @@ class MatrixProductOperator(TensorNetwork):
         mpo = cls.from_hamiltonian(ham, max_bond)
         return mpo
 
+    def apply_one_qubit_gate(self, data: SparseArray, site: int) -> None:
+        """
+        Apply a one-qubit gate in place
+
+        Args:
+            data: The one-qubit matrix
+            site: Where to apply the gate to
+        """
+        if self.num_sites == 1:
+            contraction = "ij,ki->kj"
+        elif site == 1 or site == self.num_sites:
+            contraction = "ijk,lj->ilk"
+        else:
+            contraction = "hijk,lj->hilk"
+        self.tensors[site - 1].data = sparse.einsum(
+            contraction, self.tensors[site - 1].data, data
+        )
+        return
+
+    def move_site_to_location(
+        self, site_source: int, site_destination: int, site_mapping: dict
+    ) -> None:
+        """
+        Move a site to a different location
+
+        Args:
+            site_source: The starting location
+            site_destination: The final location
+            site_mapping: A mapping of physical to logical sites
+        """
+        if site_source < site_destination:
+            for site in range(site_source, site_destination):
+                self.swap_neighbouring_sites(site)
+                reverse_map = {v: k for k, v in site_mapping.items()}
+                (
+                    site_mapping[reverse_map[str(site)]],
+                    site_mapping[reverse_map[str(site + 1)]],
+                ) = (
+                    str(site + 1),
+                    str(site),
+                )
+        else:
+            for site in range(site_source, site_destination, -1):
+                self.swap_neighbouring_sites(site - 1)
+                reverse_map = {v: k for k, v in site_mapping.items()}
+                (
+                    site_mapping[reverse_map[str(site - 1)]],
+                    site_mapping[reverse_map[str(site)]],
+                ) = (
+                    str(site),
+                    str(site - 1),
+                )
+        return
+
+    def apply_two_qubit_gate(
+        self,
+        data: SparseArray,
+        sites: list[int],
+        site_mapping: dict,
+        max_bond: int | None = None,
+        tol: float = 1e-12,
+    ) -> None:
+        """
+        Apply a two qubit gate in place
+
+        Args:
+            data: The two-qubit matrix
+            sites: The sites to apply it to
+            site_mapping: Site mapping from physical to logical sites
+            max_bond: The maximum allowed bond dimension
+        """
+        site0, site1 = sites[0], sites[1]
+
+        if self.num_sites == 2:
+            data = sparse.reshape(data, (2, 2, 2, 2))
+            data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
+            if site1 < site0:
+                data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
+            data = sparse.reshape(data, (4, 4))
+            gate = UnitaryGate(data.todense())
+            qc = QuantumCircuit(2)
+            qc.append(gate, [site0 - 1, site1 - 1])
+            gate_mpo = self.from_qiskit_gate(qc.data[0])
+            self *= gate_mpo
+            return
+
+        data = sparse.reshape(data, (2, 2, 2, 2))
+        if site1 < site0:
+            data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
+            if site1 == site0 - 1:
+                pass
+            else:
+                self.move_site_to_location(site1, site0 - 1, site_mapping)
+            tensor0 = self.tensors[site0 - 2]
+            tensor1 = self.tensors[site0 - 1]
+            if site0 - 1 == 1:
+                contraction = "hij,hklm,noil->komnj"
+                output_shape = (
+                    tensor1.dimensions[1],
+                    2,
+                    tensor1.dimensions[3],
+                    2,
+                    tensor0.dimensions[2],
+                )
+                mat_shape = (
+                    tensor1.dimensions[3] * 2 * tensor1.dimensions[1],
+                    2 * tensor0.dimensions[2],
+                )
+            elif site0 == self.num_sites:
+                contraction = "hijk,ilm,nojl->omhnk"
+                output_shape = (
+                    2,
+                    tensor1.dimensions[2],
+                    tensor0.dimensions[0],
+                    2,
+                    tensor0.dimensions[3],
+                )
+                mat_shape = (
+                    2 * tensor1.dimensions[2],
+                    tensor0.dimensions[0] * 2 * tensor0.dimensions[3],
+                )
+            else:
+                contraction = "hijk,ilmn,opjm->lpnhok"
+                output_shape = (
+                    tensor1.dimensions[1],
+                    2,
+                    tensor1.dimensions[3],
+                    tensor0.dimensions[0],
+                    2,
+                    tensor0.dimensions[3],
+                )
+                mat_shape = (
+                    tensor1.dimensions[1] * 2 * tensor1.dimensions[3],
+                    tensor0.dimensions[0] * 2 * tensor0.dimensions[3],
+                )
+        else:
+            if site1 == site0 + 1:
+                pass
+            else:
+                self.move_site_to_location(site1, site0 + 1, site_mapping)
+            tensor0 = self.tensors[site0 - 1]
+            tensor1 = self.tensors[site0]
+            if site0 == 1:
+                contraction = "hij,hklm,noil->komnj"
+                output_shape = (
+                    tensor1.dimensions[1],
+                    2,
+                    tensor1.dimensions[3],
+                    2,
+                    tensor0.dimensions[2],
+                )
+                mat_shape = (
+                    tensor1.dimensions[3] * 2 * tensor1.dimensions[1],
+                    2 * tensor0.dimensions[2],
+                )
+            elif site0 + 1 == self.num_sites:
+                contraction = "hijk,ilm,nojl->omhnk"
+                output_shape = (
+                    2,
+                    tensor1.dimensions[2],
+                    tensor0.dimensions[0],
+                    2,
+                    tensor0.dimensions[3],
+                )
+                mat_shape = (
+                    2 * tensor1.dimensions[2],
+                    tensor0.dimensions[0] * 2 * tensor0.dimensions[3],
+                )
+            else:
+                contraction = "hijk,ilmn,opjm->lpnhok"
+                output_shape = (
+                    tensor1.dimensions[1],
+                    2,
+                    tensor1.dimensions[3],
+                    tensor0.dimensions[0],
+                    2,
+                    tensor0.dimensions[3],
+                )
+                mat_shape = (
+                    tensor1.dimensions[1] * 2 * tensor1.dimensions[3],
+                    tensor0.dimensions[0] * 2 * tensor0.dimensions[3],
+                )
+
+        output_data = sparse.einsum(contraction, tensor0.data, tensor1.data, data)
+        output_data = np.reshape(output_data, mat_shape)
+
+        if max_bond:
+            bond_dim = min([max_bond, mat_shape[0], mat_shape[1]])
+        else:
+            bond_dim = min([mat_shape[0], mat_shape[1]])
+
+        if bond_dim >= min([mat_shape[0], mat_shape[1]]) - 1:
+            u, s, vh = svd(output_data.todense(), full_matrices=False)
+        else:
+            u, s, vh = svds(output_data, k=bond_dim)
+
+        s = s[s > 1e-14]
+        sq = s**2
+        cumulative = np.cumsum(sq[::-1])[::-1]
+        keep_dim = len(s)
+        for k in range(len(s)):
+            if cumulative[k] < tol**2:
+                keep_dim = k + 1
+                break
+        keep_dim = min(keep_dim, bond_dim)
+
+        new_data0 = sparse.COO.from_numpy(vh[:keep_dim, :])
+        new_data1 = sparse.COO.from_numpy(u[:, :keep_dim] * s[:keep_dim])
+
+        if site1 < site0:
+            if site0 - 1 == 1:
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-2:])
+                new_data1 = sparse.reshape(new_data1, output_shape[:3] + (keep_dim,))
+                new_data1 = sparse.moveaxis(new_data1, [3], [0])
+            elif site0 == self.num_sites:
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-3:])
+                new_data0 = sparse.moveaxis(new_data0, [0], [1])
+                new_data1 = sparse.reshape(new_data1, output_shape[:2] + (keep_dim,))
+                new_data1 = sparse.moveaxis(new_data1, [2], [0])
+            else:
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-3:])
+                new_data0 = sparse.moveaxis(new_data0, [0], [1])
+                new_data1 = sparse.reshape(new_data1, output_shape[:3] + (keep_dim,))
+                new_data1 = sparse.moveaxis(new_data1, [3], [0])
+            self.tensors[site0 - 2].data = new_data0
+            self.tensors[site0 - 2].dimensions = self.tensors[site0 - 2].data.shape
+            self.tensors[site0 - 1].data = new_data1
+            self.tensors[site0 - 1].dimensions = self.tensors[site0 - 1].data.shape
+            self.bond_dims = [t.dimensions[0] for t in self.tensors[1:]]
+            self.bond_dimension = max(self.bond_dims)
+        else:
+            if site0 == 1:
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-2:])
+                new_data1 = sparse.reshape(new_data1, output_shape[:3] + (keep_dim,))
+                new_data1 = sparse.moveaxis(new_data1, [3], [0])
+            elif site0 + 1 == self.num_sites:
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-3:])
+                new_data0 = sparse.moveaxis(new_data0, [0], [1])
+                new_data1 = sparse.reshape(new_data1, output_shape[:2] + (keep_dim,))
+                new_data1 = sparse.moveaxis(new_data1, [2], [0])
+            else:
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-3:])
+                new_data0 = sparse.moveaxis(new_data0, [0], [1])
+                new_data1 = sparse.reshape(new_data1, output_shape[:3] + (keep_dim,))
+                new_data1 = sparse.moveaxis(new_data1, [3], [0])
+            self.tensors[site0 - 1].data = new_data0
+            self.tensors[site0 - 1].dimensions = self.tensors[site0 - 1].data.shape
+            self.tensors[site0].data = new_data1
+            self.tensors[site0].dimensions = self.tensors[site0].data.shape
+            self.bond_dims = [t.dimensions[0] for t in self.tensors[1:]]
+            self.bond_dimension = max(self.bond_dims)
+        return
+
+    def apply_general_gate(
+        self,
+        inst: CircuitInstruction,  # type: ignore
+        site_mapping: dict,
+        max_bond: int | None = None,
+    ) -> "MatrixProductOperator":  # type: ignore
+        """
+        Apply a gate with no better option
+
+        Args:
+            inst: The circuit instruction
+            site_mapping: Site mapping of physical to logical sites
+            max_bond: Maximum bond dimension
+        """
+        qidxs = [inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)]
+        qidxs = [int(site_mapping[str(qidx)]) for qidx in qidxs]
+        mpo = MatrixProductOperator.from_qiskit_gate(inst)
+        mpo = self.contract_sub_mpo(mpo, qidxs, max_bond)
+        return mpo
+
+    @classmethod
+    def from_qiskit_circuit(
+        self,
+        qc: QuantumCircuit,
+        after_gate: int | None = None,
+        max_bond: int | None = None,
+    ) -> "MatrixProductOperator":
+        """
+        Build the MPO representing the quantum circuit
+
+        Args:
+            qc: The QuantumCircuit object
+            after_gate: Builds the MPO representing the circuit up to after the given gate number. Defaults to full circuit
+            max_bond: Maximum allowed bond dimension
+
+        Returns:
+            An MPO
+        """
+        if after_gate is not None:
+            data = qc.data[:after_gate]
+        else:
+            data = qc.data
+        mpo = MatrixProductOperator.identity_mpo(qc.num_qubits)
+        site_mapping = {str(idx): str(idx) for idx in range(1, mpo.num_sites + 1)}
+        for inst in data:
+            qidxs = [
+                inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
+            ]
+            data = sparse.COO.from_numpy(Operator(inst.operation).reverse_qargs().data)
+            if len(qidxs) == 1:
+                site_loc = int(site_mapping[str(qidxs[0])])
+                mpo.apply_one_qubit_gate(data, site_loc)
+            elif len(qidxs) == 2:
+                sites_locs = [int(site_mapping[str(site)]) for site in qidxs]
+                mpo.apply_two_qubit_gate(
+                    data, sites_locs, site_mapping, max_bond=max_bond
+                )
+            else:
+                mpo = mpo.apply_general_gate(inst, site_mapping, max_bond=max_bond)
+
+        reversed_mapping = {v: k for k, v in site_mapping.items()}
+        target_site_ordering = [
+            int(reversed_mapping[str(site)]) for site in range(1, mpo.num_sites + 1)
+        ]
+        mpo.reorder_sites(target_site_ordering)
+        return mpo
+
     @classmethod
     def from_qiskit_gate(cls, inst: CircuitInstruction) -> "MatrixProductOperator":  # type: ignore
         """
@@ -561,55 +884,6 @@ class MatrixProductOperator(TensorNetwork):
         return mpo
 
     @classmethod
-    def from_qiskit_layer(
-        cls, layer: QuantumCircuit, max_bond: int | None = None
-    ) -> "MatrixProductOperator":
-        """
-        Create an MPO for a circuit layer.
-
-        Args:
-            layer: The quantum circuit layer (should only contain one and two qubit gates with nearest neighbour inetractions).
-            layer_number (optional): The layer number within a larger circuit. Default to 1.
-
-        Returns:
-            An MPO.
-        """
-        mpo = MatrixProductOperator.identity_mpo(layer.num_qubits)
-        for inst in layer.data:
-            qidxs = [
-                inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
-            ]
-            gate = MatrixProductOperator.from_qiskit_gate(inst)
-            mpo = mpo.contract_sub_mpo(gate, qidxs, max_bond)
-        return mpo
-
-    @classmethod
-    def from_qiskit_circuit(
-        cls, qc: QuantumCircuit, max_bond: int | None = None
-    ) -> "MatrixProductOperator":
-        """
-        Create an MPO for a circuit.
-
-        Args:
-            qc: The quantum circuit.
-            max_bond: The maximum bond dimension allowed.
-
-        Returns:
-            An MPO.
-        """
-        mpo = MatrixProductOperator.identity_mpo(qc.num_qubits)
-        for inst in qc.data:
-            qidxs = [
-                inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
-            ]
-            gate = MatrixProductOperator.from_qiskit_gate(inst)
-            mpo = mpo.contract_sub_mpo(gate, qidxs, max_bond)
-        if max_bond:
-            if mpo.bond_dimension > max_bond:
-                mpo.compress(max_bond)
-        return mpo
-
-    @classmethod
     def from_qiskit_circuit_zip_up(
         cls, qc: QuantumCircuit, max_bond: int
     ) -> "MatrixProductOperator":
@@ -627,7 +901,7 @@ class MatrixProductOperator(TensorNetwork):
         all_layers = [label for label in dag.layers()]
         all_layers_circs = [dag_to_circuit(layer["graph"]) for layer in all_layers]
         all_layers_mpo = [
-            MatrixProductOperator.from_qiskit_layer(circ) for circ in all_layers_circs
+            MatrixProductOperator.from_qiskit_circuit(circ) for circ in all_layers_circs
         ]
         mpo = all_layers_mpo[0]
         for idx in range(1, len(all_layers_mpo)):
@@ -649,7 +923,7 @@ class MatrixProductOperator(TensorNetwork):
         x_layer = QuantumCircuit(num_sites)
         for idx in range(num_sites):
             x_layer.x(idx)
-        x_layer_mpo = cls.from_qiskit_layer(x_layer)
+        x_layer_mpo = cls.from_qiskit_circuit(x_layer)
 
         z_gate = np.array([[1, 0], [0, -1]])
         mcz_mpo = cls.generalised_mcu_mpo(
@@ -677,6 +951,13 @@ class MatrixProductOperator(TensorNetwork):
         proj_0_rank4 = np.array([[1, 0], [0, 0]], dtype=complex).reshape(1, 1, 2, 2)
         proj_1_rank3 = np.array([[0, 0], [0, 1]], dtype=complex).reshape(1, 2, 2)
         proj_1_rank4 = np.array([[0, 0], [0, 1]], dtype=complex).reshape(1, 1, 2, 2)
+
+        if len(bs) == 1:
+            if bs == "0":
+                mpo = MatrixProductOperator.from_arrays([proj_0_rank3.reshape((2, 2))])
+            else:
+                mpo = MatrixProductOperator.from_arrays([proj_1_rank3.reshape((2, 2))])
+            return mpo
 
         arrays = []
 
@@ -1331,6 +1612,36 @@ class MatrixProductOperator(TensorNetwork):
         output = MatrixProductOperator.from_arrays(arrays)
         return output
 
+    def __imul__(self, other: "MatrixProductOperator") -> "MatrixProductOperator":
+        """
+        Define in place multiplication
+
+        Args:
+            other: The other MPO to multiply with
+        """
+        mul = self * other
+        self.tensors = mul.tensors
+        for t in self.tensors:
+            t.indices = mul.tensors[self.tensors.index(t)].indices
+            t.dimensions = mul.tensors[self.tensors.index(t)].dimensions
+            t.labels = mul.tensors[self.tensors.index(t)].labels
+
+        self.num_sites = mul.num_sites
+        self.shape = mul.shape
+
+        self.internal_inds = mul.get_internal_indices()
+        self.external_inds = mul.get_external_indices()
+        self.bond_dims = []
+        self.physical_dims = []
+        for idx in self.internal_inds:
+            self.bond_dims.append(mul.get_dimension_of_index(idx))
+        for idx in self.external_inds:
+            self.physical_dims.append(mul.get_dimension_of_index(idx))
+        self.bond_dimension = max(self.bond_dims)
+        self.physical_dimension = max(self.physical_dims)
+
+        return self
+
     def zip_up(
         self, other: "MatrixProductOperator", max_bond: int | None = None
     ) -> "MatrixProductOperator":
@@ -1646,25 +1957,25 @@ class MatrixProductOperator(TensorNetwork):
         """
         target_pos = [i - 1 for i in site_mapping]
 
-        n = len(site_mapping)
-        visited = [False] * n
+        visited = [False] * self.num_sites
 
-        for i in range(n):
+        for i in range(self.num_sites):
             if visited[i] or target_pos[i] == i:
                 continue
 
             j = i
             cycle = []
 
-            # Follow the cycle of positions
             while not visited[j]:
                 visited[j] = True
                 cycle.append(j)
                 j = target_pos[j]
 
-            # Now perform swaps to rotate elements in the cycle
             for k in range(len(cycle) - 1, 0, -1):
-                self.swap_sites(cycle[0] + 1, cycle[k] + 1)
+                # Apply swaps on logical site indices (1-based)
+                a = cycle[k - 1] + 1
+                b = cycle[k] + 1
+                self.swap_sites(a, b)
 
         if set_default_indices:
             self.set_default_indices()
@@ -1697,13 +2008,22 @@ class MatrixProductOperator(TensorNetwork):
         mpo1.set_default_indices()
         mpo2.set_default_indices()
 
-        target_site_ordering = copy.deepcopy(sites)
-        for idx in range(1, self.num_sites + 1):
-            if idx not in sites:
-                target_site_ordering.append(idx)
-        restore_ordering = []
-        for idx in range(1, self.num_sites + 1):
-            restore_ordering.append(target_site_ordering.index(idx) + 1)
+        all_sites = list(range(1, self.num_sites + 1))
+        target_site_ordering = [0] * self.num_sites
+        for idx in sites:
+            target_site_ordering[idx - 1] = sites.index(idx) + 1
+            all_sites.remove(sites.index(idx) + 1)
+        for site in all_sites:
+            target_site_ordering[target_site_ordering.index(0)] = site
+        site_mapping = {
+            site: target_site_ordering[site - 1]
+            for site in range(1, self.num_sites + 1)
+        }
+        reverse_mapping = {v: k for k, v in site_mapping.items()}
+        restore_ordering = [
+            reverse_mapping[idx] for idx in range(1, self.num_sites + 1)
+        ]
+
         mpo1.reorder_sites(target_site_ordering, set_default_indices=True)
 
         if mpo2.num_sites == mpo1.num_sites:
@@ -1778,25 +2098,45 @@ class MatrixProductOperator(TensorNetwork):
         """
         mpo = copy.deepcopy(self)
         num_sites_to_trace = len(sites)
-        remaining_sites = list(range(1, self.num_sites + 1))
-        for site in sites:
-            remaining_sites.remove(site)
-        mpo.reorder_sites(sites + remaining_sites, set_default_indices=True)
 
-        for idx in range(num_sites_to_trace):
-            current_indices = mpo.tensors[idx].indices
-            mpo.tensors[idx].indices = [
-                "R" + x[1:] if x[0] == "L" else x for x in current_indices
-            ]
+        all_sites = list(range(1, self.num_sites + 1))
+        target_site_ordering = [0] * self.num_sites
+        for idx in sites:
+            target_site_ordering[idx - 1] = sites.index(idx) + 1
+            all_sites.remove(sites.index(idx) + 1)
+        for site in all_sites:
+            target_site_ordering[target_site_ordering.index(0)] = site
+
+        mpo.reorder_sites(target_site_ordering, set_default_indices=True)
 
         if not matrix:
             for idx in range(num_sites_to_trace):
-                mpo.contract_index("R" + str(idx + 1))
-                mpo.contract_index("B" + str(idx + 1))
+                if mpo.num_sites == 2:
+                    output = sparse.einsum(
+                        "brr,bcd->cd", mpo.tensors[0].data, mpo.tensors[1].data
+                    )
+                    new_indices = [f"R{idx+2}", f"L{idx+2}"]
+                    new_dimensions = output.shape
+                else:
+                    output = sparse.einsum(
+                        "brr,bcde->cde", mpo.tensors[0].data, mpo.tensors[1].data
+                    )
+                    new_indices = [f"B{idx+2}", f"R{idx+2}", f"L{idx+2}"]
+                    new_dimensions = output.shape
+                mpo.tensors.pop(0)
+                mpo.tensors[0].data = output
+                mpo.tensors[0].indices = new_indices
+                mpo.tensors[0].dimensions = new_dimensions
+                mpo.num_sites -= 1
             if set_default_indices:
                 mpo.set_default_indices()
             return mpo
         else:
+            for idx in range(num_sites_to_trace):
+                current_indices = mpo.tensors[idx].indices
+                mpo.tensors[idx].indices = [
+                    "R" + x[1:] if x[0] == "L" else x for x in current_indices
+                ]
             result = mpo.contract_entire_network()
             output_inds = [
                 f"R{x}" for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))

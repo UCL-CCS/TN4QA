@@ -426,8 +426,7 @@ def test_reorder_sites():
     mps = MatrixProductState.from_bitstring("0101")
     mps.reorder_sites([2, 4, 1, 3])
     expected_array = np.zeros(16)
-    expected_array[12] = 1
-    print(mps.to_dense_array())
+    expected_array[3] = 1
     assert np.allclose(mps.to_dense_array(), expected_array)
 
 
