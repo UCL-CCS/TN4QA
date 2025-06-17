@@ -287,7 +287,10 @@ class MatrixProductState(TensorNetwork):
 
     @classmethod
     def from_qiskit_circuit(
-        cls, qc: QuantumCircuit, max_bond: int, input_mps: "MatrixProductState" = None
+        cls,
+        qc: QuantumCircuit,
+        max_bond: int | None = None,
+        input_mps: "MatrixProductState" = None,
     ) -> "MatrixProductState":
         """
         Create an MPS for the output of a Qiskit QuantumCircuit.
