@@ -7,6 +7,7 @@ from qiskit import QuantumCircuit
 from qiskit.circuit.library import UnitaryGate
 from scipy.linalg import svd
 
+from ..fidelity_metrics import hilbert_schmidt_fidelity
 from ..mps import MatrixProductOperator
 from ..tn import TensorNetwork
 
@@ -33,9 +34,11 @@ class MPOOptimiser:
         self.left_tn_indices, self.right_tn_indices = self.get_tn_external_indices(
             self.tn
         )
-        self.fidelity = self.calculate_fidelity()
+        self.error = self.calculate_error()
+        self.fidelity = self.get_fidelity()
         self.optimisation_dict = {
             "optimisation_iteration": [0],
+            "error": [self.error],
             "fidelity": [self.fidelity],
         }
 
@@ -133,18 +136,25 @@ class MPOOptimiser:
         """
         return 2**self.num_qubits
 
-    def calculate_fidelity(self) -> float:
+    def calculate_error(self) -> float:
         """
         Calculate the squared Frobenius norm between the reference MPO and the TN
         """
-        fid = (
+        error = (
             self.trace_rrdag()
             - self.trace_rdagt()
             - self.trace_tdagr()
             + self.trace_ttdag()
         )
-        scale_factor = 4 * (2**self.num_qubits)
-        return max(fid.real / scale_factor, 0.0)  # It will be real anyway
+        return max(error.real, 0.0)  # It will be real anyway
+
+    def get_fidelity(self) -> float:
+        """
+        Get the fidelity
+        """
+        tn_mpo = MatrixProductOperator.from_qiskit_circuit(self.qc)
+        fid = hilbert_schmidt_fidelity(self.reference, tn_mpo)
+        return fid
 
     def build_trace_rdagt_tn(self) -> TensorNetwork:
         """
@@ -273,7 +283,9 @@ class MPOOptimiser:
                 self.local_update(idx)
             for idx in list(range(1, len(self.qc.data) + 1))[::-1]:
                 self.local_update(idx)
-            self.fidelity = self.calculate_fidelity()
+            self.error = self.calculate_error()
+            self.fidelity = self.get_fidelity()
             self.optimisation_dict["optimisation_iteration"].append(it_number + 1)
+            self.optimisation_dict["error"].append(self.error)
             self.optimisation_dict["fidelity"].append(self.fidelity)
         return self.qc
