@@ -29,9 +29,11 @@ class MPSOptimiser:
         self.reference = reference
         self.num_qubits = qc.num_qubits
         self.set_tn()
-        self.fidelity = self.calculate_fidelity()
+        self.error = self.calculate_error()
+        self.fidelity = self.get_fidelity()
         self.optimisation_dict = {
             "optimisation_iteration": [0],
+            "error": [self.error],
             "fidelity": [self.fidelity],
         }
 
@@ -110,12 +112,20 @@ class MPSOptimiser:
         """
         return 1.0 + 0.0j
 
-    def calculate_fidelity(self) -> float:
+    def calculate_error(self) -> float:
         """
         Calculate the squared Frobenius norm between the reference MPS and the TN
         """
-        fid = self.ip_rr() - self.ip_rt() - self.ip_tr() + self.ip_tt()
-        return max(fid.real, 0.0)  # It will be real anyway
+        err = self.ip_rr() - self.ip_rt() - self.ip_tr() + self.ip_tt()
+        return max(err.real, 0.0)  # It will be real anyway
+
+    def get_fidelity(self) -> float:
+        """
+        Get the fidelity
+        """
+        overlap = self.ip_tr()
+        fid = np.abs(overlap) ** 2
+        return fid
 
     def build_ip_rt_tn(self) -> TensorNetwork:
         def _index_splitter(idx):
@@ -235,7 +245,9 @@ class MPSOptimiser:
                 self.local_update(idx)
             for idx in list(range(1, len(self.qc.data) + 1))[::-1]:
                 self.local_update(idx)
-            self.fidelity = self.calculate_fidelity()
+            self.error = self.calculate_error()
+            self.fidelity = self.get_fidelity()
             self.optimisation_dict["optimisation_iteration"].append(it_number + 1)
+            self.optimisation_dict["error"].append(self.error)
             self.optimisation_dict["fidelity"].append(self.fidelity)
         return self.qc
