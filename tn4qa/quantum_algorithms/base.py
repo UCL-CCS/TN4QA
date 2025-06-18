@@ -1,39 +1,29 @@
-from qiskit import QuantumCircuit
-from qiskit.providers import Backend
+from abc import ABC, abstractmethod
+
+from .result import Result
 
 
-class QuantumAlgorithm:
+class QuantumAlgorithm(ABC):
     """
-    Base class for quantum algorithms.
+    Abstract base class for quantum algorithms.
     """
 
-    def __init__(self, qc: QuantumCircuit) -> "QuantumAlgorithm":
-        """
-        Constructor for generic quantum algorithm.
+    @abstractmethod
+    def run(self, **kwargs) -> Result:
+        """Run the full algorithm pipeline. Returns result object or final value."""
+        pass
 
-        Args:
-            qc: The quantum circuit for the algorithm
+    @abstractmethod
+    def construct_circuit(self, **kwargs):
+        """Return the circuit(s) that represent the quantum part of the algorithm."""
+        pass
 
-        Return:
-            The quantum algorithm.
-        """
-        self.circuit = qc
-        self.num_qubits = qc.num_qubits
-        self.depth = qc.depth()
+    @abstractmethod
+    def set_backend(self, backend, **kwargs) -> None:
+        """Attach a QuantumBackend instance for execution."""
+        pass
 
-        return
-
-    def run(self, backend: Backend, num_shots: int) -> dict[str, int]:
-        """
-        Execute the quantum circuit on a Qiskit backend.
-
-        Args:
-            backend: The backend object.
-            num_shots: The number of shots to take.
-
-        Returns:
-            A dictionary of bitstring measurement results {"bs" : counts}
-        """
-
-        results = backend.run(self.circuit, shots=num_shots).result().get_counts()
-        return results
+    @abstractmethod
+    def get_result(self):
+        """Return structured results."""
+        pass
