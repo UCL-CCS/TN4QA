@@ -286,12 +286,15 @@ class CircuitSimulator:
         }
         return
 
-    def run(self, max_bond_dimension: int | None = None) -> MatrixProductState:
+    def run(
+        self, max_bond_dimension: int | None = None, samples: int | None = None
+    ) -> MatrixProductState | dict[str, int]:
         """
         Execute the quantum circuit
 
         Args:
             max_bond_dimension: The maximum allowed bond dimension
+            samples: If provided will return this number of bitstring samples from the output state
         """
         for inst in self.circuit.data:
             qidxs = [
@@ -306,30 +309,33 @@ class CircuitSimulator:
                 self.apply_general_gate(inst, max_bond_dimension)
         self.restore_ordering()
         self.output_state = self.current_state
+
+        if samples:
+            sample_dict = self.output_state.sample_bitstrings(samples)
+            return sample_dict
+
         return self.output_state
 
-    # def get_operator_mpo_mpo(self, after_gate: int | None = None, max_bond: int | None = None) -> MatrixProductOperator:
-    #     """
-    #     Build the MPO representing the quantum circuit
+    def get_operator_mpo(
+        self, after_gate: int | None = None, max_bond: int | None = None
+    ) -> MatrixProductOperator:
+        """
+        Build the MPO representing the quantum circuit
 
-    #     Args:
-    #         after_gate: Builds the MPO representing the circuit up to after the given gate number. Defaults to full circuit
-    #         max_bond: Maximum allowed bond dimension
+        Args:
+            after_gate: Builds the MPO representing the circuit up to after the given gate number. Defaults to full circuit
+            max_bond: Maximum allowed bond dimension
 
-    #     Returns:
-    #         An MPO
-    #     """
-    #     for inst in self.circuit.data:
-    #         qidxs = [
-    #             inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
-    #         ]
-    #         data = COO.from_numpy(Operator(inst.operation).reverse_qargs().data)
-    #         if len(qidxs) == 1:
-    #             self.apply_one_qubit_gate(data, qidxs[0])
-    #         elif len(qidxs) == 2:
-    #             self.apply_two_qubit_gate(data, qidxs, max_bond_dimension)
-    #         else:
-    #             self.apply_general_gate(inst, max_bond_dimension)
-    #     self.restore_ordering()
-    #     self.output_state = self.current_state
-    #     return
+        Returns:
+            An MPO
+        """
+        if not after_gate:
+            qc_data = self.circuit.data
+        else:
+            qc_data = self.circuit.data[:after_gate]
+
+        qc_after_gate = QuantumCircuit(self.num_qubits)
+        for inst in qc_data:
+            qc_after_gate.append(inst)
+        mpo = MatrixProductOperator.from_qiskit_circuit(qc_after_gate, max_bond)
+        return mpo
