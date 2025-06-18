@@ -281,7 +281,7 @@ class Tensor:
         Args:
             index_order: The desired new ordering of indices.
         """
-        old_indices = list(range(self.rank))
+        old_indices = list(range(len(self.indices)))
         new_indices = [index_order.index(idx) for idx in self.indices]
         new_data = sparse.moveaxis(self.data, old_indices, new_indices)
         self.data = new_data

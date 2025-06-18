@@ -555,32 +555,37 @@ class MatrixProductState(TensorNetwork):
             restore_ordering.append(target_site_ordering.index(idx) + 1)
         mps.reorder_sites(target_site_ordering, set_default_indices=True)
 
-        for tidx in range(mpo.num_sites):
-            t1 = mps.tensors[tidx]
-            t2 = mpo.tensors[tidx]
-            t1_current_indices = t1.indices
-            t1.indices = [
-                f"D{tidx+1}" if x[0] == "P" else x for x in t1_current_indices
-            ]
-            t2_current_indices = t2.indices
-            t2.indices = [
-                f"D{tidx+1}" if x[0] == "L" else x + "_" for x in t2_current_indices
-            ]
+        if len(sites) == mps.num_sites:
+            mps = self.apply_mpo(mpo, max_bond)
+        else:
+            for tidx in range(mpo.num_sites):
+                t1 = mps.tensors[tidx]
+                t2 = mpo.tensors[tidx]
+                t1_current_indices = t1.indices
+                t1.indices = [
+                    f"D{tidx+1}" if x[0] == "P" else x for x in t1_current_indices
+                ]
+                t2_current_indices = t2.indices
+                t2.indices = [
+                    f"D{tidx+1}" if x[0] == "L" else x + "_" for x in t2_current_indices
+                ]
 
-        all_tensors = mps.tensors + mpo.tensors
+            all_tensors = mps.tensors + mpo.tensors
 
-        tn = TensorNetwork(all_tensors, "TotalTN")
-        for n in range(len(sites)):
-            tn.contract_index(f"D{n+1}")
-        for n in range(len(sites) - 1):
-            tn.combine_indices([f"B{n+1}", f"B{n+1}_"], new_index_name=f"B{n+1}")
-        tn.tensors[0].reorder_indices([f"B{n+1}", f"R{n+1}_"])
-        for n in range(1, len(sites)):
-            tn.tensors[n].reorder_indices([f"B{n}", f"B{n+1}", f"R{n+1}_"])
+            tn = TensorNetwork(all_tensors, "TotalTN")
+            for n in range(len(sites)):
+                tn.contract_index(f"D{n+1}")
+            for n in range(len(sites) - 1):
+                tn.combine_indices([f"B{n+1}", f"B{n+1}_"], new_index_name=f"B{n+1}")
+            tn.tensors[0].reorder_indices(["B1", "R1_"])
+            for n in range(1, len(sites)):
+                tn.tensors[n].reorder_indices([f"B{n}", f"B{n+1}", f"R{n+1}_"])
 
-        arrays = [t.data for t in tn.tensors]
-        mps = MatrixProductState.from_arrays(arrays)
+            arrays = [t.data for t in tn.tensors]
+            mps = MatrixProductState.from_arrays(arrays)
+
         mps.reorder_sites(restore_ordering, set_default_indices=True)
+
         if max_bond:
             if mps.bond_dimension > max_bond:
                 mps.compress(max_bond)
