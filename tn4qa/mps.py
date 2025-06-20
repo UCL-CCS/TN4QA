@@ -743,15 +743,14 @@ class MatrixProductState(TensorNetwork):
             The expectation value.
         """
         mps1 = copy.deepcopy(self)
-        mps2 = copy.deepcopy(self)
+        mpo1 = copy.deepcopy(mpo)
 
-        mpo.reshape("udrl")
+        mpo1.reshape("udrl")
         mps1.reshape("udp")
-        mps2.reshape("udp")
 
-        mps1 = mps1.apply_mpo(mpo)
+        mps1 = mps1.apply_mpo(mpo1)
 
-        exp_val = mps1.compute_inner_product(mps2)
+        exp_val = self.compute_inner_product(mps1)
         return exp_val
 
     def outer_product(self, other: "MatrixProductState") -> MatrixProductOperator:

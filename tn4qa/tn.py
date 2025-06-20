@@ -270,7 +270,8 @@ class TensorNetwork:
             arrays=[array0, array1],
             inputs=[indices0, indices1],
             output=output_indices,
-            cache_expression=False,
+            cache_expression=True,
+            prefer_einsum=True,
         )
         new_labels = [self.get_new_label()]
         if len(new_data.shape) > len(output_indices):
@@ -318,7 +319,8 @@ class TensorNetwork:
             arrays=[array0, array1],
             inputs=[indices0, indices1],
             output=output_indices,
-            cache_expression=False,
+            cache_expression=True,
+            prefer_einsum=True,
         )
         temp_tensor = Tensor(new_data, output_indices, ["TEMP"])
 
@@ -436,7 +438,8 @@ class TensorNetwork:
             arrays=arrays,
             inputs=input_indices,
             output=output_indices,
-            cache_expression=False,
+            cache_expression=True,
+            prefer_einsum=True,
         )
         if len(output_indices) == 0:
             return complex(output_tensor_data.flatten()[0])

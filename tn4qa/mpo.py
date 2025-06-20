@@ -1815,7 +1815,6 @@ class MatrixProductOperator(TensorNetwork):
         max_bond = self.bond_dimension
         self_copy = copy.deepcopy(self)
         mpo = projector * self_copy
-        mpo.compress(max_bond)
         mpo = mpo * projector
         mpo.compress(max_bond)
         return mpo
