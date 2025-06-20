@@ -11,10 +11,14 @@ from qiskit.circuit.library import UnitaryGate
 
 from ..fidelity_metrics import hilbert_schmidt_inner_product
 from ..mpo import MatrixProductOperator
-from ..quantum_algorithms.variational.ansatz_circuits import random_brickwork_circuit
+from ..quantum_algorithms.variational.ansatz_circuits import (
+    identity_brickwork_circuit,
+)
 from ..tensor import Tensor
 from ..tn import TensorNetwork
-from .utils import kak_recomposition
+from .utils import (
+    kak_recomposition,
+)
 
 
 class ApproximateDiagonalisation:
@@ -31,9 +35,14 @@ class ApproximateDiagonalisation:
             num_layers: The number of layers to use in the ansatz circuit
         """
         self.reference = MatrixProductOperator.from_increasing_diagonal_matrix(
-            mpo.num_sites
+            mpo.num_sites,
         )
-        self.qc = random_brickwork_circuit(mpo.num_sites, num_layers)
+        c1 = QuantumCircuit(4)
+        c1.x(0)
+        c1.x(1)
+        c2 = identity_brickwork_circuit(mpo.num_sites, num_layers)
+        self.qc = c1.compose(c2)
+        # self.qc = random_brickwork_circuit(mpo.num_sites, num_layers)
         self.num_qubits = mpo.num_sites
         self.mpo_to_diag = mpo
         self.set_ansatz()
@@ -124,24 +133,31 @@ class ApproximateDiagonalisation:
         """
         new_inst = UnitaryGate(optimal_update)
         qidxs = [
-            self.qc.data[variational_index - 1].qubits[x]._index
-            for x in range(len(self.qc.data[variational_index - 1].qubits))
+            self.qc.data[variational_index + 1].qubits[x]._index
+            for x in range(len(self.qc.data[variational_index + 1].qubits))
         ]
-        self.qc.data[variational_index - 1] = (new_inst, qidxs[::-1], [])
+        self.qc.data[variational_index + 1] = (new_inst, qidxs[::-1], [])
         return
 
     def set_ansatz(self) -> None:
         """Update ansatz after circuit update"""
         self.ansatz = TensorNetwork.from_qiskit_circuit(self.qc)
+        site_idx = 1
         for t in self.ansatz.tensors:
-            t.labels.append(f"variational_site_{self.ansatz.tensors.index(t)+1}")
+            if len(t.indices) == 4:
+                t.labels.append(f"variational_site_{site_idx}")
+                site_idx += 1
+        self.num_variational_parameters = site_idx - 1
         return
 
     def set_ansatz_dag(self) -> None:
         """Update ansatz dag after circuit update"""
         self.ansatz_dag = TensorNetwork.from_qiskit_circuit(self.qc, dagger=True)
-        for t in self.ansatz_dag.tensors:
-            t.labels.append(f"variational_site_{self.ansatz_dag.tensors.index(t)+1}")
+        site_idx = 1
+        for t in self.ansatz_dag.tensors[::-1]:
+            if len(t.indices) == 4:
+                t.labels.append(f"variational_site_{site_idx}")
+                site_idx += 1
         return
 
     def build_tn(self) -> None:
@@ -160,20 +176,12 @@ class ApproximateDiagonalisation:
         Construct the approximately diagonalised MPO
         """
         mpo = copy.deepcopy(self.mpo_to_diag)
-        ansatz_circ = copy.deepcopy(self.qc)
-        ansatz_dag = ansatz_circ.inverse()
-        for inst in ansatz_circ.data[::-1]:
-            qidxs = [
-                inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
-            ]
-            submpo = MatrixProductOperator.from_qiskit_gate(inst)
-            mpo = mpo.contract_sub_mpo(submpo, qidxs, contract_right=False)
-        for inst in ansatz_dag.data:
-            qidxs = [
-                inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
-            ]
-            submpo = MatrixProductOperator.from_qiskit_gate(inst)
-            mpo = mpo.contract_sub_mpo(submpo, qidxs, contract_right=True)
+        ansatz_mpo = MatrixProductOperator.from_qiskit_circuit(self.qc)
+        ansatz_dag_mpo = MatrixProductOperator.from_qiskit_circuit(self.qc.inverse())
+
+        mpo = ansatz_mpo * mpo
+        mpo = mpo * ansatz_dag_mpo
+
         return mpo
 
     def get_local_indices(self, variational_idx: int) -> tuple[list[str], list[str]]:
@@ -186,8 +194,12 @@ class ApproximateDiagonalisation:
         Returns:
             output_inds, input_inds for the environment tensor
         """
-        ansatz_tensor = self.ansatz.tensors[variational_idx - 1]
-        ansatz_dag_tensor = self.ansatz_dag.tensors[variational_idx - 1]
+        ansatz_tensor = self.ansatz.get_tensors_from_label(
+            f"variational_site_{variational_idx}"
+        )[0]
+        ansatz_dag_tensor = self.ansatz_dag.get_tensors_from_label(
+            f"variational_site_{variational_idx}"
+        )[0]
         input_inds = ansatz_tensor.indices
         output_inds = ansatz_dag_tensor.indices
         return output_inds, input_inds
@@ -226,7 +238,6 @@ class ApproximateDiagonalisation:
         max_eval = max(evals)
         max_eval_idx = list(evals).index(max_eval)
         max_evec = evecs[:, max_eval_idx]
-        max_evec = evecs[:, max_eval_idx]
         return max_evec
 
     def get_closest_unitary(self, mat: ndarray) -> ndarray:
@@ -258,12 +269,18 @@ class ApproximateDiagonalisation:
             uni = kak_recomposition(
                 params[:3], params[3:6], params[6:9], params[9:12], params[12:]
             )
+            # uni = symmetry_preserving_two_qubit_gate(params[0], params[1:4], params[-1])
+            # uni = givens_rotation(params[0])
             uni_vec = uni.reshape((16,), order="F")
             quad = uni_vec.conj().T @ mat @ uni_vec
             return -1.0 * quad.real
 
         initial_params = [0.0] * 15
+        # initial_params = [0.0] * 5
+        # initial_params = [0.0]
         method = "COBYLA"
+        # bounds = ([(0.0, 2*np.pi)])
+        # bounds = ([(0.0, 2*np.pi) for _ in range(5)])
         bounds = (
             [(0.0, 2 * np.pi) for _ in range(6)]
             + [(0.0, np.pi / 4) for _ in range(3)]
@@ -273,6 +290,8 @@ class ApproximateDiagonalisation:
             _cost_function, initial_params, method=method, bounds=bounds
         )
         optimised_params = result.x
+        # optimised_uni = givens_rotation(optimised_params[0])
+        # optimised_uni = symmetry_preserving_two_qubit_gate(optimised_params[0], optimised_params[1:4], optimised_params[-1])
         optimised_uni = kak_recomposition(
             optimised_params[:3],
             optimised_params[3:6],
@@ -289,11 +308,11 @@ class ApproximateDiagonalisation:
         Args:
             variational_index: The index of the current local site
         """
-        # local_tensor = self.ansatz.tensors[variational_index - 1]
-        # dim = int(2 ** (len(local_tensor.indices) / 2))
-
         env_mat = self.form_environment_matrix(variational_index)
         new_site_data = self.quadratic_optimisation_over_unitaries(env_mat)
+
+        # local_tensor = self.ansatz.tensors[variational_index - 1]
+        # dim = int(2 ** (len(local_tensor.indices) / 2))
 
         # max_evec = self.get_maximum_eigenvector(env_mat)
         # new_site_data = max_evec.reshape((dim, dim))
@@ -318,9 +337,9 @@ class ApproximateDiagonalisation:
             The optimised quantum circuit
         """
         for _ in range(num_sweeps):
-            for idx in range(1, len(self.qc.data) + 1):
+            for idx in range(1, self.num_variational_parameters + 1):
                 self.local_update(idx)
-            for idx in list(range(1, len(self.qc.data) + 1))[::-1]:
+            for idx in list(range(1, self.num_variational_parameters))[::-1]:
                 self.local_update(idx)
         self.approximately_diagonalised_mpo = (
             self.construct_approximately_diagonalised_mpo()

@@ -7,6 +7,7 @@ from qiskit.circuit.library import QFT
 from sparse import SparseArray
 
 from ..base import QuantumAlgorithm
+from ..result import Result
 from ..utils import add_controls, count_qubits, to_QuantumCircuit
 
 TypeOptions: TypeAlias = Union[
@@ -54,3 +55,19 @@ class QPE(QuantumAlgorithm):
         qc.append(iqft, range(num_precision_bits))
 
         super().__init__(qc)
+
+    def run(self, **kwargs) -> Result:
+        """Run the full algorithm pipeline. Returns result object or final value."""
+        pass
+
+    def construct_circuit(self, **kwargs):
+        """Return the circuit(s) that represent the quantum part of the algorithm."""
+        pass
+
+    def set_backend(self, backend, **kwargs) -> None:
+        """Attach a QuantumBackend instance for execution."""
+        pass
+
+    def get_result(self):
+        """Return structured results."""
+        pass

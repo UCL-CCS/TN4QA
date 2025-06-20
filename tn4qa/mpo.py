@@ -1285,6 +1285,32 @@ class MatrixProductOperator(TensorNetwork):
         return mpo
 
     @classmethod
+    def from_short_diagonal_matrix(
+        cls, num_sites: int, diag: list[complex], max_bond: int | None = None
+    ) -> "MatrixProductOperator":
+        """
+        Construct an MPO representation of a diagonal matrix of length k followed by 1s the rest of the way
+
+        Args:
+            num_sites: Total number of sites
+            diag: List of length k < 2^num_sites
+
+        Returns:
+            MPO
+        """
+        mpo = MatrixProductOperator.identity_mpo(num_sites)
+        for i in range(len(diag)):
+            bitstring = bin(i)[2:].zfill(num_sites)
+            temp_mpo = MatrixProductOperator.from_bitstring(bitstring)
+            temp_mpo.multiply_by_constant(diag[i] - 1.0)
+            mpo = mpo + temp_mpo
+            if max_bond:
+                if mpo.bond_dimension > max_bond:
+                    mpo.compress(max_bond)
+
+        return mpo
+
+    @classmethod
     def from_diagonal_matrix_approx(
         cls, diag: list[complex]
     ) -> "MatrixProductOperator":

@@ -7,6 +7,7 @@ from qiskit.primitives import Estimator
 from qiskit_algorithms.optimizers import Optimizer
 
 from ..base import QuantumAlgorithm
+from ..result import Result
 from .ansatz_circuits import (
     hea_ansatz,
     number_preserving_ansatz,
@@ -181,3 +182,19 @@ class VQE(QuantumAlgorithm):
         )
         plt.show()
         return
+
+    def run(self, **kwargs) -> Result:
+        """Run the full algorithm pipeline. Returns result object or final value."""
+        pass
+
+    def construct_circuit(self, **kwargs):
+        """Return the circuit(s) that represent the quantum part of the algorithm."""
+        pass
+
+    def set_backend(self, backend, **kwargs) -> None:
+        """Attach a QuantumBackend instance for execution."""
+        pass
+
+    def get_result(self):
+        """Return structured results."""
+        pass

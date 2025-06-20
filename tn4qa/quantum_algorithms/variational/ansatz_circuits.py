@@ -100,6 +100,53 @@ def number_preserving_ansatz(
     ).decompose()
 
 
+def identity_brickwork_circuit_offset(n_qubits: int, layers: int) -> QuantumCircuit:
+    """
+    Brickwork circuit coupling alpha-alpha electrons and beta-beta electrons
+
+    Args:
+        n_qubits: number of qubits
+        layers: number of layers
+
+    Returns:
+        QuantumCircuit
+    """
+    id_gate = Operator(np.eye(4)).to_instruction()
+    qc = QuantumCircuit(n_qubits)
+    for _ in range(layers):
+        for idx in range(int(n_qubits / 2)):
+            qidxs = [2 * idx + x for x in [0, 2]]
+            qc.append(id_gate, qidxs)
+        for idx in range(int(n_qubits / 2)):
+            qidxs = [2 * idx + x for x in [1, 3]]
+            qc.append(id_gate, qidxs)
+    return qc
+
+
+def random_brickwork_circuit_offset(n_qubits: int, layers: int) -> QuantumCircuit:
+    """
+    Brickwork circuit of random gates coupling alpha-alpha electrons and beta-beta electrons
+
+    Args:
+        n_qubits: The number of qubits
+        layers: The number of layers
+
+    Returns:
+        A quantum circuit
+    """
+    qc = QuantumCircuit(n_qubits)
+    for _ in range(layers):
+        for idx in range(int(n_qubits / 4)):
+            random_gate = random_unitary(4)
+            qidxs = [2 * idx + x for x in [0, 2]]
+            qc.append(random_gate, qidxs)
+        for idx in range(int(n_qubits / 4)):
+            random_gate = random_unitary(4)
+            qidxs = [2 * idx + x for x in [1, 3]]
+            qc.append(random_gate, qidxs)
+    return qc
+
+
 def identity_brickwork_circuit(
     n_qubits: int, layers: int, qubits_per_gate: int = 2, gap: int = 1
 ) -> QuantumCircuit:
