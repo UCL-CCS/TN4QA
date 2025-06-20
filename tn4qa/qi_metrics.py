@@ -433,6 +433,7 @@ def get_all_mutual_information(mps: MatrixProductState) -> float:
     )  # Number of orbitals - need to ask about factor of two thing
     M = np.zeros((n_orbs, n_orbs))
     for i in range(0, n_orbs):
+        M[i, i] = get_one_orbital_entropy(mps, i + 1)
         for j in range(i, n_orbs):
             # mps sites are 1-indexed
             M[i, j] = get_mutual_information(mps, [i + 1, j + 1])
