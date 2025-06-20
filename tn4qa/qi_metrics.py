@@ -401,17 +401,22 @@ def get_mutual_information(mps: MatrixProductState, sites: list[int]) -> float:
         >>> mutual_info = get_mutual_information(mps, [1, 2])
         >>> print(mutual_info)
     """
-    if len(set(sites)) != 2:
-        return 0
-
-    s1 = get_one_orbital_entropy(mps, sites[0])
-    s2 = get_one_orbital_entropy(mps, sites[1])
-    s12 = get_two_orbital_entropy(mps, sites)
-    mutual_info = s1 + s2 - s12
+    match n_sites := len(set(sites)):
+        case 1:
+            mutual_info = get_one_orbital_entropy(mps, sites[0])
+        case 2:
+            s1 = get_one_orbital_entropy(mps, sites[0])
+            s2 = get_one_orbital_entropy(mps, sites[1])
+            s12 = get_two_orbital_entropy(mps, sites)
+            mutual_info = s1 + s2 - s12
+        case _:
+            raise ValueError(
+                "Incorrect number of sites provided for mutual information %s", n_sites
+            )
     return mutual_info
 
 
-def get_all_mutual_information(mps: MatrixProductState) -> float:
+def get_all_mutual_information(mps: MatrixProductState) -> np.typing.NDArray:
     """
     Calculate the mutual information between every pair of orbitals.
     Mutual Information matrix where M[i,j] = I(i,j)
@@ -434,7 +439,7 @@ def get_all_mutual_information(mps: MatrixProductState) -> float:
     M = np.zeros((n_orbs, n_orbs))
     for i in range(0, n_orbs):
         M[i, i] = get_one_orbital_entropy(mps, i + 1)
-        for j in range(i, n_orbs):
+        for j in range(i + 1, n_orbs):
             # mps sites are 1-indexed
             M[i, j] = get_mutual_information(mps, [i + 1, j + 1])
             M[j, i] = M[i, j]
