@@ -61,3 +61,4 @@ def test_get_all_mutual_information(water_DMRG):
     # allow for a small negative which approximates zero
     assert np.all(water_mi >= -1e-2)
     assert np.all(water_mi == water_mi.T)
+    assert 0 == 1

@@ -1931,7 +1931,7 @@ class MatrixProductOperator(TensorNetwork):
             input_inds,
             output_inds,
             max_bond=None,
-            tol=1e-14,
+            tol=1e-12,
             new_index_name=bond,
         )
 
@@ -2124,17 +2124,15 @@ class MatrixProductOperator(TensorNetwork):
         mpo = copy.deepcopy(self)
         num_sites_to_trace = len(sites)
 
-        all_sites = list(range(1, self.num_sites + 1))
-        target_site_ordering = [0] * self.num_sites
-        for idx in sites:
-            target_site_ordering[idx - 1] = sites.index(idx) + 1
-            all_sites.remove(sites.index(idx) + 1)
-        for site in all_sites:
-            target_site_ordering[target_site_ordering.index(0)] = site
-
-        mpo.reorder_sites(target_site_ordering, set_default_indices=True)
-
         if not matrix:
+            all_sites = list(range(1, self.num_sites + 1))
+            target_site_ordering = [0] * self.num_sites
+            for idx in sites:
+                target_site_ordering[idx - 1] = sites.index(idx) + 1
+                all_sites.remove(sites.index(idx) + 1)
+            for site in all_sites:
+                target_site_ordering[target_site_ordering.index(0)] = site
+            mpo.reorder_sites(target_site_ordering, set_default_indices=True)
             for idx in range(num_sites_to_trace):
                 if mpo.num_sites == 2:
                     output = sparse.einsum(
@@ -2157,18 +2155,16 @@ class MatrixProductOperator(TensorNetwork):
                 mpo.set_default_indices()
             return mpo
         else:
-            for idx in range(num_sites_to_trace):
-                current_indices = mpo.tensors[idx].indices
-                mpo.tensors[idx].indices = [
+            all_sites = list(range(1, self.num_sites + 1))
+            for idx in sites:
+                all_sites.remove(idx)
+                current_indices = mpo.tensors[idx - 1].indices
+                mpo.tensors[idx - 1].indices = [
                     "R" + x[1:] if x[0] == "L" else x for x in current_indices
                 ]
             result = mpo.contract_entire_network()
-            output_inds = [
-                f"R{x}" for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))
-            ]
-            input_inds = [
-                f"L{x}" for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))
-            ]
+            output_inds = [f"R{x}" for x in all_sites]
+            input_inds = [f"L{x}" for x in all_sites]
             result.tensor_to_matrix(input_idxs=input_inds, output_idxs=output_inds)
             return result
 

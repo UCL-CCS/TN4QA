@@ -769,7 +769,6 @@ class MatrixProductState(TensorNetwork):
             bra = other.to_dense_array()
             prod = np.outer(ket, bra)
             return MatrixProductOperator.from_arrays([prod])
-
         ket = copy.deepcopy(self)
         bra = copy.deepcopy(other)
         bra.dagger()
@@ -854,34 +853,8 @@ class MatrixProductState(TensorNetwork):
             The reduced state.
         """
         mps = copy.deepcopy(self)
-        num_sites_to_trace = len(sites)
-        remaining_sites = list(range(1, mps.num_sites + 1))
-        for site in sites:
-            remaining_sites.remove(site)
-        mps.reorder_sites(sites + remaining_sites, set_default_indices=True)
         mpdo = mps.form_density_operator()
-
-        for idx in range(num_sites_to_trace):
-            current_indices = mpdo.tensors[idx].indices
-            mpdo.tensors[idx].indices = [
-                "R" + x[1:] if x[0] == "L" else x for x in current_indices
-            ]
-
-        if not matrix:
-            for idx in range(num_sites_to_trace):
-                mpdo.contract_index("R" + str(idx + 1))
-                mpdo.contract_index("B" + str(idx + 1))
-            return mpdo
-        else:
-            result = mpdo.contract_entire_network()
-            output_inds = [
-                f"R{x}" for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))
-            ]
-            input_inds = [
-                f"L{x}" for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))
-            ]
-            result.tensor_to_matrix(input_idxs=input_inds, output_idxs=output_inds)
-            return result
+        return mpdo.partial_trace(sites, matrix, True)
 
     def normalise(self) -> None:
         """
