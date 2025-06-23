@@ -16,6 +16,8 @@ def water_integrals():
 
     with open(folder.joinpath("./data/water_twos.pkl"), "rb") as file:
         twos = pickle.load(file)
+        # water_twos file here includes factor of 0.5 but this is accounted for in the MPO builder
+        twos = 2 * twos
     return (ones, twos)
 
 
