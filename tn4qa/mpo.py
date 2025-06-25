@@ -2308,3 +2308,24 @@ class MatrixProductOperator(TensorNetwork):
         )
         trace = mpo.contract_entire_network()
         return trace
+
+    def evolve_by_quantum_circuit(
+        self, qc: QuantumCircuit, max_bond: int | None = None
+    ) -> None:
+        """
+        Evolve the MPO under the action of a quantum circuit
+
+        Args:
+            qc: The QuantumCircuit
+            max_bond: Maximum bond dimension
+        """
+        qc_mpo = MatrixProductOperator.from_qiskit_circuit(qc, max_bond)
+        qc_inv_mpo = MatrixProductOperator.from_qiskit_circuit(qc.inverse(), max_bond)
+
+        self = qc_inv_mpo * self
+        self = self * qc_mpo
+
+        if max_bond:
+            if self.bond_dimension > max_bond:
+                self.compress(max_bond)
+        return
