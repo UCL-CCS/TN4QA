@@ -16,7 +16,9 @@ from .tn import TensorNetwork
 class DMRG:
     def __init__(
         self,
-        hamiltonian: dict[str, complex] | tuple[ndarray, ndarray, float],
+        hamiltonian: dict[str, complex]
+        | tuple[ndarray, ndarray, float]
+        | MatrixProductOperator,
         max_mps_bond: int,
         method: str = "two-site",
         convergence_threshold: float = 1e-9,
@@ -26,7 +28,7 @@ class DMRG:
         Constructor for the DMRG class.
 
         Args:
-            hamiltonian: A dict of the form {pauli_string : weight} or a tuple of (one_e_integrals, two_e_integrals, nuc_energy)
+            hamiltonian: A dict of the form {pauli_string : weight} or a tuple of (one_e_integrals, two_e_integrals, nuc_energy) or an MPO
             max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             max_mps_bond: The maximum bond to use for MPS during DMRG.
             method: Which method to use. One of "one-site", and "two-site". Defaults to "one-site".
@@ -42,6 +44,9 @@ class DMRG:
         if isinstance(hamiltonian, dict):
             self.num_sites = len(list(hamiltonian.keys())[0])
             self.hamiltonian_type = "qubit"
+        elif isinstance(hamiltonian, MatrixProductOperator):
+            self.num_sites = hamiltonian.num_sites
+            self.hamiltonian_type = "MPO"
         else:
             self.num_sites = len(hamiltonian[0])
             self.nuc_energy = hamiltonian[2]
@@ -49,7 +54,10 @@ class DMRG:
         self.max_mps_bond = max_mps_bond
         self.current_max_mps_bond = 2
         self.mps = self.set_initial_state(initial_state)
-        self.mpo = self.set_hamiltonian_mpo()
+        if self.hamiltonian_type == "MPO":
+            self.mpo = self.add_trivial_tensors_mpo(hamiltonian)
+        else:
+            self.mpo = self.set_hamiltonian_mpo()
         self.energy = self.set_initial_energy()
         self.all_energies = [self.energy]
         self.left_block_cache = []

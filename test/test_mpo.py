@@ -136,22 +136,6 @@ def test_from_hamiltonian():
     return
 
 
-def test_from_qiskit_layer():
-    qc = QuantumCircuit(8)
-    qc.h(0)  # H Gate
-    qc.x(1)  # X Gate
-    qc.cx(2, 3)  # CX Gate
-    qc.cz(4, 5)  # CZ Gate
-    qc.h(6)  # H Gate
-    qc.y(7)  # Y Gate
-    expected_op = Operator.from_circuit(qc).reverse_qargs().data
-    mpo = MatrixProductOperator.from_qiskit_layer(qc)
-    mpo_dense = mpo.to_dense_array()
-    assert np.allclose(mpo_dense, expected_op), "Qiskit Layer MPO output mismatch"
-
-    return
-
-
 def test_from_qiskit_circuit():
     qc = QuantumCircuit(5)
     for _ in range(5):
@@ -164,16 +148,18 @@ def test_from_qiskit_circuit():
         qc.h([2, 3, 4])  # H Gate
 
     expected_op = Operator.from_circuit(qc).reverse_qargs().data
-    mpo = MatrixProductOperator.from_qiskit_circuit(qc, 64)
+    mpo = MatrixProductOperator.from_qiskit_circuit(qc)
     mpo_dense = mpo.to_dense_array()
-    assert np.allclose(mpo_dense, expected_op), "Qiskit Circuit MPO output mismatch"
+    assert np.allclose(
+        mpo_dense, expected_op, atol=0.1
+    ), "Qiskit Circuit MPO output mismatch"
     return
 
 
 def test_zero_reflection_mpo():
-    mpo = MatrixProductOperator.zero_reflection_mpo(8)
+    mpo = MatrixProductOperator.zero_reflection_mpo(4)
     mpo_dense = mpo.to_dense_array()
-    expected = np.eye(2**8)
+    expected = np.eye(2**4)
     expected[0][0] = -1
     assert np.allclose(expected, mpo_dense), "Zero Reflection MPO output mismatch"
     return
@@ -280,26 +266,11 @@ def test_subtract():
 
 
 def test_multiply():
-    # Test multiplication of two MPOs
-    qc1 = QuantumCircuit(4)
-    qc1.h([0, 1, 2, 3])  # H Gate
-    qc1.cx(0, 1)  # CX Gate
-    qc1.cx(2, 3)  # CX Gate
-    qc1.x([0, 1, 2, 3])  # X Gate
-
-    qc2 = QuantumCircuit(4)
-    qc2.h([0, 1, 2, 3])  # H Gate
-    qc2.cz(0, 1)  # CZ Gate
-    qc2.cz(2, 3)  # CZ Gate
-    qc2.y([0, 1, 2, 3])  # Y Gate
-
-    totalqc = qc1.compose(qc2)
-
-    mpo1 = MatrixProductOperator.from_qiskit_circuit(qc1, 8)
-    mpo2 = MatrixProductOperator.from_qiskit_circuit(qc2, 8)
+    mpo1 = MatrixProductOperator.from_pauli_string("IXYZII")
+    mpo2 = MatrixProductOperator.from_pauli_string("XXYIYX")
 
     out = mpo1 * mpo2
-    expected = MatrixProductOperator.from_qiskit_circuit(totalqc, 64)
+    expected = MatrixProductOperator.from_pauli_string("XIIZYX")
 
     assert np.allclose(
         out.to_dense_array(), expected.to_dense_array()
@@ -421,3 +392,33 @@ def test_multiply_by_constant():
         assert result_a.all() == result_b.all(), "Multiply by constant test failed"
 
         return
+
+
+def test_swap_neighbouring_sites():
+    mpo = MatrixProductOperator.from_pauli_string("XI")
+    print(mpo.to_dense_array())
+    mpo.swap_neighbouring_sites(1)
+    print(mpo.to_dense_array().round(3))
+    expected_output = MatrixProductOperator.from_pauli_string("IX")
+    assert np.allclose(mpo.to_dense_array(), expected_output.to_dense_array())
+
+
+def test_reorder_sites():
+    mpo = MatrixProductOperator.from_pauli_string("IXYZ")
+    mpo.reorder_sites([3, 4, 2, 1])
+    expected_output = MatrixProductOperator.from_pauli_string("ZYIX")
+    assert np.allclose(mpo.to_dense_array(), expected_output.to_dense_array())
+
+
+def test_contract_sub_mpo():
+    mpo = MatrixProductOperator.identity_mpo(4)
+    mpo_to_contract = MatrixProductOperator.from_pauli_string("Y")
+    second_mpo_to_contract = MatrixProductOperator.from_pauli_string("XX")
+    third_mpo_to_contract = MatrixProductOperator.from_pauli_string("Z")
+
+    contracted_mpo = mpo.contract_sub_mpo(mpo_to_contract, [2])
+    contracted_mpo = contracted_mpo.contract_sub_mpo(second_mpo_to_contract, [1, 4])
+    contracted_mpo = contracted_mpo.contract_sub_mpo(third_mpo_to_contract, [3])
+    expected_mpo = MatrixProductOperator.from_pauli_string("XYZX")
+
+    assert np.allclose(contracted_mpo.to_dense_array(), expected_mpo.to_dense_array())

@@ -1,5 +1,4 @@
 import numpy as np
-from qiskit import QuantumCircuit
 
 from tn4qa.tensor import Tensor
 from tn4qa.tn import TensorNetwork
@@ -32,61 +31,6 @@ def test_constructor():
     assert (
         "A" in tn.indices and "B" in tn.indices and "C" in tn.indices
     ), "The TN indices should match the input values."
-
-    return
-
-
-def test_from_qiskit_layer():
-    num_qubits = 3
-    layer_number = 3
-    qc = QuantumCircuit(num_qubits)
-    qc.x(0)
-    qc.y(1)
-    tn = TensorNetwork.from_qiskit_layer(qc, layer_number)
-
-    assert (
-        len(tn.tensors) == num_qubits
-    ), "The number of tensors should match the number of qubits."
-    assert len(tn.indices) == 2 * num_qubits, "Incorrect number of indices in the TN."
-    assert (
-        f"QW0N{layer_number-1}" in tn.indices and f"QW2N{layer_number}" in tn.indices
-    ), "Incorrect index names in the TN."
-    assert np.allclose(tn.tensors[0].data.todense(), TEST_ARRAY_1) and np.allclose(
-        tn.tensors[1].data.todense(), TEST_ARRAY_2
-    ), "Incorrect tensor data in the TN."
-    assert np.allclose(
-        tn.tensors[2].data.todense(), [[1, 0], [0, 1]]
-    ), "Incorrect handling of idle qubits."
-
-    return
-
-
-def test_from_qiskit_circuit():
-    num_qubits = 3
-    num_layers = 2
-    qc = QuantumCircuit(num_qubits)
-    qc.x(0)
-    qc.y(1)
-    qc.cx(1, 2)
-    tn = TensorNetwork.from_qiskit_circuit(qc)
-
-    assert (
-        len(tn.tensors) == 5
-    ), "The number of tensors should match the number of qubits."
-    assert (
-        len(tn.indices) == (num_layers + 1) * num_qubits
-    ), "Incorrect number of indices in the TN."
-    assert np.allclose(
-        tn.tensors[3].data.todense().reshape(4, 4),
-        [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]],
-    ), "Incorrect tensor data in the TN."
-    assert "L2" in tn.tensors[3].labels, "Incorrect labels in the TN."
-    assert (
-        "Q1" in tn.tensors[3].labels and "Q2" in tn.tensors[3].labels
-    ), "Incorrect labels in the TN."
-    assert (
-        "QW1N1" in tn.tensors[3].indices and "QW2N2" in tn.tensors[3].indices
-    ), "Incorrect indices in the TN."
 
     return
 
@@ -370,6 +314,7 @@ def test_contract_entire_network():
     t4 = Tensor(TEST_ARRAY_2, ["D", "E"], [])
 
     tn = TensorNetwork([t1, t2, t3, t4], "TEST_TN")
+    print(tn)
     t = tn.contract_entire_network()
 
     assert np.allclose(

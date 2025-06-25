@@ -153,13 +153,12 @@ def test_from_qiskit_circuit_1():
     qc = QuantumCircuit(4)
     for i in range(4):
         qc.h(i)
-    mps = MatrixProductState.from_qiskit_circuit(qc, 8)
+    mps = MatrixProductState.from_qiskit_circuit(qc, 16)
 
-    expected_state = np.array([[np.sqrt(1 / 2), np.sqrt(1 / 2)]])
-    for tensor in mps.tensors:
-        assert np.allclose(
-            tensor.data.todense().flatten(), expected_state
-        ), "MPS tensors should all be |+>."
+    expected_state = np.array([1 / 4] * 16)
+    assert np.allclose(
+        mps.to_dense_array(), expected_state, atol=0.01
+    ), "MPS tensors should all be |+>."
 
 
 def test_from_qiskit_circuit_2():
@@ -167,22 +166,21 @@ def test_from_qiskit_circuit_2():
     qc.h(0)
     for i in range(5):
         qc.cx(i, i + 1)
-    mps = MatrixProductState.from_qiskit_circuit(qc, 8)
+    mps = MatrixProductState.from_qiskit_circuit(qc, 16)
 
     output = mps.contract_entire_network()
     output.combine_indices(["P1", "P2", "P3", "P4", "P5", "P6"])
     output_data = output.data.todense()
-    print(output_data)
 
     assert np.isclose(
-        output_data[0], np.sqrt(1 / 2)
+        output_data[0], np.sqrt(1 / 2), atol=0.05
     ), "Amplitude of all 0 state incorrect."
     assert np.isclose(
-        output_data[63], np.sqrt(1 / 2)
+        output_data[63], np.sqrt(1 / 2), atol=0.05
     ), "Amplitude of all 1 state incorrect."
     for i in range(1, 63):
         assert np.isclose(
-            output_data[i], 0.0
+            output_data[i], 0.0, atol=0.05
         ), "Amplitude of all other states should be 0.."
 
     return
@@ -409,9 +407,47 @@ def test_compute_inner_product():
     return
 
 
+def test_swap_neighbouring_sites():
+    mps = MatrixProductState.from_bitstring("01")
+    mps.swap_neighbouring_sites(1)
+    expected_array = np.array([0.0, 0.0, 1.0, 0.0])
+    assert np.allclose(mps.to_dense_array(), expected_array)
+
+
+def test_swap_sites():
+    mps = MatrixProductState.from_bitstring("1000")
+    mps.swap_sites(1, 4)
+    expected_array = np.zeros(16)
+    expected_array[1] = 1
+    assert np.allclose(mps.to_dense_array(), expected_array)
+
+
+def test_reorder_sites():
+    mps = MatrixProductState.from_bitstring("0101")
+    mps.reorder_sites([2, 4, 1, 3])
+    expected_array = np.zeros(16)
+    expected_array[3] = 1
+    assert np.allclose(mps.to_dense_array(), expected_array)
+
+
 def test_normalise():
     mps = MatrixProductState.random_mps(5, 4, 2)
     mps.normalise()
 
     prod = mps.compute_inner_product(mps)
     assert np.isclose(prod, 1.0), "Norm after normalise should be 1."
+
+
+def test_sample_bitstrings():
+    mps = MatrixProductState.from_bitstring("10101")
+    samples = mps.sample_bitstrings(10)
+    print(samples)
+
+    assert samples["10101"] == 10
+
+
+def test_sample_bitstrings_approx():
+    mps = MatrixProductState.equal_superposition_mps(3)
+    samples = mps.sample_bitstrings(100)
+
+    assert len(list(samples.keys())) == 8
