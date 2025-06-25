@@ -569,8 +569,14 @@ class TensorNetwork:
                 break
         keep_dim = min(keep_dim, max_bond)
 
-        tensor0_data = sparse.COO.from_numpy(vh[:keep_dim, :])
-        tensor1_data = sparse.COO.from_numpy(u[:, :keep_dim] * s[:keep_dim])
+        threshold = 1e-14
+        data0 = vh[:keep_dim, :]
+        data0[np.abs(data0) < threshold] = 0.0
+        data1 = u[:, :keep_dim] * s[:keep_dim]
+        data1[np.abs(data1) < threshold] = 0.0
+
+        tensor0_data = sparse.COO.from_numpy(data0)
+        tensor1_data = sparse.COO.from_numpy(data1)
 
         if not new_index_name:
             new_index_name = self.new_index_name()
