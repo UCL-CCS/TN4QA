@@ -311,6 +311,74 @@ class MatrixProductState(TensorNetwork):
         mps = mps.apply_mpo(qc_mpo, max_bond)
         return mps
 
+    @classmethod
+    def from_sparse_array(
+        cls, array: SparseArray, max_bond: int | None = None
+    ) -> "MatrixProductState":
+        """
+        Create an MPS from a sparse array
+
+        Args:
+            array: The array
+            max_bond: Maximum bond dimension
+
+        Returns:
+            MPS
+        """
+        dense_array = array.todense()
+        return cls.from_dense_array(dense_array, max_bond)
+
+    @classmethod
+    def from_dense_array(
+        cls, array: ndarray, max_bond: int | None = None
+    ) -> "MatrixProductState":
+        """
+        Create an MPS from a dense array
+
+        Args:
+            array: The array
+            max_bond: Maximum bond dimension
+
+        Returns:
+            MPS
+        """
+        num_qubits = int(np.log2(len(array)))
+        array = array.reshape((2,) * (num_qubits))
+        indices = [f"P{x}" for x in range(1, num_qubits + 1)]
+        tensor = Tensor(array, indices, ["MPS"])
+        tn = TensorNetwork([tensor])
+
+        for idx in range(num_qubits - 1):
+            t = tn.tensors[idx]
+            input_inds = [indices[idx]]
+            output_inds = indices[idx + 1 : num_qubits]
+            if idx != 0:
+                input_inds.insert(0, f"C{idx}")
+            tn.svd(
+                t,
+                input_indices=input_inds,
+                output_indices=output_inds,
+                new_index_name=f"C{idx+1}",
+                new_labels=[[f"T{idx+1}"], [f"T{idx+2}"]],
+            )
+            if idx == 0:
+                new_idx_order1 = [f"C{idx+1}", "P1"]
+            else:
+                new_idx_order1 = [
+                    f"C{idx}",
+                    f"C{idx+1}",
+                    f"P{idx+1}",
+                ]
+            new_idx_order2 = [f"C{idx+1}"] + output_inds
+            tn.tensors[idx].reorder_indices(new_idx_order1)
+            tn.tensors[idx + 1].reorder_indices(new_idx_order2)
+        arrays = [tn.tensors[i].data for i in range(num_qubits)]
+        mps = cls.from_arrays(arrays)
+        if max_bond:
+            if mps.bond_dimension > max_bond:
+                mps.compress(max_bond)
+        return mps
+
     def __add__(self, other: "MatrixProductState") -> "MatrixProductState":
         """
         Defines MPS addition.

@@ -390,8 +390,10 @@ class Tensor:
             input_idxs: The indices to be treated as matrix inputs.
             output_idxs: The indices to be treated as matrix outputs.
         """
-        self.combine_indices(input_idxs, new_index_name="I1")
-        self.combine_indices(output_idxs, new_index_name="O1")
+        if len(input_idxs) > 0:
+            self.combine_indices(input_idxs, new_index_name="I1")
+        if len(output_idxs) > 0:
+            self.combine_indices(output_idxs, new_index_name="O1")
         return
 
     def multiply_by_constant(self, const: complex) -> None:

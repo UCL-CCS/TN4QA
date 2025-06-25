@@ -1429,6 +1429,83 @@ class MatrixProductOperator(TensorNetwork):
         mpo = MatrixProductOperator.from_arrays(arrays)
         return mpo
 
+    @classmethod
+    def from_sparse_array(
+        cls, array: SparseArray, max_bond: int | None = None
+    ) -> "MatrixProductOperator":
+        """
+        Construct an MPO from a sparse array
+
+        Args:
+            array: The array
+            max_bond: Maximum bond dimension
+
+        Returns:
+            MPO
+        """
+        dense_array = array.todense()
+        return cls.from_dense_array(dense_array, max_bond)
+
+    @classmethod
+    def from_dense_array(
+        cls, array: ndarray, max_bond: int | None = None
+    ) -> "MatrixProductOperator":
+        """
+        Construct an MPO from a dense array
+
+        Args:
+            array: The array
+            max_bond: Maximum bond dimension
+
+        Returns:
+            MPO
+        """
+        num_qubits = int(np.log2(array.shape[0]))
+        array = array.reshape((2,) * (2 * num_qubits))
+        indices = [f"R{x}" for x in range(1, num_qubits + 1)] + [
+            f"L{x}" for x in range(1, num_qubits + 1)
+        ]
+        tensor = Tensor(array, indices, ["MPO"])
+        tn = TensorNetwork([tensor])
+
+        for idx in range(num_qubits - 1):
+            t = tn.tensors[idx]
+            input_inds = [indices[idx], indices[num_qubits + idx]]
+            output_inds = (
+                indices[idx + 1 : num_qubits] + indices[num_qubits + idx + 1 :]
+            )
+            if idx != 0:
+                input_inds.insert(0, f"C{idx}")
+            tn.svd(
+                t,
+                input_indices=input_inds,
+                output_indices=output_inds,
+                new_index_name=f"C{idx+1}",
+                new_labels=[[f"T{idx+1}"], [f"T{idx+2}"]],
+            )
+            if idx == 0:
+                new_idx_order1 = [
+                    f"C{idx+1}",
+                    "R1",
+                    "L1",
+                ]
+            else:
+                new_idx_order1 = [
+                    f"C{idx}",
+                    f"C{idx+1}",
+                    f"R{idx+1}",
+                    f"L{idx+1}",
+                ]
+            new_idx_order2 = [f"C{idx+1}"] + output_inds
+            tn.tensors[idx].reorder_indices(new_idx_order1)
+            tn.tensors[idx + 1].reorder_indices(new_idx_order2)
+        arrays = [tn.tensors[i].data for i in range(num_qubits)]
+        mpo = cls.from_arrays(arrays)
+        if max_bond:
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
+        return mpo
+
     def to_sparse_array(self) -> SparseArray:
         """
         Converts MPO to a sparse matrix.
