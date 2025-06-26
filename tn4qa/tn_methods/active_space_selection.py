@@ -11,21 +11,30 @@ def hs_squared_distance(V, W) -> float:
 
 def vector_to_antihermitian(theta: np.ndarray, N: int) -> np.ndarray:
     """
-    Convert a vector of parameters to an anti-Hermitian matrix.
-    Map real parameters to a skew-Hermitian K∈C^(NxN) matrix.
-
-    Args:
-        theta: A vector of parameters.
-        N: The number of sites (or dimensions).
-
-    Returns:
-        An anti-Hermitian matrix of shape (N, N).
+    Converts a real vector of length N^2 into an anti-Hermitian matrix K ∈ ℂ^{N x N}.
+    
+    Diagonal entries are pure imaginary: iθ
+    Off-diagonal: K[p,q] = a + ib, K[q,p] = -a + ib
     """
-    K = np.zeros((N, N), dtype=np.complex128)
+    assert len(theta) == N**2, "theta must have length N^2"
+    
+    K = np.zeros((N, N), dtype=complex)
+    idx = 0
+
+    # Fill diagonals: all imaginary
+    for i in range(N):
+        K[i, i] = 1j * theta[idx]
+        idx += 1
+
+    # Fill upper triangle, set lower triangle with Hermitian conjugate
     for i in range(N):
         for j in range(i + 1, N):
-            K[i, j] = -1j * theta[i * (N - 1) + j - 1]
-            K[j, i] = 1j * theta[i * (N - 1) + j - 1]
+            real = theta[idx]
+            imag = theta[idx + 1]
+            K[i, j] = real + 1j * imag
+            K[j, i] = -real + 1j * imag  # = -conj(K[i,j])
+            idx += 2
+
     return K
 
 def cost(theta: np.ndarray, V, W_init) -> float:
