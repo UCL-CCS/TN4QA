@@ -29,7 +29,7 @@ def count_qubits(obj: QiskitOptions | ArrayOptions) -> int:  # type: ignore
     return num_qubits
 
 
-def to_QuantumCircuit(obj: QiskitOptions | ArrayOptions) -> QuantumCircuit:  # type: ignore
+def to_quantum_circuit(obj: QiskitOptions | ArrayOptions) -> QuantumCircuit:  # type: ignore
     """
     Convert an object to a QuantumCircuit.
 
@@ -49,11 +49,11 @@ def to_QuantumCircuit(obj: QiskitOptions | ArrayOptions) -> QuantumCircuit:  # t
         return qc
     elif isinstance(obj, ndarray):
         qc = QuantumCircuit(num_qubits)
-        qc.append(UnitaryGate(obj), range(num_qubits))
+        qc.append(UnitaryGate(obj), list(range(num_qubits))[::-1])
         return qc
     elif isinstance(obj, SparseArray):
         qc = QuantumCircuit(num_qubits)
-        qc.append(UnitaryGate(obj.todense()), range(num_qubits))
+        qc.append(UnitaryGate(obj.todense()), list(range(num_qubits))[::-1])
         return qc
 
 
@@ -78,7 +78,7 @@ def add_controls(qc: QuantumCircuit, ctrl_idxs: List[int]) -> QuantumCircuit:
     return ctrl_qc
 
 
-def pauli_string_to_circ(pauli_string: str, rot_angle: float) -> QuantumCircuit:
+def exp_pauli_string_to_circ(pauli_string: str, rot_angle: float) -> QuantumCircuit:
     """
     Create a circuit for an exponential Pauli string.
 
@@ -102,11 +102,11 @@ def pauli_string_to_circ(pauli_string: str, rot_angle: float) -> QuantumCircuit:
     non_id_qubits = [
         p_idx for p_idx in range(len(pauli_string)) if pauli_string[p_idx] != "I"
     ]
-    for non_id_idx in range(len(non_id_qubits)):
+    for non_id_idx in range(len(non_id_qubits) - 1):
         q1, q2 = non_id_qubits[non_id_idx], non_id_qubits[non_id_idx + 1]
         qc.cx(q1, q2)
-    qc.rz(2 * rot_angle)
-    for non_id_idx in range(len(non_id_qubits)):
+    qc.rz(2 * rot_angle, non_id_qubits[-1])
+    for non_id_idx in range(len(non_id_qubits) - 1):
         q1, q2 = non_id_qubits[non_id_idx], non_id_qubits[non_id_idx + 1]
         qc.cx(q1, q2)
 
@@ -117,3 +117,51 @@ def pauli_string_to_circ(pauli_string: str, rot_angle: float) -> QuantumCircuit:
         elif p == "Y":
             qc.h(p_idx)
             qc.s(p_idx)
+
+    return qc
+
+
+def controlled_exp_pauli_string_circ(
+    pauli_string: str, rot_angle: float, ctrl_idxs: list[int]
+) -> QuantumCircuit:
+    """
+    Create a controlled circuit for an exponential Pauli string.
+
+    Args:
+        pauli_string: The Pauli string
+        rot_angle: The rotation angle in the exponential
+        ctrl_idxs: The list of qubits to act as controls
+
+    Returns:
+        A QuantumCircuit
+    """
+    qc = QuantumCircuit(len(pauli_string))
+
+    for p_idx in range(len(pauli_string)):
+        p = pauli_string[p_idx]
+        if p == "X":
+            qc.h(p_idx)
+        elif p == "Y":
+            qc.sdg(p_idx)
+            qc.h(p_idx)
+
+    non_id_qubits = [
+        p_idx for p_idx in range(len(pauli_string)) if pauli_string[p_idx] != "I"
+    ]
+    for non_id_idx in range(len(non_id_qubits) - 1):
+        q1, q2 = non_id_qubits[non_id_idx], non_id_qubits[non_id_idx + 1]
+        qc.cx(q1, q2)
+    qc.crz(2 * rot_angle, ctrl_idxs, non_id_idx[-1])
+    for non_id_idx in range(len(non_id_qubits) - 1):
+        q1, q2 = non_id_qubits[non_id_idx], non_id_qubits[non_id_idx + 1]
+        qc.cx(q1, q2)
+
+    for p_idx in range(len(pauli_string)):
+        p = pauli_string[p_idx]
+        if p == "X":
+            qc.h(p_idx)
+        elif p == "Y":
+            qc.h(p_idx)
+            qc.s(p_idx)
+
+    return qc

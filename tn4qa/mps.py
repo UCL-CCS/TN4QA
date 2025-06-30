@@ -1224,6 +1224,7 @@ class MatrixProductState(TensorNetwork):
         sample_prob_dict = {}  # {bitstring : probabiity}
 
         samples_collected = 0
+        self_copy = copy.deepcopy(self)
         while samples_collected < num_bitstrings:
             prob_existing_sample = np.sum(list(sample_prob_dict.values()))
             choose_existing_sample = np.random.choice(
@@ -1236,9 +1237,10 @@ class MatrixProductState(TensorNetwork):
                     list(sample_prob_dict.keys()), p=normalised_probs
                 )
                 samples[bitstring] += 1
+                samples_collected += 1
                 continue
             bitstring = ""
-            current_mps = copy.deepcopy(self)
+            current_mps = copy.deepcopy(self_copy)
             current_mpo = current_mps.form_density_operator()
             total_prob = 1.0
             temp_prob = 1.0
@@ -1294,8 +1296,8 @@ class MatrixProductState(TensorNetwork):
                 else:
                     samples[bitstring] = 1
                 samples_collected += 1
-            else:
                 sample_prob_dict[bitstring] = total_prob
+        print(sample_prob_dict)
 
         return samples
 
