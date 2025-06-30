@@ -8,7 +8,7 @@ from sparse import SparseArray
 
 from ..base import QuantumAlgorithm
 from ..result import Result
-from ..utils import add_controls, count_qubits, to_QuantumCircuit
+from ..utils import add_controls, count_qubits, to_quantum_circuit
 
 TypeOptions: TypeAlias = Union[
     QuantumCircuit, Operation, CircuitInstruction, ndarray, SparseArray  # type: ignore
@@ -29,8 +29,8 @@ class QPE(QuantumAlgorithm):
         """
         num_state_qubits = count_qubits(state)
 
-        unitary_circ = to_QuantumCircuit(unitary)
-        state_circ = to_QuantumCircuit(state)
+        unitary_circ = to_quantum_circuit(unitary)
+        state_circ = to_quantum_circuit(state)
         iqft = QFT(num_precision_bits, inverse=True)
 
         qc = QuantumCircuit(num_state_qubits + num_precision_bits)

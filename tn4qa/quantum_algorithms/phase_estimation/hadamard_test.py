@@ -7,19 +7,19 @@ from sparse import SparseArray
 
 from ..base import QuantumAlgorithm
 from ..result import Result
-from ..utils import add_controls, count_qubits, to_QuantumCircuit
+from ..utils import add_controls, count_qubits, to_quantum_circuit
 
 TypeOptions: TypeAlias = Union[
-    QuantumCircuit, Operation, CircuitInstruction, ndarray, SparseArray
-]  # type: ignore
+    QuantumCircuit, Operation, CircuitInstruction, ndarray, SparseArray  # type: ignore
+]
 
 
 class HadamardTest(QuantumAlgorithm):
     def __init__(self, unitary: TypeOptions, state: TypeOptions) -> "HadamardTest":  # type: ignore
         num_state_qubits = count_qubits(state)
 
-        state_circ = to_QuantumCircuit(state)
-        unitary_circ = to_QuantumCircuit(unitary)
+        state_circ = to_quantum_circuit(state)
+        unitary_circ = to_quantum_circuit(unitary)
 
         qc = QuantumCircuit(num_state_qubits + 1)
         qc.compose(unitary_circ, qubits=range(1, num_state_qubits + 1), inplace=True)

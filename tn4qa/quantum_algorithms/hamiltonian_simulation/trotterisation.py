@@ -2,7 +2,7 @@ from qiskit import QuantumCircuit
 
 from ..base import QuantumAlgorithm
 from ..result import Result
-from ..utils import pauli_string_to_circ
+from ..utils import exp_pauli_string_to_circ
 
 
 class TrotterSimulation(QuantumAlgorithm):
@@ -29,7 +29,7 @@ class TrotterSimulation(QuantumAlgorithm):
         timestep = duration / num_steps
         for _ in range(num_steps):
             for p in pauli_strings:
-                temp_qc = pauli_string_to_circ(p, timestep * hamiltonian[p])
+                temp_qc = exp_pauli_string_to_circ(p, timestep * hamiltonian[p])
                 qc.compose(temp_qc, inplace=True)
 
         super().__init__(qc)
