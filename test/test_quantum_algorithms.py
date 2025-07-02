@@ -1,7 +1,9 @@
 import os
 
 import numpy as np
+from qiskit import QuantumCircuit
 
+from tn4qa.quantum_algorithms.phase_estimation.hadamard_test import HadamardTest
 from tn4qa.quantum_algorithms.variational.vqe import VQEAlgorithm
 from tn4qa.utils import ReadMoleculeData
 
@@ -15,3 +17,16 @@ def test_vqe_h2():
     vqe = VQEAlgorithm(ham, 2)
     result = vqe.run()
     assert np.isclose(result.result, hf_e)
+
+
+def test_hadamard_test():
+    state = QuantumCircuit(3)
+    state.h([0, 1, 2])
+    unitary = QuantumCircuit(3)
+    unitary.x([0, 1, 2])
+
+    htest = HadamardTest(unitary, state)
+    result = htest.run(10000)
+
+    assert np.isclose(result.result.real, 1.0)
+    assert result.result.imag < 0.02

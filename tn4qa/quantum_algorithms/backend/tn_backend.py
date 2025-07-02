@@ -12,7 +12,26 @@ class TNQuantumBackend(QuantumBackend):
 
     def __init__(self) -> None:
         """Constructor"""
-        self.backend_name = "tn4qa_circuit_simulator"
+        self._name = "tn4qa_circuit_simulator"
+        self._coupling_map = None
+        self._basis_gates = None
+        self._num_qubits = None
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def coupling_map(self) -> list[tuple[int, int]]:
+        return self._coupling_map
+
+    @property
+    def num_qubits(self) -> int:
+        return self._num_qubits
+
+    @property
+    def basis_gates(self) -> list[str]:
+        return self._basis_gates
 
     def run(
         self,

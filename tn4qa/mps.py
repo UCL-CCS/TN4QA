@@ -1289,7 +1289,6 @@ class MatrixProductState(TensorNetwork):
                     total_prob *= prob1
                 if bitstring[:-1] not in prefix_prob_dict:
                     prefix_prob_dict[bitstring[:-1]] = (prob0, prob1)
-            print(bitstring)
             if bitstring not in sample_prob_dict:
                 if bitstring in samples:
                     samples[bitstring] += 1

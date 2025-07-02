@@ -2164,9 +2164,9 @@ class MatrixProductOperator(TensorNetwork):
         for n in range(len(sites) - 1):
             tn.combine_indices([f"B{n+1}", f"B{n+1}_"], new_index_name=f"B{n+1}")
         if contract_right:
-            tn.tensors[0].reorder_indices([f"B{n+1}", f"R{n+1}_", f"L{n+1}"])
+            tn.tensors[0].reorder_indices(["B1", "R1_", "L1"])
         else:
-            tn.tensors[0].reorder_indices([f"B{n+1}", f"R{n+1}", f"L{n+1}_"])
+            tn.tensors[0].reorder_indices(["B1", "R1", "L1_"])
         for n in range(1, len(sites)):
             if contract_right:
                 tn.tensors[n].reorder_indices(

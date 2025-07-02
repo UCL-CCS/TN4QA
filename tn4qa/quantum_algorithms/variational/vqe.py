@@ -227,6 +227,7 @@ class VQEAlgorithm(QuantumAlgorithm):
         end_time = default_timer()
         self.minimum_eigenvalue = result.eigenvalue
         metadata = {
+            "algorithm_name": "VQE",
             "num_parameters": len(
                 self.optimisation_dict["optimisation_parameters"][-1]
             ),
