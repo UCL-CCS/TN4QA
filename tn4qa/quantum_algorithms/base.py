@@ -13,17 +13,17 @@ class QuantumAlgorithm(ABC):
         """Run the full algorithm pipeline. Returns result object or final value."""
         pass
 
-    @abstractmethod
-    def construct_circuit(self, **kwargs):
-        """Return the circuit(s) that represent the quantum part of the algorithm."""
-        pass
+    # @abstractmethod
+    # def construct_circuit(self, **kwargs):
+    #     """Return the circuit(s) that represent the quantum part of the algorithm."""
+    #     pass
 
     @abstractmethod
     def set_backend(self, backend, **kwargs) -> None:
         """Attach a QuantumBackend instance for execution."""
         pass
 
-    @abstractmethod
-    def get_result(self):
-        """Return structured results."""
-        pass
+    # @abstractmethod
+    # def get_result(self):
+    #     """Return structured results."""
+    #     pass
