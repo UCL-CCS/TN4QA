@@ -6,8 +6,8 @@ class Result:
 
     def __init__(
         self,
-        measurements: dict[str, int],
         result: float | None = None,
+        measurements: dict[str, int] | None = None,
         parameters: list[float] | None = None,
         metadata: dict | None = None,
         **kwargs,
