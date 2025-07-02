@@ -31,9 +31,9 @@ class Result:
         output = "Quantum Alrogithm Result\n"
         if self.metadata:
             if "algorithm_name" in self.metadata:
-                output += f"Algorithm: {self.metadata["algorithm_name"]}\n"
+                output += f"Algorithm: {self.metadata['algorithm_name']}\n"
             if "total_runtime" in self.metadata:
-                output += f"Total runtime: {self.metadata["total_runtime"]}\n"
+                output += f"Total runtime: {self.metadata['total_runtime']}\n"
         if self.result:
             output += f"Final result = {self.result}"
         return output

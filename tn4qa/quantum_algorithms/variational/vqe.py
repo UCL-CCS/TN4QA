@@ -5,9 +5,10 @@ from typing import Union
 import matplotlib.pyplot as plt
 from numpy import ndarray
 from qiskit import QuantumCircuit
+from qiskit.primitives import Estimator
+from qiskit.quantum_info import SparsePauliOp
 from qiskit_algorithms import VQE
 from qiskit_algorithms.optimizers import Optimizer
-from qiskit_ibm_runtime import Estimator
 
 from ..backend.base import QuantumBackend
 from ..base import QuantumAlgorithm
@@ -28,7 +29,8 @@ from .classical_optimisers import (
 class VQEAlgorithm(QuantumAlgorithm):
     def __init__(
         self,
-        hamiltonian: dict | tuple[ndarray, ndarray, float],
+        hamiltonian: dict,
+        num_electrons: int | None = None,
         max_iterations_vqe: int = 1e3,
         convergence_threshold: float = 1e-6,
         initial_points: ndarray = None,
@@ -41,21 +43,23 @@ class VQEAlgorithm(QuantumAlgorithm):
         Constructor
 
         Args:
-            hamiltonian: Either a qubit Hamiltonian given as a dict or a fermionic Hamiltonian given as (1e_ints, 2e_ints, nuc_e).
+            hamiltonian: a qubit Hamiltonian given as a dict
+            num_electrons: Required if using number preserving ansatz
             max_iterations_vqe: Maximum number of iterations
             convergence_threshold: Convergence threshold for early exit
             initial_points: Initial starting points
             ansatz: Ansatz given as a QuantumCircuit or a string (number_preserving_ansatz, hardware_efficient_ansatz, pauli_two_design_ansatz)
             optimiser: Optimiser given as an Optimiser or a string (QNSPSA, ADAM, BFGS, COBYLA)
             estimator: Estimator given as an Estimator or None
-            backend: QuantumBackend, currently only Qiskit backends are supported
+            backend: QuantumBackend, currently only Qiskit simulation
         """
 
         if isinstance(hamiltonian, dict):
-            self.num_qubits = len(list(dict.keys())[0])
+            self.num_qubits = len(list(hamiltonian.keys())[0])
         else:
             self.num_qubits = len(hamiltonian[0])
         self.hamiltonian = hamiltonian
+        self.num_electrons = num_electrons
         self.optimisation_index = 0
         self.max_iterations_vqe = max_iterations_vqe
         self.convergence_threshold = convergence_threshold
@@ -80,7 +84,7 @@ class VQEAlgorithm(QuantumAlgorithm):
             estimator: The Estimator, optional, defaults to Estimator()
         """
         if not estimator:
-            self.estimator = Estimator(mode=self.backend)
+            self.estimator = Estimator()
         else:
             self.estimator = estimator
         return
@@ -92,7 +96,10 @@ class VQEAlgorithm(QuantumAlgorithm):
             ansatz: QuantumCircuit, string identifier or None, defaults to number_preserving_ansatz
         """
         if not ansatz or ansatz == "number_preserving_ansatz":
-            qc = number_preserving_ansatz(self.num_qubits)
+            qc1 = QuantumCircuit(self.num_qubits)
+            qc1.x(range(self.num_electrons))
+            qc2 = number_preserving_ansatz(self.num_qubits, 3, "linear")
+            qc = qc1.compose(qc2)
             self.ansatz = qc
         elif ansatz == "hardware_efficient_ansatz":
             qc = hea_ansatz(self.num_qubits)
@@ -196,6 +203,7 @@ class VQEAlgorithm(QuantumAlgorithm):
             self.ansatz,
             self.optimiser,
             initial_point=self.initial_points,
+            callback=self.callback,
         )
         return driver
 
@@ -210,27 +218,31 @@ class VQEAlgorithm(QuantumAlgorithm):
 
     def run(self) -> Result:
         """Run the full algorithm pipeline. Returns result object."""
-        observable = self.hamiltonian
+        pauli_list = list(self.hamiltonian.keys())
+        coeffs = list(self.hamiltonian.values())
+        observable = SparsePauliOp(pauli_list, coeffs)
         self.clear_optimisation_dict()
         start_time = default_timer()
         result = self.driver.compute_minimum_eigenvalue(observable)
         end_time = default_timer()
         self.minimum_eigenvalue = result.eigenvalue
+        metadata = {
+            "num_parameters": len(
+                self.optimisation_dict["optimisation_parameters"][-1]
+            ),
+            "num_iterations": self.optimisation_dict["optimisation_number"][-1],
+            "total_runtime": end_time - start_time,
+        }
+        if self.backend is not None:
+            metadata["backend_name"] = self.backend.name
+            metadata["backend_coupling_map"] = self.backend.coupling_map
+            metadata["backend_basis_gates"] = self.backend.basis_gates
+            metadata["backend_num_qubits"] = self.backend.num_qubits
         result = Result(
             result=self.minimum_eigenvalue,
             measurements=None,
             parameters=self.optimisation_dict["optimisation_parameters"][-1],
-            metadata={
-                "num_parameters": len(
-                    self.optimisation_dict["optimisation_parameters"][-1]
-                ),
-                "num_iterations": self.optimisation_dict["optimisation_number"][-1],
-                "total_runtime": end_time - start_time,
-                "backend_name": self.backend.name,
-                "backend_coupling_map": self.backend.coupling_map,
-                "backend_basis_gates": self.backend.basis_gates,
-                "backend_num_qubits": self.backend.num_qubits,
-            },
+            metadata=metadata,
         )
         return result
 
