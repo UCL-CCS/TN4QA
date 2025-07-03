@@ -34,7 +34,7 @@ class TrotterSimulation(QuantumAlgorithm):
         norm = np.sum([np.abs(x) for x in hamiltonian.values()])
         self.duration = duration
         if not num_steps:
-            self.num_steps = np.ceil((duration * norm) / 0.1)
+            self.num_steps = int(np.ceil((duration * norm) / 0.1))
         else:
             self.num_steps = num_steps
         self.delta_t = duration / self.num_steps
@@ -44,10 +44,9 @@ class TrotterSimulation(QuantumAlgorithm):
         num_qubits = len(pauli_strings[0])
         qc = QuantumCircuit(num_qubits)
 
-        timestep = duration / num_steps
-        for _ in range(num_steps):
+        for _ in range(self.num_steps):
             for p in pauli_strings:
-                temp_qc = exp_pauli_string_to_circ(p, timestep * hamiltonian[p])
+                temp_qc = exp_pauli_string_to_circ(p, self.delta_t * hamiltonian[p])
                 qc.compose(temp_qc, inplace=True)
 
         self._circuit = qc
