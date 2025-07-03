@@ -1,3 +1,4 @@
+import copy
 from typing import List, TypeAlias, Union
 
 import numpy as np
@@ -6,6 +7,8 @@ from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitInstruction, Operation
 from qiskit.circuit.library import UnitaryGate
 from sparse import SparseArray
+
+from .backend.base import QuantumBackend
 
 QiskitOptions: TypeAlias = Union[QuantumCircuit, Operation, CircuitInstruction]  # type: ignore
 ArrayOptions = TypeAlias = Union[ndarray, SparseArray]
@@ -91,6 +94,9 @@ def exp_pauli_string_to_circ(pauli_string: str, rot_angle: float) -> QuantumCirc
     """
     qc = QuantumCircuit(len(pauli_string))
 
+    if pauli_string == "I" * len(pauli_string):
+        return qc
+
     for p_idx in range(len(pauli_string)):
         p = pauli_string[p_idx]
         if p == "X":
@@ -165,3 +171,70 @@ def controlled_exp_pauli_string_circ(
             qc.s(p_idx)
 
     return qc
+
+
+def calculate_exp_val(
+    circuit: QuantumCircuit, observable: dict, backend: QuantumBackend, shots: int
+) -> float:
+    """Calculate an expectation value from a circuit
+
+    Args:
+        circuit: The QuantumCircuit
+        observable: The observable (sum of Pauli terms)
+        backend: The backend
+        shots: Shots per circuit
+    """
+
+    def filter_counts(counts: dict, relevant_qidxs: list[int]):
+        new_counts = {}
+        for k, v in counts.items():
+            new_k = ""
+            for b_idx in range(len(k)):
+                b = k[b_idx]
+                if b_idx in relevant_qidxs:
+                    new_k += b
+            if new_k in new_counts:
+                new_counts[new_k] += v
+            else:
+                new_counts[new_k] = v
+        return new_counts
+
+    def parity_of_bitstring(bitstring: str):
+        parity = 1
+        for b in bitstring:
+            if b == "1":
+                parity *= -1
+        return parity
+
+    exp_val = 0
+    for k, v in observable.items():
+        if k == "I" * len(k):
+            exp_val += v
+            continue
+
+        qc = copy.deepcopy(circuit)
+        relevant_qidxs = []
+        for p_idx in range(len(k)):
+            p = k[p_idx]
+            if p == "X":
+                qc.h(p_idx)
+                relevant_qidxs.append(p_idx)
+            elif p == "Y":
+                qc.sdg(p_idx)
+                qc.h(p_idx)
+                relevant_qidxs.append(p_idx)
+            elif p == "Z":
+                relevant_qidxs.append(p_idx)
+        counts = backend.run(qc, shots=shots)
+        filtered_counts = filter_counts(counts, relevant_qidxs)
+        counts_p = 0
+        counts_n = 0
+        for a, b in filtered_counts.items():
+            parity = parity_of_bitstring(a)
+            if parity == 1:
+                counts_p += b
+            else:
+                counts_n += b
+        exp_val += v * ((counts_p - counts_n) / shots)
+
+    return exp_val

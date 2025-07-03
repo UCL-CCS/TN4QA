@@ -131,4 +131,4 @@ class HadamardTest(QuantumAlgorithm):
         if backend is None:
             backend = TNQuantumBackend()
         self.backend = backend
-        pass
+        return
