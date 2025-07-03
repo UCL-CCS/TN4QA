@@ -48,8 +48,12 @@ class HadamardTest(QuantumAlgorithm):
             inplace=True,
             front=True,
         )
-        self.circuit = qc
+        self._circuit = qc
         self.set_backend(backend=backend)
+
+    @property
+    def circuit(self) -> QuantumCircuit:
+        return self._circuit
 
     def get_real_counts(self, num_shots: int) -> dict[str, int]:
         """Get counts for real part of expectation value"""

@@ -77,6 +77,10 @@ class VQEAlgorithm(QuantumAlgorithm):
         self.set_callback()
         self.driver = self.vqe_driver()
 
+    @property
+    def circuit(self) -> QuantumCircuit:
+        return self.ansatz
+
     def set_estimator(self, estimator: Estimator | None = None) -> None:
         """Set the Estimator
 

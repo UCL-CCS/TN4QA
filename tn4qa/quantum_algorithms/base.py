@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 
+from qiskit import QuantumCircuit
+
 from .result import Result
 
 
@@ -7,6 +9,12 @@ class QuantumAlgorithm(ABC):
     """
     Abstract base class for quantum algorithms.
     """
+
+    @property
+    @abstractmethod
+    def circuit(self) -> QuantumCircuit:
+        """Get the circuit from the algorithm"""
+        pass
 
     @abstractmethod
     def run(self, **kwargs) -> Result:
