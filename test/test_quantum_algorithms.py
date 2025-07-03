@@ -1,4 +1,5 @@
 import os
+import random
 
 import numpy as np
 from qiskit import QuantumCircuit
@@ -7,6 +8,8 @@ from tn4qa.quantum_algorithms.phase_estimation.hadamard_test import HadamardTest
 from tn4qa.quantum_algorithms.phase_estimation.qpe import QPE
 from tn4qa.quantum_algorithms.variational.vqe import VQEAlgorithm
 from tn4qa.utils import ReadMoleculeData
+
+seed = random.seed(1)
 
 
 def test_vqe_h2():
@@ -28,7 +31,7 @@ def test_hadamard_test():
 
     htest = HadamardTest(unitary, state)
     result = htest.run(10000)
-
+    print(result.result)
     assert np.isclose(result.result.real, 1.0)
     assert result.result.imag < 0.02
 
