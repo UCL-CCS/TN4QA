@@ -7,15 +7,18 @@ from qiskit import QuantumCircuit
 from ...dmrg import DMRG
 from ...mpo import MatrixProductOperator
 from ...mps import MatrixProductState
+from ...quantum_algorithms.hamiltonian_simulation.trotterisation import (
+    TrotterSimulation,
+)
 from ...quantum_algorithms.variational.ansatz_circuits import random_staircase_circuit
 from ...tn_methods.mps_to_circuit import MPSOptimiser
 from ..backend.base import QuantumBackend
 from ..backend.tn_backend import TNQuantumBackend
-from ..base import QuantumAlgorithm
 from ..result import Result
+from .qsci import QSCI
 
 
-class QSCI(QuantumAlgorithm):
+class ControlledTimeEvolvedQSCI(QSCI):
     def __init__(
         self, hamiltonian: dict, backend: QuantumBackend | None = None
     ) -> "QSCI":
@@ -45,6 +48,14 @@ class QSCI(QuantumAlgorithm):
         opt = MPSOptimiser(qc, mps)
         circ = opt.run()
         return circ
+
+    def perform_time_evolution(self, duration: float) -> QuantumCircuit:
+        """Add time evolution to the circuit"""
+        sim = TrotterSimulation(self.hamiltonian, duration=duration)
+        sim_circ = sim.circuit
+        ref = copy.deepcopy(self.reference_circuit)
+        ref.compose(sim_circ, inplace=True)
+        return ref
 
     def configuration_recovery(self, counts: dict) -> dict:
         """Perform configuration recovery"""
