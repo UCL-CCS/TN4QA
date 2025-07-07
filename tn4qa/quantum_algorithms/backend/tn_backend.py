@@ -68,4 +68,4 @@ class TNQuantumBackend(QuantumBackend):
 
     def get_device_info(self) -> dict:
         """Return a dictionary describing the backend."""
-        return {"backend_name": self.backend_name}
+        return {"backend_name": self.name}
