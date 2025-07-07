@@ -56,6 +56,7 @@ class IQMBackend(QuantumBackend):
         """
         qc = circuit
         qc.measure_all()
+        qc = transpile(qc, backend=self.backend)
         result = self.backend.run(qc, shots=shots).result()
         counts = result.get_counts()
         return counts
