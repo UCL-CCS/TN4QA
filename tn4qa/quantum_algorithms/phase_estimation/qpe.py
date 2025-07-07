@@ -11,7 +11,7 @@ from sparse import SparseArray
 from ..backend.base import QuantumBackend
 from ..backend.tn_backend import TNQuantumBackend
 from ..base import QuantumAlgorithm
-from ..hamiltonian_simulation.qdrift import QdriftSimulation
+from ..hamiltonian_simulation.qdrift import QDriftSimulation
 from ..hamiltonian_simulation.trotterisation import TrotterSimulation
 from ..result import Result
 from ..utils import add_controls, count_qubits, to_quantum_circuit
@@ -43,7 +43,7 @@ class QPE(QuantumAlgorithm):
 
         unitary_circ = to_quantum_circuit(unitary)
         state_circ = to_quantum_circuit(state)
-        iqft = QFT(num_precision_bits, inverse=True)
+        iqft = QFT(num_precision_bits, inverse=True).decompose()
 
         qc = QuantumCircuit(self.num_state_qubits + num_precision_bits)
         qc.h(range(num_precision_bits))
@@ -67,7 +67,7 @@ class QPE(QuantumAlgorithm):
             inplace=True,
             front=True,
         )
-        qc.append(iqft, range(num_precision_bits))
+        qc.compose(iqft, qubits=range(num_precision_bits), inplace=True)
         self._circuit = qc
         self.set_backend(backend=backend)
         self.from_ham = False
@@ -88,7 +88,7 @@ class QPE(QuantumAlgorithm):
     ) -> "QPE":
         """Set up QPE for a Hamiltonian input"""
         if qdrift:
-            circ_builder = QdriftSimulation()
+            circ_builder = QDriftSimulation()
         else:
             circ_builder = TrotterSimulation()
         unitary = circ_builder.circuit
