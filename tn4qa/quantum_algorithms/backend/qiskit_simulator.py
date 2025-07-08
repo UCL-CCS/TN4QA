@@ -1,3 +1,5 @@
+import copy
+
 from qiskit import QuantumCircuit
 from qiskit_aer import AerSimulator
 
@@ -48,7 +50,7 @@ class QiskitSimulatorBackend(QuantumBackend):
             Measurement results {bitstring : count}
         """
         sim = AerSimulator()
-        qc = circuit
+        qc = copy.deepcopy(circuit)
         qc.measure_all()
         result = sim.run(qc, shots=shots).result()
         counts = result.get_counts()

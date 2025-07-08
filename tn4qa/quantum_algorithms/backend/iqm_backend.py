@@ -1,3 +1,5 @@
+import copy
+
 from iqm.qiskit_iqm import IQMProvider
 from qiskit import QuantumCircuit, transpile
 
@@ -14,7 +16,7 @@ class IQMBackend(QuantumBackend):
 
         Args:
             token: Access token
-            device: Name of device, either emerald or garnet"""
+            device: Name of device, either emerald or sirius"""
         self._name = "IQM_" + device
         self.url = "https://cocos.resonance.meetiqm.com/" + device
         self.provider = IQMProvider(self.url, token=token)
@@ -54,11 +56,12 @@ class IQMBackend(QuantumBackend):
         Returns:
             Measurement results {bitstring : count}
         """
-        qc = circuit
+        qc = copy.deepcopy(circuit)
         qc.measure_all()
         qc = transpile(qc, backend=self.backend)
         result = self.backend.run(qc, shots=shots).result()
         counts = result.get_counts()
+        counts = {k[::-1]: v for k, v in counts.items()}
         return counts
 
     def parse_openqasm(self, filename: str) -> QuantumCircuit:
