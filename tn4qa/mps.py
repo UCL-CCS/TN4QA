@@ -1,4 +1,5 @@
 import copy
+from collections import Counter
 from typing import List, TypeAlias, Union
 
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
@@ -1219,6 +1220,14 @@ class MatrixProductState(TensorNetwork):
         Returns:
             A dictionary of the form {bitstring : counts}
         """
+        if self.num_sites <= 15:
+            dist = self.get_probability_distribution()
+            samples = np.random.choice(
+                list(dist.keys()), size=num_bitstrings, p=list(dist.values())
+            )
+            output = dict(Counter(list(samples)))
+            return output
+
         samples = {}
         prefix_prob_dict = {}  # {prefix : (prob0, prob1)}
         sample_prob_dict = {}  # {bitstring : probabiity}

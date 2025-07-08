@@ -1,4 +1,6 @@
-from qiskit import QuantumCircuit
+import copy
+
+from qiskit import QuantumCircuit, transpile
 
 from ...circuit_simulator import CircuitSimulator
 from ...mps import MatrixProductState
@@ -50,7 +52,9 @@ class TNQuantumBackend(QuantumBackend):
         Returns:
             Measurement results {bitstring : count}
         """
-        sim = CircuitSimulator(circuit, input_state=input_state)
+        qc = copy.deepcopy(circuit)
+        qc = transpile(qc, basis_gates=["u", "cx"])
+        sim = CircuitSimulator(qc, input_state=input_state)
         output = sim.run(max_bond_dimension=max_bond, samples=shots)
         return output
 
