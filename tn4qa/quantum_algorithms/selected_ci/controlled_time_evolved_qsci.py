@@ -1,17 +1,11 @@
 import copy
-import heapq
 from timeit import default_timer
 
 from qiskit import QuantumCircuit
 
-from ...dmrg import DMRG
-from ...mpo import MatrixProductOperator
-from ...mps import MatrixProductState
 from ...quantum_algorithms.hamiltonian_simulation.trotterisation import (
     TrotterSimulation,
 )
-from ...quantum_algorithms.variational.ansatz_circuits import random_staircase_circuit
-from ...tn_methods.mps_to_circuit import MPSOptimiser
 from ..backend.base import QuantumBackend
 from ..backend.tn_backend import TNQuantumBackend
 from ..result import Result
@@ -25,54 +19,19 @@ class ControlledTimeEvolvedQSCI(QSCI):
         """
         Constructor for QSCI class.
         """
-        self.hamiltonian = hamiltonian
-        self.state, self.energy = self.run_dmrg(self.hamiltonian)
-        self._circuit = None
-        self.set_backend(backend=backend)
+        super().__init__(hamiltonian, backend)
 
     @property
     def circuit(self) -> QuantumCircuit:
         return self._circuit
 
-    def run_dmrg(
-        self, hamiltonian: dict, max_bond: int = 16, maxiter: int = 10
-    ) -> MatrixProductState:
-        """Run DMRG"""
-        dmrg = DMRG(hamiltonian, max_mps_bond=max_bond)
-        dmrg.run(maxiter=maxiter)
-        return dmrg.mps, dmrg.energy
-
-    def prepare_state(self, mps: MatrixProductState) -> QuantumCircuit:
-        """Prepare an MPS reference on quantum device"""
-        qc = random_staircase_circuit(mps.num_sites, 1, 2)
-        opt = MPSOptimiser(qc, mps)
-        circ = opt.run()
-        return circ
-
     def perform_time_evolution(self, duration: float) -> QuantumCircuit:
         """Add time evolution to the circuit"""
         sim = TrotterSimulation(self.hamiltonian, duration=duration)
         sim_circ = sim.circuit
-        ref = copy.deepcopy(self.reference_circuit)
+        ref = copy.deepcopy(self.circuit)
         ref.compose(sim_circ, inplace=True)
         return ref
-
-    def configuration_recovery(self, counts: dict) -> dict:
-        """Perform configuration recovery"""
-        return counts
-
-    def gather_samples(self, cr_counts: dict, k: int) -> list[str]:
-        """Collect the (at most) k most frequent samples to form the selected subspace"""
-        top_samples = heapq.nlargest(k, cr_counts, key=cr_counts.get)
-        return top_samples
-
-    def project_hamiltonian(self, samples: list[str]) -> MatrixProductOperator:
-        """Project Hamiltonian onto subspace"""
-        ham = copy.deepcopy(self.hamiltonian)
-        mpo = MatrixProductOperator.from_hamiltonian(ham)
-        projector = MatrixProductOperator.projector_from_samples(samples, 128)
-        projected_mpo = mpo.project_to_subspace(projector)
-        return projected_mpo
 
     def run(
         self, num_shots: int, subspace_size: int, num_iterations: int = 1

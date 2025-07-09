@@ -215,7 +215,7 @@ def hilbert_schmidt_fidelity(
 
 
 def total_variation_distance(
-    mps: MatrixProductState,
+    output_distribution: dict[str, float] | MatrixProductState,
     expected_distribution: dict[str, float],
     sample_size: int = None,
 ) -> float:
@@ -230,10 +230,14 @@ def total_variation_distance(
     Returns:
         TVD = 1/2 * sum_x |P(x) - Q(x)|
     """
-    if not sample_size:
-        probability_dist = mps.get_probability_distribution()
+    if isinstance(output_distribution, MatrixProductState):
+        mps = output_distribution
+        if not sample_size:
+            probability_dist = mps.get_probability_distribution()
+        else:
+            probability_dist = mps.get_approximate_probability_distribution(sample_size)
     else:
-        probability_dist = mps.get_approximate_probability_distribution(sample_size)
+        probability_dist = output_distribution
 
     # Get the union of keys from both distributions
     all_keys = set(probability_dist.keys()).union(expected_distribution.keys())

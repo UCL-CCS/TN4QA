@@ -17,7 +17,7 @@ class TrotterSimulation(QuantumAlgorithm):
 
     def __init__(
         self,
-        hamiltonian: dict[str, complex],
+        hamiltonian: dict[str, float],
         duration: float,
         num_steps: int | None = None,
         backend: QuantumBackend | None = None,
@@ -31,6 +31,7 @@ class TrotterSimulation(QuantumAlgorithm):
             num_steps: The number of Trotter steps, defaults to a sensible value
         """
         self.hamiltonian = hamiltonian
+
         norm = np.sum([np.abs(x) for x in hamiltonian.values()])
         self.duration = duration
         if not num_steps:

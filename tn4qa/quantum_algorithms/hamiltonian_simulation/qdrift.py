@@ -7,7 +7,7 @@ from ..backend.base import QuantumBackend
 from ..backend.tn_backend import TNQuantumBackend
 from ..base import QuantumAlgorithm
 from ..result import Result
-from ..utils import calculate_exp_val, exp_pauli_string_to_circ
+from ..utils import calculate_exp_val_stochastic, exp_pauli_string_to_circ
 
 
 class QDriftSimulation(QuantumAlgorithm):
@@ -43,37 +43,58 @@ class QDriftSimulation(QuantumAlgorithm):
             np.ceil(2 * (self.norm**2) * (self.duration**2) / self.error)
         )
 
-        pauli_strings = list(hamiltonian.keys())
-
-        num_qubits = len(pauli_strings[0])
-        qc = QuantumCircuit(num_qubits)
-
-        term_idxs = list(range(len(list(self.hamiltonian.keys()))))
-        probs = [np.abs(weight) / self.norm for weight in self.hamiltonian.values()]
-        for idx in range(self.num_terms):
-            sample = np.random.choice(term_idxs, p=probs)
-            p = list(hamiltonian.keys())[sample]
-            temp_qc = exp_pauli_string_to_circ(
-                p, self.norm * self.duration / self.num_terms
-            )
-            qc.compose(temp_qc, inplace=True)
-
-        self._circuit = qc
+        self._circuit = self.build_circuit(
+            self.hamiltonian, self.norm, self.num_terms, self.duration
+        )
         self.set_backend(backend)
 
     @property
     def circuit(self) -> QuantumCircuit:
         return self._circuit
 
+    def build_circuit(
+        self, ham: dict[str, float], norm: float, num_terms: int, duration: float
+    ) -> QuantumCircuit:
+        pauli_strings = list(ham.keys())
+
+        num_qubits = len(pauli_strings[0])
+        qc = QuantumCircuit(num_qubits)
+
+        term_idxs = list(range(len(list(ham.keys()))))
+        probs = [np.abs(weight) / norm for weight in ham.values()]
+        for _ in range(num_terms):
+            sample = np.random.choice(term_idxs, p=probs)
+            p = list(ham.keys())[sample]
+            temp_qc = exp_pauli_string_to_circ(p, norm * duration / num_terms)
+            qc.compose(temp_qc, inplace=True)
+
+        return qc
+
     def run(self, num_shots: int = 1024, observable: dict | None = None) -> Result:
         """Run the full algorithm pipeline. Returns result object or final value."""
         start_time = default_timer()
+        counts = {}
+        for _ in range(num_shots):
+            self._circuit = self.build_circuit(
+                self.hamiltonian, self.norm, self.num_terms, self.duration
+            )
+            bs = list(self.backend.run(self.circuit, shots=1).keys())[0]
+            if bs in counts:
+                counts[bs] += 1
+            else:
+                counts[bs] = 1
         if observable is None:
-            counts = self.backend.run(self.circuit, shots=num_shots)
             result = None
         else:
-            result = calculate_exp_val(
-                self.circuit, observable, self.backend, num_shots
+            result = calculate_exp_val_stochastic(
+                self.build_circuit,
+                observable,
+                self.backend,
+                num_shots,
+                self.hamiltonian,
+                self.norm,
+                self.num_terms,
+                self.duration,
             )
             counts = None
 
