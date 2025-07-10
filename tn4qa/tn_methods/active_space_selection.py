@@ -11,7 +11,7 @@ def hs_squared_distance(V, W) -> float:
 
 def vector_to_antihermitian(theta: np.ndarray, N: int) -> np.ndarray:
     """
-    Converts a real vector of length N^2 into an anti-Hermitian matrix K ∈ ℂ^{N x N}.
+    Converts a real vector of length N^2 into an anti-Hermitian matrix K ∈ C^{N x N}.
     
     Diagonal entries are pure imaginary: iθ
     Off-diagonal: K[p,q] = a + ib, K[q,p] = -a + ib
@@ -67,3 +67,30 @@ def optimise_K(V, W_init):
     )
 
     return result.x
+
+#----------------------------------------------------------------------------------------------------------
+# Reconstruct the change of basis matrix on the level of orbitals, 
+# we have U = e^K which is easy to calculate classically since the matrices are now only N x N  
+
+
+def exponentiate_K(K: np.ndarray) -> np.ndarray:
+    """
+    Compute U = exp(K) using eigendecomposition, where K is anti-Hermitian.
+
+    Args:
+    K: Anti-Hermitian matrix of shape (N, N)
+
+    Returns:
+    U = exp(K): a unitary matrix
+    """
+    assert K.shape[0] == K.shape[1], "K must be square"
+    assert np.allclose(K + K.conj().T, 0), "K must be anti-Hermitian"
+
+    # Eigendecomposition: K = V D V^{-1}
+    eigvals, eigvecs = np.linalg.eig(K)
+
+    # Compute exp(K) = V exp(D) V^{-1)
+    exp_D = np.diag(np.exp(eigvals))
+    V_inv = np.linalg.inv(eigvecs)
+    U = eigvecs @ exp_D @ V_inv
+    return U
