@@ -17,7 +17,7 @@ class QDriftSimulation(QuantumAlgorithm):
 
     def __init__(
         self,
-        hamiltonian: dict[str, complex],
+        hamiltonian: dict[str, float],
         duration: float,
         error: float | None = None,
         backend: QuantumBackend | None = None,
@@ -65,24 +65,32 @@ class QDriftSimulation(QuantumAlgorithm):
         for _ in range(num_terms):
             sample = np.random.choice(term_idxs, p=probs)
             p = list(ham.keys())[sample]
-            temp_qc = exp_pauli_string_to_circ(p, norm * duration / num_terms)
+            sign = 1 if ham[p] >= 0.0 else -1
+            temp_qc = exp_pauli_string_to_circ(p, norm * duration * sign / num_terms)
             qc.compose(temp_qc, inplace=True)
 
         return qc
 
-    def run(self, num_shots: int = 1024, observable: dict | None = None) -> Result:
+    def run(
+        self,
+        num_shots: int = 1024,
+        num_circuits: int | None = None,
+        observable: dict | None = None,
+    ) -> Result:
         """Run the full algorithm pipeline. Returns result object or final value."""
         start_time = default_timer()
         counts = {}
-        for _ in range(num_shots):
+        shots_per_circ = int(num_shots / num_circuits)
+        for _ in range(num_circuits):
             self._circuit = self.build_circuit(
                 self.hamiltonian, self.norm, self.num_terms, self.duration
             )
-            bs = list(self.backend.run(self.circuit, shots=1).keys())[0]
-            if bs in counts:
-                counts[bs] += 1
-            else:
-                counts[bs] = 1
+            bs = self.backend.run(self.circuit, shots=shots_per_circ)
+            for b, count in bs.items():
+                if b in counts:
+                    counts[b] += count
+                else:
+                    counts[b] = count
         if observable is None:
             result = None
         else:

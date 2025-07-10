@@ -19,6 +19,7 @@ class TrotterSimulation(QuantumAlgorithm):
         self,
         hamiltonian: dict[str, float],
         duration: float,
+        error: float = 0.05,
         num_steps: int | None = None,
         backend: QuantumBackend | None = None,
     ) -> "TrotterSimulation":
@@ -35,7 +36,7 @@ class TrotterSimulation(QuantumAlgorithm):
         norm = np.sum([np.abs(x) for x in hamiltonian.values()])
         self.duration = duration
         if not num_steps:
-            self.num_steps = int(np.ceil((duration * norm) / 0.1))
+            self.num_steps = int(np.ceil((duration**2 * norm**2) / error))
         else:
             self.num_steps = num_steps
         self.delta_t = duration / self.num_steps
