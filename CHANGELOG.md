@@ -18,3 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Bug in existing fermionic Hamiltonian MPO construction
+
+## [0.0.3] - 2025-07-11
+
+### Added
+- Quantum Algorithms sub-module
+- Quantum backend offload
+- Quantum circuit simulator
+- Basic TN methods
+
+### Changed
+- DMRG now accepts MPO input
+
+### Fixed
+- Normalisation fixes in fidelity metrics
+- Fixed tensor network constructions from qiskit QuantumCircuits
