@@ -104,8 +104,7 @@ def get_one_orbital_operator(idx1: int, idx2: int, orbital_idx: int) -> list[tup
 
 
 def get_one_particle_rdm(mps: MatrixProductState) -> ndarray:
-    """
-    Calculate 1-RDM.
+    """Calculate 1-RDM.
 
     Args:
         mps: The quantum state whose 1-RDM we want
@@ -129,8 +128,7 @@ def get_one_particle_rdm(mps: MatrixProductState) -> ndarray:
 
 
 def get_two_particle_rdm(mps: MatrixProductState) -> ndarray:
-    """
-    Calculate 2-RDM.
+    """Calculate 2-RDM.
 
     Args:
         mps: The quantum state whose 2-RDM we want
@@ -181,7 +179,12 @@ def get_one_orbital_rdm(
         enforce_symmetry: If True then enforces spin and particle number symmetry in RDM.
 
     Return:
-        The (4,4) array for the one-orbital RDM
+        The (4,4) array for the one-orbital RDM.
+
+    Example:
+        >>> mps = MatrixProductState(...)
+        >>> rdm = get_one_orbital_rdm(mps, 1)
+        >>> print(rdm)
     """
     if direct:
         spin_orbitals_to_remove = list(range(1, mps.num_sites + 1))
@@ -223,8 +226,7 @@ def get_two_orbital_rdm(
     direct: bool = True,
     enforce_symmetry: bool = False,
 ) -> ndarray:
-    """
-    Calculate the two orbital RDM.
+    """Calculate the two orbital RDM.
 
     Args:
         mps: The quantum state.
@@ -234,7 +236,18 @@ def get_two_orbital_rdm(
 
     Return:
         The (16,16) array for the two-orbital RDM
+
+    Raises:
+        ValueError: If the sites are not two different sites.
+
+    Example:
+        >>> mps = MatrixProductState(...)
+        >>> rdm = get_two_orbital_rdm(mps, [1, 2])
+        >>> print(rdm)
     """
+    if len(set(sites)) != 2:
+        raise ValueError("Must provide two different sites.")
+
     expected_non_zero_pairs_particle_basis = [
         (0, 0),
         (1, 1),
@@ -319,8 +332,18 @@ def get_two_orbital_rdm(
 
 
 def get_one_orbital_entropy(mps: MatrixProductState, site: int) -> float:
-    """
-    Calculate the one orbital entropy.
+    """Calculate the one orbital entropy.
+
+    Args:
+        mps (MatrixProductState): A matrix product state.
+        site (int): The index of the orbital (1-indexed).
+    Returns:
+        float: The one orbital entropy.
+
+    Example:
+        >>> mps = MatrixProductState(...)
+        >>> entropy = get_one_orbital_entropy(mps, 1)
+        >>> print(entropy)
     """
     rdm1 = get_one_orbital_rdm(mps, site, direct=True, enforce_symmetry=False)
     # Calculate eigenvalues
@@ -333,45 +356,94 @@ def get_one_orbital_entropy(mps: MatrixProductState, site: int) -> float:
 
 
 def get_two_orbital_entropy(mps: MatrixProductState, sites: list[int]) -> float:
+    """Calculate the two orbital entropy.
+
+    Args:
+        mps (MatrixProductState): A matrix product state.
+        sites (list[int]): A list of two orbital indices (1-indexed).
+    Returns:
+        float: The two orbital entropy.
+
+    Example:
+        >>> mps = MatrixProductState(...)
+        >>> entropy = get_two_orbital_entropy(mps, [1, 2])
+        >>> print(entropy)
     """
-    Calculate the two orbital entropy.
-    """
-    if sites[0] == sites[1]:
-        return 0
-    rdm2 = get_two_orbital_rdm(mps, sites, direct=True, enforce_symmetry=False)
-    # Calculate eigenvalues
-    eigvals = np.linalg.eigvalsh(rdm2)
-    # Calculate entropy
-    entropy = -np.sum(
-        eigvals * np.log2(eigvals + 1e-12)
-    )  # Add small value to avoid log(0)
-    return entropy
+    match n_sites := len(set(sites)):
+        case 1:
+            return get_one_orbital_entropy(mps, sites[0])
+        case 2:
+            rdm2 = get_two_orbital_rdm(mps, sites, direct=True, enforce_symmetry=False)
+            # Calculate eigenvalues
+            eigvals = np.linalg.eigvalsh(rdm2)
+            # Calculate entropy
+            entropy = -np.sum(
+                eigvals * np.log2(eigvals + 1e-12)
+            )  # Add small value to avoid log(0)
+            return entropy
+        case _:
+            raise ValueError(
+                "Incorrect number of sites provided for two orbital entropy %s", n_sites
+            )
 
 
 def get_mutual_information(mps: MatrixProductState, sites: list[int]) -> float:
     """
     Calculate the mutual information between two orbitals.
     I(i, j) = S(i) + S(j) - S(i,j)
+
+    Args:
+        mps (MatrixProductState): A matrix product state.
+        sites (list[int]): A list of two orbital indices (1-indexed).
+    Returns:
+        float: The mutual information between the two orbitals.
+
+    Raises:
+        ValueError: If the sites list does not contain exactly two different sites.
+
+    Example:
+        >>> mps = MatrixProductState(...)
+        >>> mutual_info = get_mutual_information(mps, [1, 2])
+        >>> print(mutual_info)
     """
-    s1 = get_one_orbital_entropy(mps, sites[0])
-    s2 = get_one_orbital_entropy(mps, sites[1])
-    s12 = get_two_orbital_entropy(mps, sites)
-    mutual_info = s1 + s2 - s12
+    match n_sites := len(set(sites)):
+        case 1:
+            mutual_info = get_one_orbital_entropy(mps, sites[0])
+        case 2:
+            s1 = get_one_orbital_entropy(mps, sites[0])
+            s2 = get_one_orbital_entropy(mps, sites[1])
+            s12 = get_two_orbital_entropy(mps, sites)
+            mutual_info = s1 + s2 - s12
+        case _:
+            raise ValueError(
+                "Incorrect number of sites provided for mutual information %s", n_sites
+            )
     return mutual_info
 
 
-def get_all_mutual_information(mps: MatrixProductState) -> float:
+def get_all_mutual_information(mps: MatrixProductState) -> np.typing.NDArray:
     """
     Calculate the mutual information between every pair of orbitals.
     Mutual Information matrix where M[i,j] = I(i,j)
     I(i,j) = S(i) + S(j) - S(i,j)
+
+    Args:
+        mps (MatrixProductState): A matrix product state.
+    Returns:
+        ndarray: A symmetric matrix of shape (N, N) where N is the number of orbitals.
+                 M[i, j] = I(i, j) is the mutual information between orbitals i and j.
+
+    Example:
+        >>> mps = MatrixProductState(...)
+        >>> mutual_info_matrix = get_all_mutual_information(mps)
+        >>> print(mutual_info_matrix)
     """
-    n_orbs = (
-        mps.num_sites // 2
-    )  # Number of orbitals - need to ask about factor of two thing
+    n_orbs = mps.num_sites // 2  # Number of orbitals
     M = np.zeros((n_orbs, n_orbs))
-    for i in range(1, n_orbs + 1):
-        for j in range(i, n_orbs + 1):
-            M[i - 1, j - 1] = get_mutual_information(mps, [i, j])
-            M[j - 1, i - 1] = M[i - 1, j - 1]
+    for i in range(0, n_orbs):
+        M[i, i] = get_one_orbital_entropy(mps, i + 1)
+        for j in range(i + 1, n_orbs):
+            # mps sites are 1-indexed
+            M[i, j] = get_mutual_information(mps, [i + 1, j + 1])
+            M[j, i] = M[i, j]
     return M

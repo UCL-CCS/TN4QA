@@ -4,6 +4,7 @@ from typing import List, TypeAlias, Union
 import numpy as np
 import sparse
 from numpy import ndarray
+from numpy.linalg import svd
 from qiskit.circuit import CircuitInstruction, Operation
 
 # Qiskit quantum circuit integration
@@ -70,7 +71,11 @@ class Tensor:
 
     @classmethod
     def from_qiskit_gate(
-        cls, gate: QiskitOptions, indices: List[str] = None, labels: List[str] = ["T1"]
+        cls,
+        gate: QiskitOptions,
+        indices: List[str] = None,
+        labels: List[str] = ["T1"],
+        dagger: bool = False,
     ) -> "Tensor":
         """
         Construct a tensor object from the array.
@@ -79,6 +84,7 @@ class Tensor:
             gate: the underlying qiskit object.
             indices (optional): Default is "I<int>" for inputs and "O<int>" for outputs.
             labels (optional): Default is "T1".
+            dagger: If True will construct a tensor for the conjugate transpose of the gate
 
         Returns:
             tensor: The Tensor object.
@@ -91,13 +97,14 @@ class Tensor:
         num_dims = 2 * num_qubits
         shape = [2] * num_dims
         data = Operator(gate).reverse_qargs().data
+        if dagger:
+            data = data.conj().T
         data = np.reshape(data, shape)
-        if not indices and num_qubits == 1:
-            indices = ["O1", "I1"]
-        elif not indices:
-            indices = ["O1", "O2", "I1", "I2"]
-        else:
-            indices = indices
+        if not indices:
+            indices = [0] * num_dims
+            for idx in range(1, num_qubits + 1):
+                indices[idx - 1] = "O" + str(idx)
+                indices[num_qubits + idx - 1] = "I" + str(idx)
         labels = labels + [gate.name]
 
         tensor = cls(data, indices, labels)
@@ -274,7 +281,7 @@ class Tensor:
         Args:
             index_order: The desired new ordering of indices.
         """
-        old_indices = list(range(self.rank))
+        old_indices = list(range(len(self.indices)))
         new_indices = [index_order.index(idx) for idx in self.indices]
         new_data = sparse.moveaxis(self.data, old_indices, new_indices)
         self.data = new_data
@@ -326,12 +333,7 @@ class Tensor:
         Returns:
             The dimension associated to index_name.
         """
-        dimensions = self.dimensions
-        indices = self.indices
-        loc = indices.index(index_name)
-        dim = dimensions[loc]
-
-        return dim
+        return self.dimensions[self.indices.index(index_name)]
 
     def get_total_dimension_of_indices(self, idxs: List[str]) -> int:
         """
@@ -344,9 +346,7 @@ class Tensor:
             The product of dimensions associated to each index in idxs.
         """
         dims = [self.get_dimension_of_index(idx) for idx in idxs]
-        total = 1
-        for d in dims:
-            total = total * d
+        total = np.prod(dims)
         return total
 
     def combine_indices(self, idxs: List[str], new_index_name: str = None) -> None:
@@ -390,8 +390,10 @@ class Tensor:
             input_idxs: The indices to be treated as matrix inputs.
             output_idxs: The indices to be treated as matrix outputs.
         """
-        self.combine_indices(input_idxs, new_index_name="I1")
-        self.combine_indices(output_idxs, new_index_name="O1")
+        if len(input_idxs) > 0:
+            self.combine_indices(input_idxs, new_index_name="I1")
+        if len(output_idxs) > 0:
+            self.combine_indices(output_idxs, new_index_name="O1")
         return
 
     def multiply_by_constant(self, const: complex) -> None:
@@ -403,3 +405,36 @@ class Tensor:
         """
         self.data = self.data * const
         return
+
+    def dagger(self) -> None:
+        """
+        Get the conjugate transpose
+        """
+        self.data = self.data.conj()
+        return
+
+    def get_closest_unitary(
+        self, input_indices: list[str], output_indices: list[str]
+    ) -> "Tensor":
+        """
+        Perform a polar decomposition to determine the closest unitary matrix to the given tensor.
+
+        Args:
+            input_indices: The indices to treat as the input indices for the matrix representation
+            output_indices: The indices to treat as the output indices for the matrix representation
+
+        Returns:
+            A new tensor that is unitary as a matrix with index ordering same as self
+        """
+        matrix = self.tensor_to_matrix(input_indices, output_indices)
+        u, _, vh = svd(matrix, full_matrices=False)
+        unitary_part = u @ vh
+        input_dims = [self.get_dimension_of_index(i) for i in input_indices]
+        output_dims = [self.get_dimension_of_index(i) for i in output_indices]
+        shape = tuple(input_dims + output_dims)
+        unitary_part = unitary_part.reshape(
+            shape
+        )  # This will have index ordering output_inds, input_inds
+        new_t = Tensor(unitary_part, output_indices + input_indices, labels=self.labels)
+        new_t.reorder_indices(self.indices)
+        return new_t

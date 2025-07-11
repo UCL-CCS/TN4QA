@@ -193,7 +193,7 @@ def hilbert_schmidt_fidelity(
         phi: The second state or operator
 
     Returns:
-        F_HS = Tr(psi phi)
+        F_HS = Tr(psi phi) / Tr(psi psi)
     """
     # Pure states is easy
     if isinstance(psi, MatrixProductState) and isinstance(phi, MatrixProductState):
@@ -211,11 +211,11 @@ def hilbert_schmidt_fidelity(
     if isinstance(phi, MatrixProductState):
         phi = phi.form_density_operator()
     ip = hilbert_schmidt_inner_product(psi, phi)
-    return np.abs(ip) ** 2 / (frobenius_norm(psi) * frobenius_norm(phi))
+    return np.abs(ip) ** 2 / ((frobenius_norm(psi) ** 2) * (frobenius_norm(phi) ** 2))
 
 
 def total_variation_distance(
-    mps: MatrixProductState,
+    output_distribution: dict[str, float] | MatrixProductState,
     expected_distribution: dict[str, float],
     sample_size: int = None,
 ) -> float:
@@ -230,10 +230,14 @@ def total_variation_distance(
     Returns:
         TVD = 1/2 * sum_x |P(x) - Q(x)|
     """
-    if not sample_size:
-        probability_dist = mps.get_probability_distribution()
+    if isinstance(output_distribution, MatrixProductState):
+        mps = output_distribution
+        if not sample_size:
+            probability_dist = mps.get_probability_distribution()
+        else:
+            probability_dist = mps.get_approximate_probability_distribution(sample_size)
     else:
-        probability_dist = mps.get_approximate_probability_distribution(sample_size)
+        probability_dist = output_distribution
 
     # Get the union of keys from both distributions
     all_keys = set(probability_dist.keys()).union(expected_distribution.keys())

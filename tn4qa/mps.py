@@ -1,4 +1,5 @@
 import copy
+from collections import Counter
 from typing import List, TypeAlias, Union
 
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
@@ -9,6 +10,7 @@ from numpy import ndarray
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
 from sparse import SparseArray
+from symmer import QuantumState
 
 from .mpo import MatrixProductOperator
 from .tensor import Tensor
@@ -165,7 +167,6 @@ class MatrixProductState(TensorNetwork):
         Returns:
             An MPS.
         """
-
         return cls.from_bitstring("0" * num_sites)
 
     @classmethod
@@ -182,11 +183,12 @@ class MatrixProductState(TensorNetwork):
             A MPS.
         """
         bitstring = "1" * num_electrons + "0" * (num_spin_orbs - num_electrons)
-
         return cls.from_bitstring(bitstring)
 
     @classmethod
-    def from_symmer_quantumstate(cls, quantum_state: "QuantumState"):  # type: ignore # noqa: F821
+    def from_symmer_quantumstate(
+        cls, quantum_state: QuantumState, max_bond: int | None = None
+    ):
         """
         Create an MPS from a Symmer QuantumState object.
 
@@ -205,6 +207,9 @@ class MatrixProductState(TensorNetwork):
             temp_mps = MatrixProductState.from_bitstring(bitstrings[idx])
             temp_mps.multiply_by_constant(weights[idx])
             mps = mps + temp_mps
+            if max_bond:
+                if mps.bond_dimension > max_bond:
+                    mps.compress(max_bond)
 
         return mps
 
@@ -283,7 +288,10 @@ class MatrixProductState(TensorNetwork):
 
     @classmethod
     def from_qiskit_circuit(
-        cls, qc: QuantumCircuit, max_bond: int, input_mps: "MatrixProductState" = None
+        cls,
+        qc: QuantumCircuit,
+        max_bond: int | None = None,
+        input_mps: "MatrixProductState" = None,
     ) -> "MatrixProductState":
         """
         Create an MPS for the output of a Qiskit QuantumCircuit.
@@ -301,7 +309,75 @@ class MatrixProductState(TensorNetwork):
             mps = cls.all_zero_mps(qc.num_qubits)
         else:
             mps = input_mps
-        mps = mps.apply_mpo(qc_mpo)
+        mps = mps.apply_mpo(qc_mpo, max_bond)
+        return mps
+
+    @classmethod
+    def from_sparse_array(
+        cls, array: SparseArray, max_bond: int | None = None
+    ) -> "MatrixProductState":
+        """
+        Create an MPS from a sparse array
+
+        Args:
+            array: The array
+            max_bond: Maximum bond dimension
+
+        Returns:
+            MPS
+        """
+        dense_array = array.todense()
+        return cls.from_dense_array(dense_array, max_bond)
+
+    @classmethod
+    def from_dense_array(
+        cls, array: ndarray, max_bond: int | None = None
+    ) -> "MatrixProductState":
+        """
+        Create an MPS from a dense array
+
+        Args:
+            array: The array
+            max_bond: Maximum bond dimension
+
+        Returns:
+            MPS
+        """
+        num_qubits = int(np.log2(len(array)))
+        array = array.reshape((2,) * (num_qubits))
+        indices = [f"P{x}" for x in range(1, num_qubits + 1)]
+        tensor = Tensor(array, indices, ["MPS"])
+        tn = TensorNetwork([tensor])
+
+        for idx in range(num_qubits - 1):
+            t = tn.tensors[idx]
+            input_inds = [indices[idx]]
+            output_inds = indices[idx + 1 : num_qubits]
+            if idx != 0:
+                input_inds.insert(0, f"C{idx}")
+            tn.svd(
+                t,
+                input_indices=input_inds,
+                output_indices=output_inds,
+                new_index_name=f"C{idx+1}",
+                new_labels=[[f"T{idx+1}"], [f"T{idx+2}"]],
+            )
+            if idx == 0:
+                new_idx_order1 = [f"C{idx+1}", "P1"]
+            else:
+                new_idx_order1 = [
+                    f"C{idx}",
+                    f"C{idx+1}",
+                    f"P{idx+1}",
+                ]
+            new_idx_order2 = [f"C{idx+1}"] + output_inds
+            tn.tensors[idx].reorder_indices(new_idx_order1)
+            tn.tensors[idx + 1].reorder_indices(new_idx_order2)
+        arrays = [tn.tensors[i].data for i in range(num_qubits)]
+        mps = cls.from_arrays(arrays)
+        if max_bond:
+            if mps.bond_dimension > max_bond:
+                mps.compress(max_bond)
         return mps
 
     def __add__(self, other: "MatrixProductState") -> "MatrixProductState":
@@ -521,7 +597,73 @@ class MatrixProductState(TensorNetwork):
 
         return
 
-    def apply_mpo(self, mpo: MatrixProductOperator) -> "MatrixProductState":
+    def apply_sub_mpo(
+        self, mpo: MatrixProductOperator, sites: list[int], max_bond: int | None = None
+    ) -> "MatrixProductState":
+        """
+        Apply a smaller MPO to the MPS
+
+        Args:
+            mpo: The MPO to apply.
+            sites: The list of site indices where the MPO will apply.
+
+        Returns:
+            The new MPS.
+        """
+        mps = copy.deepcopy(self)
+        mpo = copy.deepcopy(mpo)
+        mps.set_default_indices()
+        mpo.set_default_indices()
+
+        target_site_ordering = copy.deepcopy(sites)
+        for idx in range(1, self.num_sites + 1):
+            if idx not in sites:
+                target_site_ordering.append(idx)
+        restore_ordering = []
+        for idx in range(1, self.num_sites + 1):
+            restore_ordering.append(target_site_ordering.index(idx) + 1)
+        mps.reorder_sites(target_site_ordering, set_default_indices=True)
+
+        if len(sites) == mps.num_sites:
+            mps = self.apply_mpo(mpo, max_bond)
+        else:
+            for tidx in range(mpo.num_sites):
+                t1 = mps.tensors[tidx]
+                t2 = mpo.tensors[tidx]
+                t1_current_indices = t1.indices
+                t1.indices = [
+                    f"D{tidx+1}" if x[0] == "P" else x for x in t1_current_indices
+                ]
+                t2_current_indices = t2.indices
+                t2.indices = [
+                    f"D{tidx+1}" if x[0] == "L" else x + "_" for x in t2_current_indices
+                ]
+
+            all_tensors = mps.tensors + mpo.tensors
+
+            tn = TensorNetwork(all_tensors, "TotalTN")
+            for n in range(len(sites)):
+                tn.contract_index(f"D{n+1}")
+            for n in range(len(sites) - 1):
+                tn.combine_indices([f"B{n+1}", f"B{n+1}_"], new_index_name=f"B{n+1}")
+            tn.tensors[0].reorder_indices(["B1", "R1_"])
+            for n in range(1, len(sites)):
+                tn.tensors[n].reorder_indices([f"B{n}", f"B{n+1}", f"R{n+1}_"])
+
+            arrays = [t.data for t in tn.tensors]
+            mps = MatrixProductState.from_arrays(arrays)
+
+        mps.reorder_sites(restore_ordering, set_default_indices=True)
+
+        if max_bond:
+            if mps.bond_dimension > max_bond:
+                mps.compress(max_bond)
+
+        return mps
+
+    def apply_mpo(
+        self, mpo: MatrixProductOperator, max_bond: int | None = None
+    ) -> "MatrixProductState":
         """
         Apply a MPO to the MPS.
 
@@ -581,6 +723,9 @@ class MatrixProductState(TensorNetwork):
         tensor.reorder_indices(["UP", "T2_RIGHT"])
         arrays.append(tensor.data)
         mps = MatrixProductState.from_arrays(arrays)
+        if max_bond:
+            if mps.bond_dimension > max_bond:
+                mps.compress(max_bond)
         return mps
 
     def set_default_indices(
@@ -618,6 +763,7 @@ class MatrixProductState(TensorNetwork):
             external_prefix + str(self.num_sites),
         ]
         self.tensors[-1].indices = new_indices_last
+        self.indices = self.get_all_indices()
         return
 
     def compute_inner_product(self, other: "MatrixProductState") -> complex:
@@ -632,9 +778,12 @@ class MatrixProductState(TensorNetwork):
         """
         mps1 = copy.deepcopy(self)
         mps2 = copy.deepcopy(other)
-        mps1.reshape("udp")
-        mps2.reshape("udp")
+        mps1.reshape()
+        mps2.reshape()
         mps2.dagger()
+        mps1.set_default_indices()
+        mps2.set_default_indices()
+
         for t in mps2.tensors:
             current_indices = t.indices
             new_indices = [x if x[0] == "P" else x + "_" for x in current_indices]
@@ -663,15 +812,14 @@ class MatrixProductState(TensorNetwork):
             The expectation value.
         """
         mps1 = copy.deepcopy(self)
-        mps2 = copy.deepcopy(self)
+        mpo1 = copy.deepcopy(mpo)
 
-        mpo.reshape("udrl")
+        mpo1.reshape("udrl")
         mps1.reshape("udp")
-        mps2.reshape("udp")
 
-        mps1 = mps1.apply_mpo(mpo)
+        mps1 = mps1.apply_mpo(mpo1)
 
-        exp_val = mps1.compute_inner_product(mps2)
+        exp_val = self.compute_inner_product(mps1)
         return exp_val
 
     def outer_product(self, other: "MatrixProductState") -> MatrixProductOperator:
@@ -690,7 +838,6 @@ class MatrixProductState(TensorNetwork):
             bra = other.to_dense_array()
             prod = np.outer(ket, bra)
             return MatrixProductOperator.from_arrays([prod])
-
         ket = copy.deepcopy(self)
         bra = copy.deepcopy(other)
         bra.dagger()
@@ -775,34 +922,8 @@ class MatrixProductState(TensorNetwork):
             The reduced state.
         """
         mps = copy.deepcopy(self)
-        num_sites_to_trace = len(sites)
-        remaining_sites = list(range(1, mps.num_sites + 1))
-        for site in sites:
-            remaining_sites.remove(site)
-        mps.reorder_sites(sites + remaining_sites, set_default_indices=True)
         mpdo = mps.form_density_operator()
-
-        for idx in range(num_sites_to_trace):
-            current_indices = mpdo.tensors[idx].indices
-            mpdo.tensors[idx].indices = [
-                "R" + x[1:] if x[0] == "L" else x for x in current_indices
-            ]
-
-        if not matrix:
-            for idx in range(num_sites_to_trace):
-                mpdo.contract_index("R" + str(idx + 1))
-                mpdo.contract_index("B" + str(idx + 1))
-            return mpdo
-        else:
-            result = mpdo.contract_entire_network()
-            output_inds = [
-                f"R{x}" for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))
-            ]
-            input_inds = [
-                f"L{x}" for x in list(range(num_sites_to_trace + 1, self.num_sites + 1))
-            ]
-            result.tensor_to_matrix(input_idxs=input_inds, output_idxs=output_inds)
-            return result
+        return mpdo.partial_trace(sites, matrix, True)
 
     def normalise(self) -> None:
         """
@@ -887,7 +1008,14 @@ class MatrixProductState(TensorNetwork):
             phys_idx1 = self.tensors[0].indices[1]
             phys_idx2 = self.tensors[1].indices[1]
             self.contract_index(bond)
-            self.svd(self.tensors[0], [phys_idx2], [phys_idx1], new_index_name=bond)
+            self.svd(
+                self.tensors[0],
+                [phys_idx2],
+                [phys_idx1],
+                max_bond=None,
+                new_index_name=bond,
+                tol=1e-12,
+            )
             self.tensors[0].reorder_indices([bond, phys_idx2])
             self.tensors[1].reorder_indices([bond, phys_idx1])
             return
@@ -914,7 +1042,14 @@ class MatrixProductState(TensorNetwork):
         output_inds.remove(phys_idx2)
         output_inds.append(phys_idx1)
         self.contract_index(bond)
-        self.svd(self.tensors[idx - 1], input_inds, output_inds, new_index_name=bond)
+        self.svd(
+            self.tensors[idx - 1],
+            input_inds,
+            output_inds,
+            max_bond=None,
+            new_index_name=bond,
+            tol=1e-12,
+        )
 
         if idx == 1:
             self.tensors[idx - 1].reorder_indices([bond] + input_inds)
@@ -963,25 +1098,25 @@ class MatrixProductState(TensorNetwork):
 
         target_pos = [i - 1 for i in site_mapping]
 
-        n = len(site_mapping)
-        visited = [False] * n
+        visited = [False] * self.num_sites
 
-        for i in range(n):
+        for i in range(self.num_sites):
             if visited[i] or target_pos[i] == i:
                 continue
 
             j = i
             cycle = []
 
-            # Follow the cycle of positions
             while not visited[j]:
                 visited[j] = True
                 cycle.append(j)
                 j = target_pos[j]
 
-            # Now perform swaps to rotate elements in the cycle
             for k in range(len(cycle) - 1, 0, -1):
-                self.swap_sites(cycle[0] + 1, cycle[k] + 1)
+                # Apply swaps on logical site indices (1-based)
+                a = cycle[k - 1] + 1
+                b = cycle[k] + 1
+                self.swap_sites(a, b)
 
         if set_default_indices:
             self.set_default_indices()
@@ -1013,10 +1148,15 @@ class MatrixProductState(TensorNetwork):
 
         mps1.reshape()
         mps2.reshape()
-        target_site_ordering = copy.deepcopy(sites)
-        for idx in range(1, self.num_sites + 1):
-            if idx not in sites:
-                target_site_ordering.append(idx)
+
+        all_sites = list(range(1, self.num_sites + 1))
+        target_site_ordering = [0] * self.num_sites
+        for idx in sites:
+            target_site_ordering[idx - 1] = sites.index(idx) + 1
+            all_sites.remove(sites.index(idx) + 1)
+        for site in all_sites:
+            target_site_ordering[target_site_ordering.index(0)] = site
+
         mps1.reorder_sites(target_site_ordering, set_default_indices=True)
 
         output_indices = []
@@ -1049,6 +1189,10 @@ class MatrixProductState(TensorNetwork):
         if set_default_indices:
             self.set_default_indices()
 
+        if mps.bond_dimension and self.bond_dimension:
+            if mps.bond_dimension > self.bond_dimension:
+                mps.compress(self.bond_dimension)
+
         return mps
 
     def get_probability_distribution(self) -> dict[str, float]:
@@ -1076,37 +1220,91 @@ class MatrixProductState(TensorNetwork):
         Returns:
             A dictionary of the form {bitstring : counts}
         """
+        if self.num_sites <= 15:
+            dist = self.get_probability_distribution()
+            samples = np.random.choice(
+                list(dist.keys()), size=num_bitstrings, p=list(dist.values())
+            )
+            output = dict(Counter(list(samples)))
+            return output
+
         samples = {}
-        zero = MatrixProductState.from_bitstring("0")
-        one = MatrixProductState.from_bitstring("1")
-        for _ in range(num_bitstrings):
+        prefix_prob_dict = {}  # {prefix : (prob0, prob1)}
+        sample_prob_dict = {}  # {bitstring : probabiity}
+
+        samples_collected = 0
+        self_copy = copy.deepcopy(self)
+        while samples_collected < num_bitstrings:
+            prob_existing_sample = np.sum(list(sample_prob_dict.values()))
+            choose_existing_sample = np.random.choice(
+                ["y", "n"], p=[prob_existing_sample, 1 - prob_existing_sample]
+            )
+            if choose_existing_sample == "y":
+                probs_norm = np.sum(list(sample_prob_dict.values()))
+                normalised_probs = [x / probs_norm for x in sample_prob_dict.values()]
+                bitstring = np.random.choice(
+                    list(sample_prob_dict.keys()), p=normalised_probs
+                )
+                samples[bitstring] += 1
+                samples_collected += 1
+                continue
             bitstring = ""
-            current_mps = copy.deepcopy(self)
+            current_mps = copy.deepcopy(self_copy)
+            current_mpo = current_mps.form_density_operator()
+            total_prob = 1.0
+            temp_prob = 1.0
             for site in range(1, self.num_sites + 1):
-                if site != self.num_sites:
-                    site_rdm = current_mps.partial_trace(
-                        list(range(2, current_mps.num_sites + 1)), matrix=True
-                    ).data.todense()
+                if bitstring in prefix_prob_dict:
+                    prob0, prob1 = prefix_prob_dict[bitstring]
                 else:
-                    site_rdm = current_mps.form_density_operator()
-                    site_rdm = site_rdm.to_dense_array()
-                prob0 = min(site_rdm[0, 0], 1.0)  # min to account for precision errors
-                prob1 = 1.0 - prob0
+                    num_sites_to_trace = len(bitstring) - (
+                        self.num_sites - current_mpo.num_sites
+                    )
+                    if len(bitstring) > 0 and num_sites_to_trace > 0:
+                        sub_mpo_bitstring = bitstring[-num_sites_to_trace:]
+                        sub_mpo = MatrixProductOperator.from_bitstring(
+                            sub_mpo_bitstring
+                        )
+                        current_mpo = current_mpo.contract_sub_mpo(
+                            sub_mpo, list(range(1, num_sites_to_trace + 1))
+                        )
+                        current_mpo = current_mpo.partial_trace(
+                            list(range(1, num_sites_to_trace + 1)),
+                            set_default_indices=True,
+                        )
+                        current_mpo.multiply_by_constant(1 / temp_prob)
+                        current_mpo.indices = current_mpo.get_all_indices()
+                        temp_prob = 1.0
+                    if site != self.num_sites:
+                        site_rdm = (
+                            current_mpo.partial_trace(
+                                list(range(2, current_mpo.num_sites + 1))
+                            )
+                            .tensors[0]
+                            .data.todense()
+                        )
+                    else:
+                        site_rdm = current_mpo.tensors[0].data.todense()
+                    prob0 = min(site_rdm[0, 0].real, 1.0)
+                    prob1 = 1.0 - prob0
+
                 site_bit = np.random.choice(["0", "1"], p=[prob0, prob1])
                 bitstring += site_bit
-                if site != self.num_sites:
-                    if site_bit == "0":
-                        current_mps = current_mps.contract_sub_mps(zero, [1])
-                        current_mps.multiply_by_constant(1 / np.sqrt(prob0))
-                        current_mps.indices = current_mps.get_all_indices()
-                    else:
-                        current_mps = current_mps.contract_sub_mps(one, [1])
-                        current_mps.multiply_by_constant(1 / np.sqrt(prob1))
-                        current_mps.indices = current_mps.get_all_indices()
-            if bitstring in samples:
-                samples[bitstring] += 1
-            else:
-                samples[bitstring] = 1
+                if site_bit == "0":
+                    temp_prob *= prob0
+                    total_prob *= prob0
+                else:
+                    temp_prob *= prob1
+                    total_prob *= prob1
+                if bitstring[:-1] not in prefix_prob_dict:
+                    prefix_prob_dict[bitstring[:-1]] = (prob0, prob1)
+            if bitstring not in sample_prob_dict:
+                if bitstring in samples:
+                    samples[bitstring] += 1
+                else:
+                    samples[bitstring] = 1
+                samples_collected += 1
+                sample_prob_dict[bitstring] = total_prob
 
         return samples
 
