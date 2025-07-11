@@ -1,5 +1,6 @@
 from fidelity_metrics import hilbert_schmidt_distance
-from mpo import build_trotterised_unitary
+from mpo import build_trotterised_unitary, MatrixProductOperator
+from mps import MatrixProductState 
 import numpy as np
 from scipy.optimize import minimize
 
@@ -69,8 +70,37 @@ def optimise_K(V, W_init):
     return result.x
 
 #----------------------------------------------------------------------------------------------------------
-# Reconstruct the change of basis matrix on the level of orbitals, 
-# we have U = e^K which is easy to calculate classically since the matrices are now only N x N  
+def householder_map(psi_C, psi_D):
+    """
+    Construct an MPO representing the Householder-like unitary V that swaps
+    MPS |psi_C⟩ and |psi_D⟩, and acts as identity on the orthogonal complement.
+
+    V = |D><C| + |C><D| + (I - |C><C| - |D><D|)
+
+    Args:
+        psi_C: MatrixProductState representing |psi_C⟩
+        psi_D: MatrixProductState representing |psi_D⟩
+
+    Returns:
+        MatrixProductOperator representing the unitary V
+    """
+    assert psi_C.num_sites == psi_D.num_sites, "psi_C and psi_D must have the same number of sites"
+    N = psi_C.num_sites
+
+    # Compute outer product MPOs
+    proj_DC = psi_D.outer_product(psi_C)  # calculate |D><C|
+    proj_CD = psi_C.outer_product(psi_D)  # calculate |C><D|
+    proj_CC = psi_C.outer_product(psi_C)  # calculate |C><C|
+    proj_DD = psi_D.outer_product(psi_D)  # calculate |D><D|
+
+    # Identity MPO
+    identity = MatrixProductOperator.identity_mpo(N)
+
+    # Build V = |D><C| + |C><D| + I - |C><C| - |D><D|
+    V = proj_DC + proj_CD + identity - proj_CC - proj_DD
+
+    return V
+
 
 
 def exponentiate_K(K: np.ndarray) -> np.ndarray:
