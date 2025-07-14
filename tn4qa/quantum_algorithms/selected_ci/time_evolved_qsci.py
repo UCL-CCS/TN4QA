@@ -33,11 +33,18 @@ class TimeEvolvedQSCI(QSCI):
         self.num_circuits = num_circuits
         self.qdrift_config = kwargs
         self.qdrift = qdrift
+        hamiltonian = self.sanitize_dict(hamiltonian)
         super().__init__(hamiltonian, backend)
 
     @property
     def circuit(self) -> QuantumCircuit:
         return self._circuit
+
+    def sanitize_dict(self, d: dict[str, complex | float]) -> dict[str, float]:
+        return {
+            k: float(v.real) if isinstance(v, complex) else float(v)
+            for k, v in d.items()
+        }
 
     def perform_time_evolution(self, duration: float) -> QuantumCircuit:
         """Add time evolution to the circuit"""
@@ -93,6 +100,7 @@ class TimeEvolvedQSCI(QSCI):
         start_time = default_timer()
         for _ in range(num_iterations):
             self._circuit = self.prepare_state(self.state)
+            print("circ ready")
             if self.qdrift:
                 counts = self.get_counts_qdrift(
                     self.duration, self.num_circuits, num_shots
@@ -101,8 +109,17 @@ class TimeEvolvedQSCI(QSCI):
                 counts = self.get_counts(self.duration, self.num_circuits, num_shots)
             cr_counts = self.configuration_recovery(counts)
             samples = self.gather_samples(cr_counts, subspace_size)
-            projected_ham = self.project_hamiltonian(samples)
-            self.state, self.energy = self.run_dmrg(projected_ham)
+            print("samples obtained, number = ", len(samples))
+            if len(samples) <= 500:
+                projected_ham = self.project_hamiltonian(samples)
+                self.energy, groundstate_vec = self.exact_diagonalisation(projected_ham)
+            else:
+                self.energy, groundstate_vec = self.linear_operator_diagonalisation(
+                    samples
+                )
+            print("new state found")
+            self.state = self.reconstruct_mps(samples, groundstate_vec)
+            print("new mps built")
         end_time = default_timer()
 
         metadata = {

@@ -127,8 +127,14 @@ class ControlledTimeEvolvedQSCI(QSCI):
             ps_counts = self.post_selection(counts)
             cr_counts = self.configuration_recovery(ps_counts)
             samples = self.gather_samples(cr_counts, subspace_size)
-            projected_ham = self.project_hamiltonian(samples)
-            self.state, self.energy = self.run_dmrg(projected_ham)
+            if len(samples) <= 500:
+                projected_ham = self.project_hamiltonian(samples)
+                self.energy, groundstate_vec = self.exact_diagonalisation(projected_ham)
+            else:
+                self.energy, groundstate_vec = self.linear_operator_diagonalisation(
+                    samples
+                )
+            self.state = self.reconstruct_mps(samples, groundstate_vec)
         end_time = default_timer()
 
         metadata = {
