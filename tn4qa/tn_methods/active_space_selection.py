@@ -4,6 +4,10 @@ from mps import MatrixProductState
 import numpy as np
 from scipy.linalg import expm
 from scipy.optimize import minimize
+from symmer.operators import PauliwordOp
+from quantum_algorithms.hamiltonian_simulation.trotterisation import TrotterSimulation
+from openfermion.ops import FermionOperator
+from openfermion.transforms import jordan_wigner
 
 
 def hs_squared_distance(V, W) -> float:
@@ -41,7 +45,7 @@ def vector_to_antihermitian(theta: np.ndarray, N: int) -> np.ndarray:
 
 def exponential_hopping_term(p: int, q: int, theta: complex, num_sites: int) -> MatrixProductOperator:
     """
-    Construct the MPO for exp(theta * a_p† a_q - theta* * a_q† a_p)
+    Construct the MPO for exp(theta * a_p† a_q - theta* * a_q† a_p).
 
     Args:
         p, q: Indices of orbitals (must be different)
@@ -53,25 +57,28 @@ def exponential_hopping_term(p: int, q: int, theta: complex, num_sites: int) -> 
     """
     assert p != q, "Cannot build on-site hopping term with p == q"
 
-    # Build the generator H = θ a†_p a_q - θ* a†_q a_p
-    fermionic_terms = [
-        ([(p, "+"), (q, "-")], theta),
-        ([(q, "+"), (p, "-")], -np.conj(theta))
-    ]
-    
-    H_mpo = MatrixProductOperator.from_fermionic_operator(num_sites, fermionic_terms)
+    # Build the FermionOperator, 1 is the creation operator, 0 is the annihilation operator
+    # H = theta * a_p† a_q - conj(theta) * a_q†
+    h_fermion = FermionOperator(((p, 1), (q, 0)), theta) - FermionOperator(((q, 1), (p, 0)), np.conj(theta))
 
-    # Convert MPO to dense matrix (requires .to_dense() to be implemented)
-    H_dense = H_mpo.to_dense()
+    # Map to QubitOperator using Jordan-Wigner
+    h_qubit = jordan_wigner(h_fermion)
 
-    # Exponentiate the dense matrix
+    # Convert to PauliwordOp 
+    h_pauli = PauliwordOp.from_openfermion(h_qubit)
 
-    U_dense = expm(H_dense)
+    # Convert to a dictionary
+    h_dict = h_pauli.to_dictionary()
+    h_dict = {k:v.real for k,v in h_dict.items()}
 
-    # Convert back to an MPO (requires .from_dense() method)
-    U_mpo = MatrixProductOperator.from_dense(U_dense, num_sites)
+    # Create a circuit
+    sim = TrotterSimulation(H_dict, duration=1.0, num_steps=1)
+    qc = sim.from_qiskit_circuit() 
 
-    return U_mpo
+    # Convert Qiskit circuit to MPO
+    u_mpo = MatrixProductOperator.from_qiskit_circuit(qc)
+
+    return u_mpo
 
 def build_trotterised_unitary(K: np.ndarray, trotter_steps=1) -> MatrixProductOperator:
     """
@@ -91,7 +98,7 @@ def build_trotterised_unitary(K: np.ndarray, trotter_steps=1) -> MatrixProductOp
     assert K.shape[1] == N
     assert np.allclose(K + K.conj().T, 0, atol=1e-10), "K must be anti-Hermitian"
 
-    U_mpo = MatrixProductOperator.identity_mpo(N)
+    u_mpo = MatrixProductOperator.identity_mpo(N)
     dt = 1.0 / trotter_steps
 
     for _ in range(trotter_steps):
@@ -100,9 +107,9 @@ def build_trotterised_unitary(K: np.ndarray, trotter_steps=1) -> MatrixProductOp
                 if abs(K[p, q]) > 1e-12:
                     theta = dt * K[p, q]
                     hop_exp_mpo = exponential_hopping_term(p, q, theta, N)
-                    U_mpo = U_mpo @ hop_exp_mpo
+                    u_mpo = u_mpo @ hop_exp_mpo
 
-    return U_mpo
+    return u_mpo
 
 def cost(theta: np.ndarray, V) -> float:
     N = V.num_sites
