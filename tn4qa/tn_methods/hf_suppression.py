@@ -26,6 +26,8 @@ class HFSuppression:
         self.hf_state_mps = MatrixProductState.from_bitstring(hf_state)
         self.mps = mps
         self.mpo = mpo
+        self.suppressed_mps = None
+        self.evolved_mpo = None
 
     def build_hf_oracle(self) -> MatrixProductOperator:
         """Build oracle for HF amplitude suppression"""
@@ -60,14 +62,42 @@ class HFSuppression:
         rotation_angle = np.sqrt(1 - np.abs(hf_amplitude) ** 2)
         num_iterations = int(np.floor(np.pi / (4 * rotation_angle)))
         current_mps = copy.deepcopy(self.mps)
-        for idx in range(num_iterations):
+        for _ in range(num_iterations):
             current_mps = current_mps.apply_mpo(oracle, max_bond)
             current_mps = current_mps.apply_mpo(diffusion, max_bond)
         return current_mps
 
-    def run(self):
-        """Run HF Suppression
+    def operator_evolution(self, max_bond: int | None = None) -> MatrixProductOperator:
+        """Evolve the MPO in line with HF suppression
 
         Args:
-            method: Either "subtract" or "amplitude_amplification" """
+            max_bond: Maximum bond dimension
+
+        Returns:
+            The evolved MPO
+        """
+        oracle = self.build_hf_oracle()
+        oracle_dag = copy.deepcopy(oracle)
+        oracle_dag.dagger()
+        diffusion = self.build_diffusion_operator()
+        diffusion_dag = copy.deepcopy(diffusion)
+        diffusion_dag.dagger()
+        hf_amplitude = self.mps.compute_inner_product(self.hf_state_mps)
+        rotation_angle = np.sqrt(1 - np.abs(hf_amplitude) ** 2)
+        num_iterations = int(np.floor(np.pi / (4 * rotation_angle)))
+        current_mpo = copy.deepcopy(self.mpo)
+        for _ in range(num_iterations):
+            current_mpo = oracle_dag * current_mpo
+            current_mpo = diffusion_dag * current_mpo
+            current_mpo = current_mpo * oracle
+            current_mpo = current_mpo * diffusion
+            if max_bond:
+                if current_mpo.bond_dimension > max_bond:
+                    current_mpo.compress(max_bond)
+        return current_mpo
+
+    def run(self, max_bond: int | None = None) -> None:
+        """Run HF Suppressio"""
+        self.suppressed_mps = self.hf_suppression(max_bond)
+        self.evolved_mpo = self.operator_evolution(max_bond)
         return
