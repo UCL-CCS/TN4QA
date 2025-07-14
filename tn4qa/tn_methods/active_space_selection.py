@@ -1,7 +1,8 @@
 from fidelity_metrics import hilbert_schmidt_distance
-from mpo import build_trotterised_unitary, MatrixProductOperator
+from mpo import MatrixProductOperator
 from mps import MatrixProductState 
 import numpy as np
+from scipy.linalg import expm
 from scipy.optimize import minimize
 
 
@@ -38,7 +39,72 @@ def vector_to_antihermitian(theta: np.ndarray, N: int) -> np.ndarray:
 
     return K
 
-def cost(theta: np.ndarray, V, W_init) -> float:
+def exponential_hopping_term(p: int, q: int, theta: complex, num_sites: int) -> MatrixProductOperator:
+    """
+    Construct the MPO for exp(theta * a_p† a_q - theta* * a_q† a_p)
+
+    Args:
+        p, q: Indices of orbitals (must be different)
+        theta: Complex parameter
+        num_sites: Total number of spin-orbitals
+
+    Returns:
+        MatrixProductOperator for exp(H), where H = theta * a_p† a_q - conj(theta) * a_q† a_p
+    """
+    assert p != q, "Cannot build on-site hopping term with p == q"
+
+    # Build the generator H = θ a†_p a_q - θ* a†_q a_p
+    fermionic_terms = [
+        ([(p, "+"), (q, "-")], theta),
+        ([(q, "+"), (p, "-")], -np.conj(theta))
+    ]
+    
+    H_mpo = MatrixProductOperator.from_fermionic_operator(num_sites, fermionic_terms)
+
+    # Convert MPO to dense matrix (requires .to_dense() to be implemented)
+    H_dense = H_mpo.to_dense()
+
+    # Exponentiate the dense matrix
+
+    U_dense = expm(H_dense)
+
+    # Convert back to an MPO (requires .from_dense() method)
+    U_mpo = MatrixProductOperator.from_dense(U_dense, num_sites)
+
+    return U_mpo
+
+def build_trotterised_unitary(K: np.ndarray, trotter_steps=1) -> MatrixProductOperator:
+    """
+    Build an MPO approximation of the fermionic unitary:
+        U = exp(Σ_{pq} K_{pq} a†_p a_q)
+    
+    using first-order Trotter decomposition.
+
+    Args:
+        K: Anti-Hermitian matrix (N x N)
+        trotter_steps: Number of Trotter steps
+
+    Returns:
+        MatrixProductOperator representing the unitary
+    """
+    N = K.shape[0]
+    assert K.shape[1] == N
+    assert np.allclose(K + K.conj().T, 0, atol=1e-10), "K must be anti-Hermitian"
+
+    U_mpo = MatrixProductOperator.identity_mpo(N)
+    dt = 1.0 / trotter_steps
+
+    for _ in range(trotter_steps):
+        for p in range(N):
+            for q in range(N):
+                if abs(K[p, q]) > 1e-12:
+                    theta = dt * K[p, q]
+                    hop_exp_mpo = exponential_hopping_term(p, q, theta, N)
+                    U_mpo = U_mpo @ hop_exp_mpo
+
+    return U_mpo
+
+def cost(theta: np.ndarray, V) -> float:
     N = V.num_sites
     K = vector_to_antihermitian(theta, N)
     W_rotated = build_trotterised_unitary(K)  # returns an MPO
@@ -46,7 +112,7 @@ def cost(theta: np.ndarray, V, W_init) -> float:
 
 def optimise_K(V, W_init):
     """
-    Run BFGS optimization over K such that W(K) ≈ V.
+    Run BFGS optimisation over K such that W(K) ≈ V.
 
     Args:
         V: Target MPO
@@ -56,7 +122,7 @@ def optimise_K(V, W_init):
         Optimal real-valued parameter vector θ defining anti-Hermitian K
     """
     N = V.num_sites
-    num_params = N * (N - 1)  
+    num_params = N**2
     theta0 = np.zeros(num_params)
 
     result = minimize(
@@ -100,6 +166,7 @@ def householder_map(psi_C, psi_D):
     V = proj_DC + proj_CD + identity - proj_CC - proj_DD
 
     return V
+
 
 
 
