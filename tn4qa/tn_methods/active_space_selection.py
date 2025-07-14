@@ -142,7 +142,6 @@ def optimise_K(V, W_init):
 
     return result.x
 
-#----------------------------------------------------------------------------------------------------------
 def householder_map(psi_C, psi_D):
     """
     Construct an MPO representing the Householder-like unitary V that swaps
@@ -174,9 +173,6 @@ def householder_map(psi_C, psi_D):
 
     return V
 
-
-
-
 def exponentiate_K(K: np.ndarray) -> np.ndarray:
     """
     Compute U = exp(K) using eigendecomposition, where K is anti-Hermitian.
@@ -198,3 +194,46 @@ def exponentiate_K(K: np.ndarray) -> np.ndarray:
     V_inv = np.linalg.inv(eigvecs)
     U = eigvecs @ exp_D @ V_inv
     return U
+
+#----------------------------------------------------------------------------------------------------------
+
+def active_space_selection(coeff_matrix: np.ndarray, num_active_orbitals: int) -> np.ndarray:
+    """
+    Perform active space selection by optimising a unitary transformation of the orbital coefficients.
+
+    Args:
+        coeff_matrix: HF coefficient matrix of shape (N, N)
+        num_active_orbitals: Number of active orbitals to select
+
+    Returns:
+        Transformed coefficient matrix with optimal active orbitals
+    """
+    N = coeff_matrix.shape[0]
+    assert coeff_matrix.shape[1] == N, "Coefficient matrix must be square"
+
+    # Convert the coefficient matrix into an MPO 
+    # Using identity MPO as a placeholder for V
+    V = MatrixProductOperator.identity_mpo(N)
+
+    # Initialise an identity MPO (initial guess W_init)
+    # Using identity MPO as a placeholder for W_init
+    W_init = MatrixProductOperator.identity_mpo(N)
+
+    # Run BFGS optimisation to find optimal K
+    theta_opt = optimise_K(V, W_init)
+
+    # Exponentiate K to get a unitary U = exp(K)
+    K = vector_to_antihermitian(theta_opt, N)
+    U = exponentiate_K(K)
+
+    # Apply U to the input coefficient matrix, returning the transformed coefficient matrix (the new basis)
+    transformed_coeff_matrix = U @ coeff_matrix
+
+    # Truncate to the desired number of active orbitals
+    active_coeff_matrix = transformed_coeff_matrix[:, :num_active_orbitals]
+
+    return active_coeff_matrix
+
+
+
+
