@@ -1652,8 +1652,10 @@ class MatrixProductOperator(TensorNetwork):
         """
         Defines MPO subtraction.
         """
-        other.multiply_by_constant(-1.0)
-        output = self + other
+        self_copy = copy.deepcopy(self)
+        other_copy = copy.deepcopy(other)
+        other_copy.multiply_by_constant(-1.0)
+        output = self_copy + other_copy
         return output
 
     def __mul__(self, other: "MatrixProductOperator") -> "MatrixProductOperator":

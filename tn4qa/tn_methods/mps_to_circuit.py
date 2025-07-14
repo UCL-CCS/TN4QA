@@ -471,7 +471,6 @@ class MPSAnalyticDecomposition:
             #     break
             self.qc = temp_circ
             self.fidelity = new_fidelity
-            print(self.fidelity)
             self.num_layers += 1
         return self.qc
 

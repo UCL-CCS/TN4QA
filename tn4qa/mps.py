@@ -186,6 +186,30 @@ class MatrixProductState(TensorNetwork):
         return cls.from_bitstring(bitstring)
 
     @classmethod
+    def from_bitstring_dict(
+        cls, bitstring_dict: dict[str, complex], max_bond: int | None = None
+    ):
+        """
+        Create an MPS from a dictionary {bitstring : amplitude}
+
+        Args:
+            bitstring_dict: The dictionary
+            max_bond: Maximum bond dimension
+        """
+        bitstrings = list(bitstring_dict.keys())
+        weights = list(bitstring_dict.values())
+        mps = MatrixProductState.from_bitstring(bitstrings[0])
+        mps.multiply_by_constant(weights[0])
+        for idx in range(1, len(bitstrings)):
+            temp_mps = MatrixProductState.from_bitstring(bitstrings[idx])
+            temp_mps.multiply_by_constant(weights[idx])
+            mps = mps + temp_mps
+            if max_bond:
+                if mps.bond_dimension > max_bond:
+                    mps.compress(max_bond)
+        return mps
+
+    @classmethod
     def from_symmer_quantumstate(
         cls, quantum_state: QuantumState, max_bond: int | None = None
     ):
@@ -199,18 +223,7 @@ class MatrixProductState(TensorNetwork):
             An MPS.
         """
         state_dict = quantum_state.to_dictionary
-        bitstrings = list(state_dict.keys())
-        weights = list(state_dict.values())
-        mps = MatrixProductState.from_bitstring(bitstrings[0])
-        mps.multiply_by_constant(weights[0])
-        for idx in range(1, len(bitstrings)):
-            temp_mps = MatrixProductState.from_bitstring(bitstrings[idx])
-            temp_mps.multiply_by_constant(weights[idx])
-            mps = mps + temp_mps
-            if max_bond:
-                if mps.bond_dimension > max_bond:
-                    mps.compress(max_bond)
-
+        mps = cls.from_bitstring_dict(state_dict, max_bond)
         return mps
 
     @classmethod
@@ -393,20 +406,8 @@ class MatrixProductState(TensorNetwork):
 
         t1_data = t1.data
         t2_data = t2.data
-        t1_data = sparse.reshape(t1_data, (1, t1.dimensions[0], t1.dimensions[1]))
-        t2_data = sparse.reshape(t2_data, (1, t2.dimensions[0], t2.dimensions[1]))
-        t1_dimensions = (1, t1.dimensions[0], t1.dimensions[1])
-        t2_dimensions = (1, t2.dimensions[0], t2.dimensions[1])
 
-        data1 = sparse.reshape(
-            t1_data, (t1_dimensions[0] * t1_dimensions[2], t1_dimensions[1])
-        )
-        data2 = sparse.reshape(
-            t2_data, (t2_dimensions[0] * t2_dimensions[2], t2_dimensions[1])
-        )
-
-        new_data = sparse.concatenate([data1, data2], axis=1)
-        new_data = sparse.moveaxis(new_data, [0, 1], [1, 0])
+        new_data = sparse.concatenate([t1_data, t2_data], axis=0)
         arrays.append(new_data)
 
         for t_idx in range(1, self.num_sites - 1):
@@ -458,20 +459,7 @@ class MatrixProductState(TensorNetwork):
 
         t1_data = t1.data
         t2_data = t2.data
-        t1_data = sparse.reshape(t1_data, (t1.dimensions[0], 1, t1.dimensions[1]))
-        t2_data = sparse.reshape(t2_data, (t2.dimensions[0], 1, t2.dimensions[1]))
-        t1_dimensions = (t1.dimensions[0], 1, t1.dimensions[1])
-        t2_dimensions = (t2.dimensions[0], 1, t2.dimensions[1])
-
-        data1 = sparse.reshape(
-            t1_data, (t1_dimensions[0] * t1_dimensions[2], t1_dimensions[1])
-        )
-        data2 = sparse.reshape(
-            t2_data, (t2_dimensions[0] * t2_dimensions[2], t2_dimensions[1])
-        )
-
-        new_data = sparse.concatenate([data1, data2], axis=1)
-        new_data = sparse.moveaxis(new_data, [0, 1], [1, 0])
+        new_data = sparse.concatenate([t1_data, t2_data], axis=0)
         arrays.append(new_data)
 
         output = MatrixProductState.from_arrays(arrays)
