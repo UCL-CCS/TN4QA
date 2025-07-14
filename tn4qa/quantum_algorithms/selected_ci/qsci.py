@@ -65,10 +65,10 @@ class QSCI(QuantumAlgorithm):
 
         for i in range(n):
             for j in range(i, n):
-                Hij = basis[i].apply_mpo(ham_mpo).compute_inner_product(basis[j])
-                ham_proj[i, j] = Hij
+                h_ij = basis[i].apply_mpo(ham_mpo).compute_inner_product(basis[j])
+                ham_proj[i, j] = h_ij
                 if i != j:
-                    ham_proj[j, i] = Hij.conjugate()
+                    ham_proj[j, i] = h_ij.conjugate()
 
         return ham_proj
 
@@ -77,7 +77,7 @@ class QSCI(QuantumAlgorithm):
     ) -> tuple[float, ndarray]:
         """Perform exact diagonalisation on the projected Hamiltonian"""
         eval, evec = eigsh(hamiltonian_matrix, k=1, which="SA")
-        return eval[0], evec[0]
+        return eval[0], evec[:, 0]
 
     def linear_operator_diagonalisation(
         self, samples: list[str]
@@ -101,7 +101,7 @@ class QSCI(QuantumAlgorithm):
 
         H_linear = LinearOperator(shape=(n, n), matvec=matvec, dtype=np.complex128)
         eval, evec = eigsh(H_linear, k=1, which="SA")
-        return eval[0], evec[0]
+        return eval[0], evec[:, 0]
 
     def reconstruct_mps(
         self, samples: list[str], groundstate_vec: ndarray

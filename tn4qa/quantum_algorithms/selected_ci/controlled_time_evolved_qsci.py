@@ -42,6 +42,9 @@ class ControlledTimeEvolvedQSCI(QSCI):
 
     def perform_controlled_time_evolution(self, duration: float) -> QuantumCircuit:
         """Add time evolution to the circuit"""
+        if duration == 0.0:
+            ref = copy.deepcopy(self.circuit)
+            return ref
         sim = TrotterSimulation(self.hamiltonian, duration=duration)
         sim_circ = sim.circuit
         controlled_sim_circ = QuantumCircuit(sim_circ.num_qubits + 1)
@@ -59,6 +62,9 @@ class ControlledTimeEvolvedQSCI(QSCI):
         self, duration: float, error: float | None = None
     ) -> QuantumCircuit:
         """Add qdrift time evolution to the circuit"""
+        if duration == 0.0:
+            ref = copy.deepcopy(self.circuit)
+            return ref
         sim = QDriftSimulation(self.hamiltonian, duration=duration, error=error)
         sim_circ = sim.circuit
         controlled_sim_circ = QuantumCircuit(sim_circ.num_qubits + 1)
@@ -74,6 +80,8 @@ class ControlledTimeEvolvedQSCI(QSCI):
 
     def post_selection(self, counts: dict[str, int]) -> dict[str, int]:
         """Post select counts based on the ancilla output"""
+        if len(list(counts.keys())[0]) == self.hamiltonian_mpo.num_sites:
+            return counts
         new_counts = {}
         for b, count in counts.items():
             if b[0] == "0":
@@ -84,12 +92,10 @@ class ControlledTimeEvolvedQSCI(QSCI):
         self, duration: float, num_circuits: int, shots: int
     ) -> dict[str, int]:
         """Get counts using Trotterisation"""
-        duration_per_circuit = duration / num_circuits
+        duration_per_circuit = duration / (num_circuits - 1)
         counts = {}
         for idx in range(num_circuits):
-            qc = self.perform_controlled_time_evolution(
-                (idx + 1) * duration_per_circuit
-            )
+            qc = self.perform_controlled_time_evolution(idx * duration_per_circuit)
             subcounts = self.backend.run(qc, shots=shots)
             for b, count in subcounts.items():
                 counts[b] = counts.get(b, 0) + count
@@ -99,17 +105,18 @@ class ControlledTimeEvolvedQSCI(QSCI):
         self, duration: float, num_circuits: int, shots: int
     ) -> dict[str, int]:
         """Get counts using qDRIFT"""
-        duration_per_circuit = duration / num_circuits
+        duration_per_circuit = duration / (num_circuits - 1)
         counts = {}
         for idx in range(num_circuits):
             shots_per_circuit = int(shots / self.qdrift_config["num_qdrift_circuits"])
             for _ in range(self.qdrift_config["num_qdrift_circuits"]):
                 qc = self.perform_controlled_time_evolution_qdrift(
-                    (idx + 1) * duration_per_circuit, error=self.qdrift_config["error"]
+                    idx * duration_per_circuit, error=self.qdrift_config["error"]
                 )
                 subcounts = self.backend.run(qc, shots=shots_per_circuit)
                 for b, count in subcounts.items():
                     counts[b] = counts.get(b, 0) + count
+        return counts
 
     def run(
         self, num_shots: int, subspace_size: int, num_iterations: int = 1
