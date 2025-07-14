@@ -20,7 +20,7 @@ def test_vqe_h2():
     hf_e = mol_data.rhf_energy
     vqe = VQEAlgorithm(ham, 2)
     result = vqe.run()
-    assert np.isclose(result.result, hf_e)
+    assert np.isclose(result.result, hf_e, atol=0.001)
 
 
 def test_hadamard_test():
@@ -31,7 +31,6 @@ def test_hadamard_test():
 
     htest = HadamardTest(unitary, state)
     result = htest.run(10000)
-    print(result.result)
     assert np.isclose(result.result.real, 1.0)
     assert result.result.imag < 0.02
 

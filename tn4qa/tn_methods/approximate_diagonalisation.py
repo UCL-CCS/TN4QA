@@ -16,9 +16,7 @@ from ..quantum_algorithms.variational.ansatz_circuits import (
 )
 from ..tensor import Tensor
 from ..tn import TensorNetwork
-from .utils import (
-    kak_recomposition,
-)
+from .utils import kak_recomposition
 
 
 class ApproximateDiagonalisation:
@@ -34,15 +32,10 @@ class ApproximateDiagonalisation:
             mpo: The MPO that will be appoximately diagonalised
             num_layers: The number of layers to use in the ansatz circuit
         """
-        self.reference = MatrixProductOperator.from_increasing_diagonal_matrix(
-            mpo.num_sites,
+        self.reference = MatrixProductOperator.from_diagonal_matrix(
+            [-10] * 2 + [10] * 14
         )
-        c1 = QuantumCircuit(4)
-        c1.x(0)
-        c1.x(1)
-        c2 = identity_brickwork_circuit(mpo.num_sites, num_layers)
-        self.qc = c1.compose(c2)
-        # self.qc = random_brickwork_circuit(mpo.num_sites, num_layers)
+        self.qc = identity_brickwork_circuit(mpo.num_sites, num_layers)
         self.num_qubits = mpo.num_sites
         self.mpo_to_diag = mpo
         self.set_ansatz()
@@ -133,10 +126,10 @@ class ApproximateDiagonalisation:
         """
         new_inst = UnitaryGate(optimal_update)
         qidxs = [
-            self.qc.data[variational_index + 1].qubits[x]._index
-            for x in range(len(self.qc.data[variational_index + 1].qubits))
+            self.qc.data[variational_index - 1].qubits[x]._index
+            for x in range(len(self.qc.data[variational_index - 1].qubits))
         ]
-        self.qc.data[variational_index + 1] = (new_inst, qidxs[::-1], [])
+        self.qc.data[variational_index - 1] = (new_inst, qidxs[::-1], [])
         return
 
     def set_ansatz(self) -> None:
