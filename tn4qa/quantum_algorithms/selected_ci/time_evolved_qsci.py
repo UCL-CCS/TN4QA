@@ -105,7 +105,8 @@ class TimeEvolvedQSCI(QSCI):
     ) -> Result:
         """Run the full algorithm pipeline. Returns result object or final value."""
         start_time = default_timer()
-        for _ in range(num_iterations):
+        for idx in range(num_iterations):
+            print("starting iteration", idx)
             self._circuit = self.prepare_state(self.state)
             if self.qdrift:
                 counts = self.get_counts_qdrift(
