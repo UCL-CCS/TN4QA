@@ -72,7 +72,7 @@ def exponential_hopping_term(p: int, q: int, theta: complex, num_sites: int) -> 
     h_dict = {k:v.real for k,v in h_dict.items()}
 
     # Create a circuit
-    sim = TrotterSimulation(H_dict, duration=1.0, num_steps=1)
+    sim = TrotterSimulation(h_dict, duration=1.0, num_steps=1)
     qc = sim.from_qiskit_circuit() 
 
     # Convert Qiskit circuit to MPO
@@ -197,7 +197,9 @@ def exponentiate_K(K: np.ndarray) -> np.ndarray:
 
 #----------------------------------------------------------------------------------------------------------
 
-def active_space_selection(coeff_matrix: np.ndarray, num_active_orbitals: int) -> np.ndarray:
+def active_space_selection(hamiltonian: dict, 
+                           coeff_matrix: np.ndarray, 
+                           num_active_orbitals: int) -> np.ndarray:
     """
     Perform active space selection by optimising a unitary transformation of the orbital coefficients.
 
@@ -211,20 +213,26 @@ def active_space_selection(coeff_matrix: np.ndarray, num_active_orbitals: int) -
     N = coeff_matrix.shape[0]
     assert coeff_matrix.shape[1] == N, "Coefficient matrix must be square"
 
-    # Convert the coefficient matrix into an MPO 
-    # Using identity MPO as a placeholder for V
-    V = MatrixProductOperator.identity_mpo(N)
+    # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
+    psi_C = run_dmrg(hamiltonian)
 
-    # Initialise an identity MPO (initial guess W_init)
-    # Using identity MPO as a placeholder for W_init
-    W_init = MatrixProductOperator.identity_mpo(N)
+    # Cost function to MPO 
+    cost_mpo = build_cost_function_mpo()  
+
+    # Orbital DMRG to find |psi>_D 
+    psi_D = run_dmrg(cost_mpo)
+
+    # Unitary operation that maps |psi>_C to |psi>_D
+    # This is the Householder-like map that swaps the two MPS
+    V = householder_map(psi_C, psi_D)
 
     # Run BFGS optimisation to find optimal K
+    W_init = MatrixProductOperator.identity_mpo(N)  # Initial guess for W
     theta_opt = optimise_K(V, W_init)
 
     # Exponentiate K to get a unitary U = exp(K)
-    K = vector_to_antihermitian(theta_opt, N)
-    U = exponentiate_K(K)
+    K_opt = vector_to_antihermitian(theta_opt, N)
+    U = exponentiate_K(K_opt)
 
     # Apply U to the input coefficient matrix, returning the transformed coefficient matrix (the new basis)
     transformed_coeff_matrix = U @ coeff_matrix
