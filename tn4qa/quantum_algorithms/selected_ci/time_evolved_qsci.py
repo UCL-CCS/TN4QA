@@ -20,6 +20,7 @@ class TimeEvolvedQSCI(QSCI):
     def __init__(
         self,
         hamiltonian: dict,
+        hf_state: str | None = None,
         backend: QuantumBackend | None = None,
         duration: float = np.pi,
         num_circuits: int = 5,
@@ -34,7 +35,7 @@ class TimeEvolvedQSCI(QSCI):
         self.qdrift_config = kwargs
         self.qdrift = qdrift
         hamiltonian = self.sanitize_dict(hamiltonian)
-        super().__init__(hamiltonian, backend)
+        super().__init__(hamiltonian, hf_state, backend)
 
     @property
     def circuit(self) -> QuantumCircuit:
@@ -106,7 +107,9 @@ class TimeEvolvedQSCI(QSCI):
         """Run the full algorithm pipeline. Returns result object or final value."""
         start_time = default_timer()
         for idx in range(num_iterations):
-            print("starting iteration", idx)
+            print("Starting iteration", idx)
+            # if self.hfs:
+            #     self.state, _ = self.hf_suppression(self.state)
             self._circuit = self.prepare_state(self.state)
             if self.qdrift:
                 counts = self.get_counts_qdrift(
@@ -114,8 +117,11 @@ class TimeEvolvedQSCI(QSCI):
                 )
             else:
                 counts = self.get_counts(self.duration, self.num_circuits, num_shots)
-            cr_counts = self.configuration_recovery(counts)
+            cr_counts = self.configuration_recovery(counts, self.num_electrons)
+            print("Samples Collected!")
             samples = self.gather_samples(cr_counts, subspace_size)
+            if self.hfs and self.hf_state not in samples:
+                samples += self.hf_state
             if len(samples) <= 500:
                 projected_ham = self.project_hamiltonian(samples)
                 self.energy, groundstate_vec = self.exact_diagonalisation(projected_ham)
@@ -123,7 +129,11 @@ class TimeEvolvedQSCI(QSCI):
                 self.energy, groundstate_vec = self.linear_operator_diagonalisation(
                     samples
                 )
+            print("Exact Diagonalisation Complete!")
             self.state = self.reconstruct_mps(samples, groundstate_vec)
+            print("Finished iteration", idx)
+            print("Energy =", self.energy)
+            print("Number of configuration =", len(samples))
         end_time = default_timer()
 
         metadata = {

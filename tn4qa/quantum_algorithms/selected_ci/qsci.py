@@ -10,6 +10,7 @@ from scipy.sparse.linalg import LinearOperator, eigsh
 from ...dmrg import DMRG
 from ...mpo import MatrixProductOperator
 from ...mps import MatrixProductState
+from ...tn_methods.hf_suppression import HFSuppression
 from ...tn_methods.mps_to_circuit import MPStoCircuit
 from ..backend.base import QuantumBackend
 from ..backend.tn_backend import TNQuantumBackend
@@ -19,12 +20,24 @@ from ..result import Result
 
 class QSCI(QuantumAlgorithm):
     def __init__(
-        self, hamiltonian: dict[str, complex], backend: QuantumBackend | None = None
+        self,
+        hamiltonian: dict[str, complex],
+        hf_state: str | None = None,
+        backend: QuantumBackend | None = None,
+        hfs: bool = True,
     ) -> "QSCI":
         """
         Constructor for QSCI class.
         """
         self.hamiltonian = hamiltonian
+        self.hf_state = hf_state
+        if hf_state is not None:
+            self.num_electrons = hf_state.count("1")
+            self.num_qubits = len(hf_state)
+        else:
+            self.num_electrons = None
+            self.num_qubits = None
+        self.hfs = hfs
         self.hamiltonian_mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian)
         self.state, self.energy = self.run_dmrg(self.hamiltonian)
         self._circuit = None
@@ -38,18 +51,41 @@ class QSCI(QuantumAlgorithm):
         self, hamiltonian: dict, max_bond: int = 8, maxiter: int = 6
     ) -> MatrixProductState:
         """Run DMRG"""
-        dmrg = DMRG(hamiltonian, max_mps_bond=max_bond)
+        hf_mps = None
+        if self.hf_state is not None:
+            hf_mps = MatrixProductState.from_bitstring(self.hf_state)
+            hf_mps = hf_mps.expand_bond_dimension_list(
+                1, list(range(1, self.num_qubits))
+            )
+        dmrg = DMRG(hamiltonian, max_mps_bond=max_bond, initial_state=hf_mps)
         dmrg.run(maxiter=maxiter)
         return dmrg.mps, dmrg.energy
+
+    def hf_suppression(
+        self, mps: MatrixProductState, mpo: MatrixProductOperator | None = None
+    ) -> tuple[MatrixProductState, MatrixProductOperator]:
+        """Perform HF suppression"""
+        hfs = HFSuppression(self.hf_state, mps, mpo)
+        hfs.run()
+        return hfs.suppressed_mps, hfs.evolved_mpo
 
     def prepare_state(self, mps: MatrixProductState) -> QuantumCircuit:
         """Prepare an MPS reference on quantum device"""
         circ = MPStoCircuit(mps, 1, 1.0).run()
         return circ
 
-    def configuration_recovery(self, counts: dict) -> dict:
+    def configuration_recovery(
+        self, counts: dict[str, int], particle_number: int | None = None
+    ) -> dict:
         """Perform configuration recovery"""
-        return counts
+        new_counts = {k: v for k, v in counts.items() if v > 2}
+        if particle_number is None:
+            return new_counts
+        else:
+            new_counts = {
+                k: v for k, v in new_counts.items() if k.count("1") == particle_number
+            }
+            return new_counts
 
     def gather_samples(self, cr_counts: dict, k: int) -> list[str]:
         """Collect the (at most) k most frequent samples to form the selected subspace"""
@@ -64,8 +100,9 @@ class QSCI(QuantumAlgorithm):
         ham_proj = np.zeros((n, n), dtype=complex)
 
         for i in range(n):
+            h_i = basis[i].apply_mpo(ham_mpo)
             for j in range(i, n):
-                h_ij = basis[i].apply_mpo(ham_mpo).compute_inner_product(basis[j])
+                h_ij = h_i.compute_inner_product(basis[j])
                 ham_proj[i, j] = h_ij
                 if i != j:
                     ham_proj[j, i] = h_ij.conjugate()
@@ -122,10 +159,14 @@ class QSCI(QuantumAlgorithm):
         """Run the full algorithm pipeline. Returns result object or final value."""
         start_time = default_timer()
         for _ in range(num_iterations):
+            if self.hfs:
+                self.state, _ = self.hf_suppression(self.state)
             self._circuit = self.prepare_state(self.state)
             counts = self.backend.run(self._circuit, shots=num_shots)
-            cr_counts = self.configuration_recovery(counts)
+            cr_counts = self.configuration_recovery(counts, self.num_electrons)
             samples = self.gather_samples(cr_counts, subspace_size)
+            if self.hfs and self.hf_state not in samples:
+                samples += self.hf_state
             if len(samples) <= 500:
                 projected_ham = self.project_hamiltonian(samples)
                 self.energy, groundstate_vec = self.exact_diagonalisation(projected_ham)
