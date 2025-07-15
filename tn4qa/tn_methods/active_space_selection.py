@@ -237,10 +237,7 @@ def active_space_selection(hamiltonian: dict,
     # Apply U to the input coefficient matrix, returning the transformed coefficient matrix (the new basis)
     transformed_coeff_matrix = U @ coeff_matrix
 
-    # Truncate to the desired number of active orbitals
-    active_coeff_matrix = transformed_coeff_matrix[:, :num_active_orbitals]
-
-    return active_coeff_matrix
+    return transformed_coeff_matrix
 
 
 
