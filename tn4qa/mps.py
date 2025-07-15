@@ -1,4 +1,5 @@
 import copy
+from collections import Counter
 from typing import List, TypeAlias, Union
 
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
@@ -185,6 +186,30 @@ class MatrixProductState(TensorNetwork):
         return cls.from_bitstring(bitstring)
 
     @classmethod
+    def from_bitstring_dict(
+        cls, bitstring_dict: dict[str, complex], max_bond: int | None = None
+    ):
+        """
+        Create an MPS from a dictionary {bitstring : amplitude}
+
+        Args:
+            bitstring_dict: The dictionary
+            max_bond: Maximum bond dimension
+        """
+        bitstrings = list(bitstring_dict.keys())
+        weights = list(bitstring_dict.values())
+        mps = MatrixProductState.from_bitstring(bitstrings[0])
+        mps.multiply_by_constant(weights[0])
+        for idx in range(1, len(bitstrings)):
+            temp_mps = MatrixProductState.from_bitstring(bitstrings[idx])
+            temp_mps.multiply_by_constant(weights[idx])
+            mps = mps + temp_mps
+            if max_bond:
+                if mps.bond_dimension > max_bond:
+                    mps.compress(max_bond)
+        return mps
+
+    @classmethod
     def from_symmer_quantumstate(
         cls, quantum_state: QuantumState, max_bond: int | None = None
     ):
@@ -198,18 +223,7 @@ class MatrixProductState(TensorNetwork):
             An MPS.
         """
         state_dict = quantum_state.to_dictionary
-        bitstrings = list(state_dict.keys())
-        weights = list(state_dict.values())
-        mps = MatrixProductState.from_bitstring(bitstrings[0])
-        mps.multiply_by_constant(weights[0])
-        for idx in range(1, len(bitstrings)):
-            temp_mps = MatrixProductState.from_bitstring(bitstrings[idx])
-            temp_mps.multiply_by_constant(weights[idx])
-            mps = mps + temp_mps
-            if max_bond:
-                if mps.bond_dimension > max_bond:
-                    mps.compress(max_bond)
-
+        mps = cls.from_bitstring_dict(state_dict, max_bond)
         return mps
 
     @classmethod
@@ -311,6 +325,74 @@ class MatrixProductState(TensorNetwork):
         mps = mps.apply_mpo(qc_mpo, max_bond)
         return mps
 
+    @classmethod
+    def from_sparse_array(
+        cls, array: SparseArray, max_bond: int | None = None
+    ) -> "MatrixProductState":
+        """
+        Create an MPS from a sparse array
+
+        Args:
+            array: The array
+            max_bond: Maximum bond dimension
+
+        Returns:
+            MPS
+        """
+        dense_array = array.todense()
+        return cls.from_dense_array(dense_array, max_bond)
+
+    @classmethod
+    def from_dense_array(
+        cls, array: ndarray, max_bond: int | None = None
+    ) -> "MatrixProductState":
+        """
+        Create an MPS from a dense array
+
+        Args:
+            array: The array
+            max_bond: Maximum bond dimension
+
+        Returns:
+            MPS
+        """
+        num_qubits = int(np.log2(len(array)))
+        array = array.reshape((2,) * (num_qubits))
+        indices = [f"P{x}" for x in range(1, num_qubits + 1)]
+        tensor = Tensor(array, indices, ["MPS"])
+        tn = TensorNetwork([tensor])
+
+        for idx in range(num_qubits - 1):
+            t = tn.tensors[idx]
+            input_inds = [indices[idx]]
+            output_inds = indices[idx + 1 : num_qubits]
+            if idx != 0:
+                input_inds.insert(0, f"C{idx}")
+            tn.svd(
+                t,
+                input_indices=input_inds,
+                output_indices=output_inds,
+                new_index_name=f"C{idx+1}",
+                new_labels=[[f"T{idx+1}"], [f"T{idx+2}"]],
+            )
+            if idx == 0:
+                new_idx_order1 = [f"C{idx+1}", "P1"]
+            else:
+                new_idx_order1 = [
+                    f"C{idx}",
+                    f"C{idx+1}",
+                    f"P{idx+1}",
+                ]
+            new_idx_order2 = [f"C{idx+1}"] + output_inds
+            tn.tensors[idx].reorder_indices(new_idx_order1)
+            tn.tensors[idx + 1].reorder_indices(new_idx_order2)
+        arrays = [tn.tensors[i].data for i in range(num_qubits)]
+        mps = cls.from_arrays(arrays)
+        if max_bond:
+            if mps.bond_dimension > max_bond:
+                mps.compress(max_bond)
+        return mps
+
     def __add__(self, other: "MatrixProductState") -> "MatrixProductState":
         """
         Defines MPS addition.
@@ -324,20 +406,8 @@ class MatrixProductState(TensorNetwork):
 
         t1_data = t1.data
         t2_data = t2.data
-        t1_data = sparse.reshape(t1_data, (1, t1.dimensions[0], t1.dimensions[1]))
-        t2_data = sparse.reshape(t2_data, (1, t2.dimensions[0], t2.dimensions[1]))
-        t1_dimensions = (1, t1.dimensions[0], t1.dimensions[1])
-        t2_dimensions = (1, t2.dimensions[0], t2.dimensions[1])
 
-        data1 = sparse.reshape(
-            t1_data, (t1_dimensions[0] * t1_dimensions[2], t1_dimensions[1])
-        )
-        data2 = sparse.reshape(
-            t2_data, (t2_dimensions[0] * t2_dimensions[2], t2_dimensions[1])
-        )
-
-        new_data = sparse.concatenate([data1, data2], axis=1)
-        new_data = sparse.moveaxis(new_data, [0, 1], [1, 0])
+        new_data = sparse.concatenate([t1_data, t2_data], axis=0)
         arrays.append(new_data)
 
         for t_idx in range(1, self.num_sites - 1):
@@ -389,20 +459,7 @@ class MatrixProductState(TensorNetwork):
 
         t1_data = t1.data
         t2_data = t2.data
-        t1_data = sparse.reshape(t1_data, (t1.dimensions[0], 1, t1.dimensions[1]))
-        t2_data = sparse.reshape(t2_data, (t2.dimensions[0], 1, t2.dimensions[1]))
-        t1_dimensions = (t1.dimensions[0], 1, t1.dimensions[1])
-        t2_dimensions = (t2.dimensions[0], 1, t2.dimensions[1])
-
-        data1 = sparse.reshape(
-            t1_data, (t1_dimensions[0] * t1_dimensions[2], t1_dimensions[1])
-        )
-        data2 = sparse.reshape(
-            t2_data, (t2_dimensions[0] * t2_dimensions[2], t2_dimensions[1])
-        )
-
-        new_data = sparse.concatenate([data1, data2], axis=1)
-        new_data = sparse.moveaxis(new_data, [0, 1], [1, 0])
+        new_data = sparse.concatenate([t1_data, t2_data], axis=0)
         arrays.append(new_data)
 
         output = MatrixProductState.from_arrays(arrays)
@@ -1151,11 +1208,20 @@ class MatrixProductState(TensorNetwork):
         Returns:
             A dictionary of the form {bitstring : counts}
         """
+        if self.num_sites <= 15:
+            dist = self.get_probability_distribution()
+            samples = np.random.choice(
+                list(dist.keys()), size=num_bitstrings, p=list(dist.values())
+            )
+            output = dict(Counter(list(samples)))
+            return output
+
         samples = {}
         prefix_prob_dict = {}  # {prefix : (prob0, prob1)}
         sample_prob_dict = {}  # {bitstring : probabiity}
 
         samples_collected = 0
+        self_copy = copy.deepcopy(self)
         while samples_collected < num_bitstrings:
             prob_existing_sample = np.sum(list(sample_prob_dict.values()))
             choose_existing_sample = np.random.choice(
@@ -1168,9 +1234,10 @@ class MatrixProductState(TensorNetwork):
                     list(sample_prob_dict.keys()), p=normalised_probs
                 )
                 samples[bitstring] += 1
+                samples_collected += 1
                 continue
             bitstring = ""
-            current_mps = copy.deepcopy(self)
+            current_mps = copy.deepcopy(self_copy)
             current_mpo = current_mps.form_density_operator()
             total_prob = 1.0
             temp_prob = 1.0
@@ -1219,14 +1286,12 @@ class MatrixProductState(TensorNetwork):
                     total_prob *= prob1
                 if bitstring[:-1] not in prefix_prob_dict:
                     prefix_prob_dict[bitstring[:-1]] = (prob0, prob1)
-
             if bitstring not in sample_prob_dict:
                 if bitstring in samples:
                     samples[bitstring] += 1
                 else:
                     samples[bitstring] = 1
                 samples_collected += 1
-            else:
                 sample_prob_dict[bitstring] = total_prob
 
         return samples

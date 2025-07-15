@@ -441,13 +441,12 @@ def test_normalise():
 def test_sample_bitstrings():
     mps = MatrixProductState.from_bitstring("10101")
     samples = mps.sample_bitstrings(10)
-    print(samples)
 
     assert samples["10101"] == 10
 
 
 def test_sample_bitstrings_approx():
     mps = MatrixProductState.equal_superposition_mps(3)
-    samples = mps.sample_bitstrings(100)
+    samples = mps.sample_bitstrings(1000)
 
     assert len(list(samples.keys())) == 8

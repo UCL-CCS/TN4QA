@@ -1,20 +1,19 @@
 import copy
 
-from qiskit import QuantumCircuit, transpile
+from qiskit import QuantumCircuit
+from qiskit_aer import AerSimulator
 
-from ...circuit_simulator import CircuitSimulator
-from ...mps import MatrixProductState
 from .base import QuantumBackend
 
 
-class TNQuantumBackend(QuantumBackend):
+class QiskitSimulatorBackend(QuantumBackend):
     """
-    Backend using TN4QA's CircuitSimulator for circuit execution
+    Backend using Qiskit simulator for circuit execution
     """
 
     def __init__(self) -> None:
         """Constructor"""
-        self._name = "tn4qa_circuit_simulator"
+        self._name = "qiskit_simulator"
         self._coupling_map = None
         self._basis_gates = None
         self._num_qubits = None
@@ -39,8 +38,6 @@ class TNQuantumBackend(QuantumBackend):
         self,
         circuit: QuantumCircuit,
         shots: int,
-        max_bond: int | None = None,
-        input_state: MatrixProductState | None = None,
     ) -> dict[str, int]:
         """Execute the circuit
 
@@ -52,10 +49,12 @@ class TNQuantumBackend(QuantumBackend):
         Returns:
             Measurement results {bitstring : count}
         """
+        sim = AerSimulator()
         qc = copy.deepcopy(circuit)
-        qc = transpile(qc, basis_gates=["u", "cx"])
-        sim = CircuitSimulator(qc, input_state=input_state)
-        output = sim.run(max_bond_dimension=max_bond, samples=shots)
+        qc.measure_all()
+        result = sim.run(qc, shots=shots).result()
+        counts = result.get_counts()
+        output = {k[::-1]: v for k, v in counts.items()}
         return output
 
     def parse_openqasm(self, filename: str) -> QuantumCircuit:

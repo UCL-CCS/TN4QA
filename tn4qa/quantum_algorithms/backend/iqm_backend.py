@@ -1,23 +1,29 @@
 import copy
 
+from iqm.qiskit_iqm import IQMProvider
 from qiskit import QuantumCircuit, transpile
 
-from ...circuit_simulator import CircuitSimulator
-from ...mps import MatrixProductState
 from .base import QuantumBackend
 
 
-class TNQuantumBackend(QuantumBackend):
+class IQMBackend(QuantumBackend):
     """
-    Backend using TN4QA's CircuitSimulator for circuit execution
+    Backend using IQM device for circuit execution
     """
 
-    def __init__(self) -> None:
-        """Constructor"""
-        self._name = "tn4qa_circuit_simulator"
-        self._coupling_map = None
-        self._basis_gates = None
-        self._num_qubits = None
+    def __init__(self, token: str, device: str) -> None:
+        """Constructor
+
+        Args:
+            token: Access token
+            device: Name of device, either emerald or sirius"""
+        self._name = "IQM_" + device
+        self.url = "https://cocos.resonance.meetiqm.com/" + device
+        self.provider = IQMProvider(self.url, token=token)
+        self.backend = self.provider.get_backend()
+        self._coupling_map = self.backend.coupling_map
+        self._basis_gates = self.backend.operation_names
+        self._num_qubits = self.backend.num_qubits
 
     @property
     def name(self) -> str:
@@ -39,8 +45,6 @@ class TNQuantumBackend(QuantumBackend):
         self,
         circuit: QuantumCircuit,
         shots: int,
-        max_bond: int | None = None,
-        input_state: MatrixProductState | None = None,
     ) -> dict[str, int]:
         """Execute the circuit
 
@@ -53,10 +57,12 @@ class TNQuantumBackend(QuantumBackend):
             Measurement results {bitstring : count}
         """
         qc = copy.deepcopy(circuit)
-        qc = transpile(qc, basis_gates=["u", "cx"])
-        sim = CircuitSimulator(qc, input_state=input_state)
-        output = sim.run(max_bond_dimension=max_bond, samples=shots)
-        return output
+        qc.measure_all()
+        qc = transpile(qc, backend=self.backend)
+        result = self.backend.run(qc, shots=shots).result()
+        counts = result.get_counts()
+        counts = {k[::-1]: v for k, v in counts.items()}
+        return counts
 
     def parse_openqasm(self, filename: str) -> QuantumCircuit:
         """Parse an OpenQASM input circuit
@@ -68,6 +74,7 @@ class TNQuantumBackend(QuantumBackend):
             A qiskit QuantumCircuit object
         """
         qc = QuantumCircuit.from_qasm_file(filename)
+        qc = transpile(qc, backend=self.backend)
         return qc
 
     def get_device_info(self) -> dict:
