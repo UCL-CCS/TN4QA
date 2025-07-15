@@ -1308,3 +1308,19 @@ class MatrixProductState(TensorNetwork):
         samples = self.sample_bitstrings(sample_size)
         approx_pd = {k: v / sample_size for k, v in samples.items()}
         return approx_pd
+
+    def to_two_copy_mps(self) -> "MatrixProductState":
+        """Build the MPS representation of |psi>|psi>"""
+        doubled_mps_arrays = []
+        for idx in range(self.num_sites):
+            array = copy.deepcopy(self.tensors[idx].data)
+            if idx == self.num_sites - 1:
+                array = sparse.reshape(array, (array.shape[0], 1, array.shape[1]))
+            doubled_mps_arrays.append(array)
+        for idx in range(self.num_sites):
+            array = copy.deepcopy(self.tensors[idx].data)
+            if idx == 0:
+                array = sparse.reshape(array, (1, array.shape[0], array.shape[1]))
+            doubled_mps_arrays.append(array)
+        doubled_mps = MatrixProductState.from_arrays(doubled_mps_arrays)
+        return doubled_mps
