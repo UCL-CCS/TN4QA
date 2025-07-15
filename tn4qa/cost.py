@@ -1,6 +1,12 @@
+from typing import Callable
+
 import numpy as np
-from mps import MatrixProductState
-from qi_metrics import get_one_orbital_entropy, get_all_mutual_information
+from numpy import ndarray
+
+from .mpo import MatrixProductOperator
+from .mps import MatrixProductState
+from .qi_metrics import get_all_mutual_information, get_one_orbital_entropy
+
 
 def cost_entropy(mps: MatrixProductState) -> float:
     """
@@ -9,12 +15,14 @@ def cost_entropy(mps: MatrixProductState) -> float:
     num_orbitals = mps.num_sites // 2
     return sum(get_one_orbital_entropy(mps, i + 1) for i in range(num_orbitals))
 
+
 def cost_total_mutual_information(mps: MatrixProductState) -> float:
     """
     Sum of all mutual informations. Lower total means less entanglement.
     """
     mi = get_all_mutual_information(mps)
     return np.sum(mi) / 2  # MI is symmetric
+
 
 def cost_mutual_info_decay(mps: MatrixProductState, decay_power: float = 2.0) -> float:
     """
@@ -27,8 +35,9 @@ def cost_mutual_info_decay(mps: MatrixProductState, decay_power: float = 2.0) ->
     for i in range(n_orbs):
         for j in range(i + 1, n_orbs):
             distance = abs(i - j)
-            cost += mi[i, j] * (distance ** decay_power)
+            cost += mi[i, j] * (distance**decay_power)
     return cost
+
 
 def cost_mutual_info_clusters(mps: MatrixProductState, threshold: float = 0.1) -> float:
     """
@@ -42,6 +51,7 @@ def cost_mutual_info_clusters(mps: MatrixProductState, threshold: float = 0.1) -
             if mi[i, j] > threshold:
                 cost += abs(i - j)
     return cost
+
 
 def cost_crossing_mi_pairs(mps: MatrixProductState, threshold: float = 0.1) -> float:
     """
@@ -61,6 +71,7 @@ def cost_crossing_mi_pairs(mps: MatrixProductState, threshold: float = 0.1) -> f
                         crossings += 1
     return crossings
 
+
 def cost_entropy_max_to_mean(mps: MatrixProductState) -> float:
     """
     Cost based on the ratio of the maximum single-orbital entropy to the mean single-orbital entropy.
@@ -71,3 +82,21 @@ def cost_entropy_max_to_mean(mps: MatrixProductState) -> float:
     entropies = [get_one_orbital_entropy(mps, i + 1) for i in range(mps.num_sites // 2)]
     mean = np.mean(entropies)
     return max(entropies) / mean if mean != 0 else -np.inf
+
+
+def cost_function_to_string(cost_function: Callable) -> str:
+    return
+
+
+def calculate_purity(density_matrix: ndarray) -> float:
+    return
+
+
+def cost_function_string_to_callable(
+    cost_function_string: str, entropy_function: Callable
+) -> Callable:
+    return
+
+
+def cost_function_string_to_mpo(cost_function_string: str) -> MatrixProductOperator:
+    return
