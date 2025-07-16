@@ -10,7 +10,7 @@ from symmer.operators import PauliwordOp
 from ..dmrg import DMRG
 from ..mpo import MatrixProductOperator
 from ..mps import MatrixProductState
-from ..qi_cost_functions import (
+from tn4qa.qi_cost_functions import (
     cost_function_dict_to_purity_mpo,
     cost_function_to_dict,
 )
@@ -132,8 +132,8 @@ class ActiveSpaceSelection:
         Diagonal entries are pure imaginary: iθ
         Off-diagonal: K[p,q] = a + ib, K[q,p] = -a + ib
         """
-        norbs = self.num_orbitals
-        assert len(theta) == norbs**2, "theta must have length N^2"
+        norbs = self.num_spin_orbitals
+        assert len(theta) == self.num_spin_orbitals**2, "theta must have length N^2"
 
         K = np.zeros((norbs, norbs), dtype=complex)
         idx = 0
@@ -155,31 +155,33 @@ class ActiveSpaceSelection:
         return K
 
     def exponential_hopping_term(
-        self, p: int, q: int, theta: complex
+        self, p: int, q: int, K_pq: complex
     ) -> MatrixProductOperator:
         """
-        Construct the MPO for exp(theta * a_p† a_q - theta* * a_q† a_p).
+        Construct the MPO for exp(K_pq * a_p† a_q - K_pq* * a_q† a_p).
 
         Args:
             p, q: Indices of orbitals (must be different)
-            theta: Complex parameter
+            K_pq: Complex parameter
 
         Returns:
-            MatrixProductOperator for exp(H), where H = theta * a_p† a_q - conj(theta) * a_q† a_p
+            MatrixProductOperator for exp(H), where H = K_pq * a_p† a_q - conj(K_pq) * a_q† a_p
         """
-        assert p != q, "Cannot build on-site hopping term with p == q"
+        if p == q:
+            h_fermion = FermionOperator(((p, 1), (q, 0)), K_pq)
 
-        # Build the FermionOperator, 1 is the creation operator, 0 is the annihilation operator
-        # H = theta * a_p† a_q - conj(theta) * a_q†
-        h_fermion = FermionOperator(((p, 1), (q, 0)), theta) - FermionOperator(
-            ((q, 1), (p, 0)), np.conj(theta)
-        )
+        else:
+            # Build the FermionOperator, 1 is the creation operator, 0 is the annihilation operator
+            # H = K_pq * a_p† a_q - conj(K_pq) * a_q† a_p
+            h_fermion = FermionOperator(((p, 1), (q, 0)), K_pq) - FermionOperator(
+                ((q, 1), (p, 0)), np.conj(K_pq)
+            )
 
         # Map to QubitOperator using Jordan-Wigner
         h_qubit = jordan_wigner(h_fermion)
 
         # Convert to PauliwordOp
-        h_pauli = PauliwordOp.from_openfermion(h_qubit)
+        h_pauli = PauliwordOp.from_openfermion(h_qubit, n_qubits=self.num_spin_orbitals)
 
         # Convert to a dictionary
         h_dict = h_pauli.to_dictionary
@@ -211,7 +213,7 @@ class ActiveSpaceSelection:
             MatrixProductOperator representing the unitary
         """
         N = K.shape[0]
-        assert K.shape[1] == N
+        assert K.shape[1] == N, "K must be square"
         assert np.allclose(K + K.conj().T, 0, atol=1e-10), "K must be anti-Hermitian"
 
         u_mpo = MatrixProductOperator.identity_mpo(N)
@@ -219,11 +221,11 @@ class ActiveSpaceSelection:
 
         for _ in range(trotter_steps):
             for p in range(N):
-                for q in range(N):
+                for q in range(p, N):
                     if abs(K[p, q]) > 1e-12:
-                        theta = dt * K[p, q]
-                        hop_exp_mpo = self.exponential_hopping_term(p, q, theta)
-                        u_mpo = u_mpo @ hop_exp_mpo
+                        K_dt = dt * K[p, q]
+                        hop_exp_mpo = self.exponential_hopping_term(p, q, K_dt)
+                        u_mpo = u_mpo * hop_exp_mpo
 
         return u_mpo
 
@@ -246,7 +248,7 @@ class ActiveSpaceSelection:
         transformed_state = mps.apply_mpo(W_rotated)
         doubled_transformed_state = transformed_state.to_two_copy_mps()
         cost = doubled_transformed_state.compute_expectation_value(mpo)
-        return cost
+        return cost.real
 
     def optimise_K(
         self, theta_init: ndarray, mpo: MatrixProductOperator, mps: MatrixProductState
@@ -270,10 +272,10 @@ class ActiveSpaceSelection:
             self.optimisation_cost,
             theta_init,
             args=(mpo, mps),
-            method="BFGS",
-            options={"disp": True},
+            method="COBYLA",
+            options={"disp": True}
         )
-
+        print("Optimisation result:", result.x)
         return result.x
 
     def exponentiate_K(self, K: ndarray) -> ndarray:

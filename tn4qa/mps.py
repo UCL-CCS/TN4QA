@@ -789,7 +789,7 @@ class MatrixProductState(TensorNetwork):
 
         return val
 
-    def compute_expectation_value(self, mpo: MatrixProductOperator) -> float:
+    def compute_expectation_value(self, mpo: MatrixProductOperator) -> complex:
         """
         Calculate an expectation value of the form <MPS | MPO | MPS>.
 

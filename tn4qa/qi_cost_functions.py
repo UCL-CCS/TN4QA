@@ -122,11 +122,15 @@ def cost_function_to_dict(cost_function: Callable, **kwargs) -> dict[str, float]
     function_params = kwargs
     match cost_function.__name__:
         case "cost_entropy":
-            return cost_entropy_dict(**function_params)
+            num_orbitals = function_params["num_orbitals"]
+            return cost_entropy_dict(num_orbitals=num_orbitals)
         case "cost_total_mutual_information":
-            return cost_total_mutual_information_dict(**function_params)
+            num_orbitals = function_params["num_orbitals"]
+            return cost_total_mutual_information_dict(num_orbitals=num_orbitals)
         case "cost_mutual_info_decay":
-            return cost_mutual_info_decay_dict(**function_params)
+            num_orbitals = function_params["num_orbitals"]
+            decay_power = function_params["decay_power"]
+            return cost_mutual_info_decay_dict(num_orbitals=num_orbitals, decay_power=decay_power)
         case _:
             raise ValueError
     return
