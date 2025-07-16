@@ -7,13 +7,14 @@ from openfermion.transforms import jordan_wigner
 from scipy.optimize import minimize
 from symmer.operators import PauliwordOp
 
-from ..dmrg import DMRG
-from ..mpo import MatrixProductOperator
-from ..mps import MatrixProductState
 from tn4qa.qi_cost_functions import (
     cost_function_dict_to_purity_mpo,
     cost_function_to_dict,
 )
+
+from ..dmrg import DMRG
+from ..mpo import MatrixProductOperator
+from ..mps import MatrixProductState
 from ..quantum_algorithms.hamiltonian_simulation.trotterisation import TrotterSimulation
 
 
@@ -74,13 +75,6 @@ class ActiveSpaceSelection:
         cost_mpo = self.build_cost_function_mpo(
             cost_function=cost_function, decay_power=decay_power
         )
-
-        # Orbital DMRG to find |psi>_D
-        # psi_D = run_dmrg(cost_mpo)
-
-        # Unitary operation that maps |psi>_C to |psi>_D
-        # This is the Householder-like map that swaps the two MPS
-        # V = householder_map(psi_C, psi_D)
 
         # Run BFGS optimisation to find optimal K
         theta_init = np.zeros((N**2,), dtype=float)  # Initial guess for theta
@@ -273,7 +267,7 @@ class ActiveSpaceSelection:
             theta_init,
             args=(mpo, mps),
             method="COBYLA",
-            options={"disp": True}
+            options={"disp": True},
         )
         print("Optimisation result:", result.x)
         return result.x
@@ -299,40 +293,3 @@ class ActiveSpaceSelection:
         V_inv = np.linalg.inv(eigvecs)
         U = eigvecs @ exp_D @ V_inv
         return U
-
-
-# def hs_squared_distance(V, W) -> float:
-#     hs = hilbert_schmidt_distance(V, W)
-#     # Return the squared distance
-#     return hs**2
-
-# def householder_map(psi_C, psi_D):
-#     """
-#     Construct an MPO representing the Householder-like unitary V that swaps
-#     MPS |psi_C⟩ and |psi_D⟩, and acts as identity on the orthogonal complement.
-
-#     V = |D><C| + |C><D| + (I - |C><C| - |D><D|)
-
-#     Args:
-#         psi_C: MatrixProductState representing |psi_C⟩
-#         psi_D: MatrixProductState representing |psi_D⟩
-
-#     Returns:
-#         MatrixProductOperator representing the unitary V
-#     """
-#     assert psi_C.num_sites == psi_D.num_sites, "psi_C and psi_D must have the same number of sites"
-#     N = psi_C.num_sites
-
-#     # Compute outer product MPOs
-#     proj_DC = psi_D.outer_product(psi_C)  # calculate |D><C|
-#     proj_CD = psi_C.outer_product(psi_D)  # calculate |C><D|
-#     proj_CC = psi_C.outer_product(psi_C)  # calculate |C><C|
-#     proj_DD = psi_D.outer_product(psi_D)  # calculate |D><D|
-
-#     # Identity MPO
-#     identity = MatrixProductOperator.identity_mpo(N)
-
-#     # Build V = |D><C| + |C><D| + I - |C><C| - |D><D|
-#     V = proj_DC + proj_CD + identity - proj_CC - proj_DD
-
-#     return V
