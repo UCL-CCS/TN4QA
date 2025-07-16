@@ -8,7 +8,7 @@ Here is a Bibtex entry for TN4QA:
 
 ```
 @misc{ TN4QA,
-    author = {Angus Mingare, Isabelle Heuzé},
+    author = {Mingare, Angus and Heuzé, Isabelle},
     title = {TN4QA},
     year = {2025},
     url = {https://github.com/UCL-CCS/TN4QA},

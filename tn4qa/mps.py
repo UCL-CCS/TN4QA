@@ -789,7 +789,7 @@ class MatrixProductState(TensorNetwork):
 
         return val
 
-    def compute_expectation_value(self, mpo: MatrixProductOperator) -> float:
+    def compute_expectation_value(self, mpo: MatrixProductOperator) -> complex:
         """
         Calculate an expectation value of the form <MPS | MPO | MPS>.
 
@@ -1308,3 +1308,52 @@ class MatrixProductState(TensorNetwork):
         samples = self.sample_bitstrings(sample_size)
         approx_pd = {k: v / sample_size for k, v in samples.items()}
         return approx_pd
+
+    def to_two_copy_mps(self) -> "MatrixProductState":
+        """Build the MPS representation of |psi>|psi>"""
+        doubled_mps_arrays = []
+        for idx in range(self.num_sites):
+            array = copy.deepcopy(self.tensors[idx].data)
+            if idx == self.num_sites - 1:
+                array = sparse.reshape(array, (array.shape[0], 1, array.shape[1]))
+            doubled_mps_arrays.append(array)
+        for idx in range(self.num_sites):
+            array = copy.deepcopy(self.tensors[idx].data)
+            if idx == 0:
+                array = sparse.reshape(array, (1, array.shape[0], array.shape[1]))
+            doubled_mps_arrays.append(array)
+        doubled_mps = MatrixProductState.from_arrays(doubled_mps_arrays)
+        return doubled_mps
+
+    def householder_map(self, other: "MatrixProductState") -> MatrixProductOperator:
+        """
+        Construct an MPO representing the Householder-like unitary V that swaps
+        MPS |psi_C⟩ and |psi_D⟩, and acts as identity on the orthogonal complement.
+
+        V = |other><self| + |self><other| + (I - |self><self| - |other><other|)
+
+        Args:
+            other: MatrixProductState representing |other>
+
+        Returns:
+            MatrixProductOperator representing the unitary V
+        """
+        assert (
+            self.num_sites == other.num_sites
+        ), "psi_C and psi_D must have the same number of sites"
+        psi_C = copy.deepcopy(self)
+        psi_D = copy.deepcopy(other)
+
+        # Compute outer product MPOs
+        proj_DC = psi_D.outer_product(psi_C)  # calculate |D><C|
+        proj_CD = psi_C.outer_product(psi_D)  # calculate |C><D|
+        proj_CC = psi_C.outer_product(psi_C)  # calculate |C><C|
+        proj_DD = psi_D.outer_product(psi_D)  # calculate |D><D|
+
+        # Identity MPO
+        identity = MatrixProductOperator.identity_mpo(self.num_sites)
+
+        # Build V = |D><C| + |C><D| + I - |C><C| - |D><D|
+        V = proj_DC + proj_CD + identity - proj_CC - proj_DD
+
+        return V
