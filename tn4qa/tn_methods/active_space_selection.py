@@ -1,244 +1,336 @@
-from fidelity_metrics import hilbert_schmidt_distance
-from mpo import MatrixProductOperator
-from mps import MatrixProductState 
+from typing import Callable
+
 import numpy as np
-from scipy.linalg import expm
-from scipy.optimize import minimize
-from symmer.operators import PauliwordOp
-from quantum_algorithms.hamiltonian_simulation.trotterisation import TrotterSimulation
+from numpy import ndarray
 from openfermion.ops import FermionOperator
 from openfermion.transforms import jordan_wigner
+from scipy.optimize import minimize
+from symmer.operators import PauliwordOp
+
+from ..dmrg import DMRG
+from ..mpo import MatrixProductOperator
+from ..mps import MatrixProductState
+from ..qi_cost_functions import (
+    cost_function_dict_to_purity_mpo,
+    cost_function_to_dict,
+)
+from ..quantum_algorithms.hamiltonian_simulation.trotterisation import TrotterSimulation
 
 
-def hs_squared_distance(V, W) -> float:
-    hs = hilbert_schmidt_distance(V, W)
-    # Return the squared distance
-    return hs**2
+class ActiveSpaceSelection:
+    def __init__(self, hamiltonian: dict[str, complex], coeff_matrix: ndarray):
+        """Constructor
 
-def vector_to_antihermitian(theta: np.ndarray, N: int) -> np.ndarray:
-    """
-    Converts a real vector of length N^2 into an anti-Hermitian matrix K ∈ C^{N x N}.
-    
-    Diagonal entries are pure imaginary: iθ
-    Off-diagonal: K[p,q] = a + ib, K[q,p] = -a + ib
-    """
-    assert len(theta) == N**2, "theta must have length N^2"
-    
-    K = np.zeros((N, N), dtype=complex)
-    idx = 0
+        Args:
+            hamiltonian: System Hamiltonian
+            coeff_matrix: HF coefficient matrix of shape (N, N)
+        """
+        self.hamiltonian = hamiltonian
+        self.num_spin_orbitals = coeff_matrix.shape[0]
+        self.num_orbitals = int(self.num_spin_orbitals / 2)
+        self.coeff_matrix = coeff_matrix
 
-    # Fill diagonals: all imaginary
-    for i in range(N):
-        K[i, i] = 1j * theta[idx]
-        idx += 1
+    def run(
+        self, num_active_orbitals: int, cost_function: Callable, **kwargs
+    ) -> ndarray:
+        """
+        Perform active space selection by optimising a unitary transformation of the orbital coefficients.
 
-    # Fill upper triangle, set lower triangle with Hermitian conjugate
-    for i in range(N):
-        for j in range(i + 1, N):
-            real = theta[idx]
-            imag = theta[idx + 1]
-            K[i, j] = real + 1j * imag
-            K[j, i] = -real + 1j * imag  # = -conj(K[i,j])
-            idx += 2
+        Args:
+            num_active_orbitals [int]: Number of active orbitals to select
+            cost_function [Callable]: The cost function to use for orbital optimisation
+            kwargs: Valid arguments to provide -
+                dmrg_max_mps_bond [int]: maximum bond dimension for DMRG, default 8
+                dmrg_method [str]: either "one-site" or "two-site", default "two-site"
+                dmrg_convergence_threshold [float]: convergence threshold for DMRG, default 1e-9
+                dmrg_initial_state [MatrixProductState]: an initial MPS state for DMRG, default random MPS
+                dmrg_maxiter: maximum number of sweeps to perform in DMRG, default 10
+                cost_function_decay_power [float]: Required parameter for cost_mutual_info_decay, default 2.0
 
-    return K
+        Returns:
+            Transformed coefficient matrix with optimal active orbitals
+        """
+        function_args = kwargs
+        N = self.num_spin_orbitals
+        assert self.coeff_matrix.shape[1] == N, "Coefficient matrix must be square"
 
-def exponential_hopping_term(p: int, q: int, theta: complex, num_sites: int) -> MatrixProductOperator:
-    """
-    Construct the MPO for exp(theta * a_p† a_q - theta* * a_q† a_p).
+        # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
+        max_mps_bond = function_args.get("dmrg_max_mps_bond", 8)
+        method = function_args.get("dmrg_method", "two-site")
+        convergence_threshold = function_args.get("dmrg_convergence_threshold", 1e-9)
+        initial_state = function_args.get("dmrg_initial_state", None)
+        maxiter = function_args.get("dmrg_maxiter", 10)
+        psi_C = self.run_dmrg(
+            hamiltonian=self.hamiltonian,
+            max_mps_bond=max_mps_bond,
+            method=method,
+            convergence_threshold=convergence_threshold,
+            initial_state=initial_state,
+            maxiter=maxiter,
+        )
 
-    Args:
-        p, q: Indices of orbitals (must be different)
-        theta: Complex parameter
-        num_sites: Total number of spin-orbitals
+        # Cost function to MPO
+        decay_power = function_args.get("cost_function_decay_power", 2.0)
+        cost_mpo = self.build_cost_function_mpo(
+            cost_function=cost_function, decay_power=decay_power
+        )
 
-    Returns:
-        MatrixProductOperator for exp(H), where H = theta * a_p† a_q - conj(theta) * a_q† a_p
-    """
-    assert p != q, "Cannot build on-site hopping term with p == q"
+        # Orbital DMRG to find |psi>_D
+        # psi_D = run_dmrg(cost_mpo)
 
-    # Build the FermionOperator, 1 is the creation operator, 0 is the annihilation operator
-    # H = theta * a_p† a_q - conj(theta) * a_q†
-    h_fermion = FermionOperator(((p, 1), (q, 0)), theta) - FermionOperator(((q, 1), (p, 0)), np.conj(theta))
+        # Unitary operation that maps |psi>_C to |psi>_D
+        # This is the Householder-like map that swaps the two MPS
+        # V = householder_map(psi_C, psi_D)
 
-    # Map to QubitOperator using Jordan-Wigner
-    h_qubit = jordan_wigner(h_fermion)
+        # Run BFGS optimisation to find optimal K
+        theta_init = np.zeros((N**2,), dtype=float)  # Initial guess for theta
+        theta_opt = self.optimise_K(theta_init, cost_mpo, psi_C)
 
-    # Convert to PauliwordOp 
-    h_pauli = PauliwordOp.from_openfermion(h_qubit)
+        # Exponentiate K to get a unitary U = exp(K)
+        K_opt = self.vector_to_antihermitian(theta_opt)
+        U = self.exponentiate_K(K_opt)
 
-    # Convert to a dictionary
-    h_dict = h_pauli.to_dictionary()
-    h_dict = {k:v.real for k,v in h_dict.items()}
+        # Apply U to the input coefficient matrix, returning the transformed coefficient matrix (the new basis)
+        self.transformed_coeff_matrix = self.coeff_matrix @ U
 
-    # Create a circuit
-    sim = TrotterSimulation(h_dict, duration=1.0, num_steps=1)
-    qc = sim.from_qiskit_circuit() 
+        return self.transformed_coeff_matrix
 
-    # Convert Qiskit circuit to MPO
-    u_mpo = MatrixProductOperator.from_qiskit_circuit(qc)
+    def run_dmrg(
+        self,
+        hamiltonian: dict[str, complex],
+        max_mps_bond: int | None,
+        method: str,
+        convergence_threshold: float,
+        initial_state: MatrixProductState,
+        maxiter: int,
+    ) -> MatrixProductState:
+        """Run DMRG to get an approximate groundstate in the initial MO basis"""
+        dmrg = DMRG(
+            hamiltonian,
+            max_mps_bond=max_mps_bond,
+            method=method,
+            convergence_threshold=convergence_threshold,
+            initial_state=initial_state,
+        )
+        _, psi = dmrg.run(maxiter=maxiter)
+        return psi
 
-    return u_mpo
+    def build_cost_function_mpo(
+        self, cost_function: Callable, decay_power: float
+    ) -> MatrixProductOperator:
+        """Build the cost function as an MPO"""
+        d = cost_function_to_dict(
+            cost_function, num_orbitals=self.num_orbitals, decay_power=decay_power
+        )
+        mpo = cost_function_dict_to_purity_mpo(self.num_spin_orbitals, d)
+        return mpo
 
-def build_trotterised_unitary(K: np.ndarray, trotter_steps=1) -> MatrixProductOperator:
-    """
-    Build an MPO approximation of the fermionic unitary:
-        U = exp(Σ_{pq} K_{pq} a†_p a_q)
-    
-    using first-order Trotter decomposition.
+    def vector_to_antihermitian(self, theta: ndarray) -> ndarray:
+        """
+        Converts a real vector of length N^2 into an anti-Hermitian matrix K ∈ C^{N x N}.
 
-    Args:
-        K: Anti-Hermitian matrix (N x N)
-        trotter_steps: Number of Trotter steps
+        Diagonal entries are pure imaginary: iθ
+        Off-diagonal: K[p,q] = a + ib, K[q,p] = -a + ib
+        """
+        norbs = self.num_orbitals
+        assert len(theta) == norbs**2, "theta must have length N^2"
 
-    Returns:
-        MatrixProductOperator representing the unitary
-    """
-    N = K.shape[0]
-    assert K.shape[1] == N
-    assert np.allclose(K + K.conj().T, 0, atol=1e-10), "K must be anti-Hermitian"
+        K = np.zeros((norbs, norbs), dtype=complex)
+        idx = 0
 
-    u_mpo = MatrixProductOperator.identity_mpo(N)
-    dt = 1.0 / trotter_steps
+        # Fill diagonals: all imaginary
+        for i in range(norbs):
+            K[i, i] = 1j * theta[idx]
+            idx += 1
 
-    for _ in range(trotter_steps):
-        for p in range(N):
-            for q in range(N):
-                if abs(K[p, q]) > 1e-12:
-                    theta = dt * K[p, q]
-                    hop_exp_mpo = exponential_hopping_term(p, q, theta, N)
-                    u_mpo = u_mpo @ hop_exp_mpo
+        # Fill upper triangle, set lower triangle with Hermitian conjugate
+        for i in range(norbs):
+            for j in range(i + 1, norbs):
+                real = theta[idx]
+                imag = theta[idx + 1]
+                K[i, j] = real + 1j * imag
+                K[j, i] = -real + 1j * imag  # = -conj(K[i,j])
+                idx += 2
 
-    return u_mpo
+        return K
 
-def cost(theta: np.ndarray, V) -> float:
-    N = V.num_sites
-    K = vector_to_antihermitian(theta, N)
-    W_rotated = build_trotterised_unitary(K)  # returns an MPO
-    return hs_squared_distance(V, W_rotated)
+    def exponential_hopping_term(
+        self, p: int, q: int, theta: complex
+    ) -> MatrixProductOperator:
+        """
+        Construct the MPO for exp(theta * a_p† a_q - theta* * a_q† a_p).
 
-def optimise_K(V, W_init):
-    """
-    Run BFGS optimisation over K such that W(K) ≈ V.
+        Args:
+            p, q: Indices of orbitals (must be different)
+            theta: Complex parameter
 
-    Args:
-        V: Target MPO
-        W_init: Initial MPO (e.g. identity or guess)
+        Returns:
+            MatrixProductOperator for exp(H), where H = theta * a_p† a_q - conj(theta) * a_q† a_p
+        """
+        assert p != q, "Cannot build on-site hopping term with p == q"
 
-    Returns:
-        Optimal real-valued parameter vector θ defining anti-Hermitian K
-    """
-    N = V.num_sites
-    num_params = N**2
-    theta0 = np.zeros(num_params)
+        # Build the FermionOperator, 1 is the creation operator, 0 is the annihilation operator
+        # H = theta * a_p† a_q - conj(theta) * a_q†
+        h_fermion = FermionOperator(((p, 1), (q, 0)), theta) - FermionOperator(
+            ((q, 1), (p, 0)), np.conj(theta)
+        )
 
-    result = minimize(
-        cost,
-        theta0,
-        args=(V, W_init),
-        method='BFGS',
-        options={'disp': True}
-    )
+        # Map to QubitOperator using Jordan-Wigner
+        h_qubit = jordan_wigner(h_fermion)
 
-    return result.x
+        # Convert to PauliwordOp
+        h_pauli = PauliwordOp.from_openfermion(h_qubit)
 
-def householder_map(psi_C, psi_D):
-    """
-    Construct an MPO representing the Householder-like unitary V that swaps
-    MPS |psi_C⟩ and |psi_D⟩, and acts as identity on the orthogonal complement.
+        # Convert to a dictionary
+        h_dict = h_pauli.to_dictionary
+        h_dict = {k: v.real for k, v in h_dict.items()}
 
-    V = |D><C| + |C><D| + (I - |C><C| - |D><D|)
+        # Create a circuit
+        sim = TrotterSimulation(h_dict, duration=1.0, num_steps=1)
+        qc = sim.circuit
 
-    Args:
-        psi_C: MatrixProductState representing |psi_C⟩
-        psi_D: MatrixProductState representing |psi_D⟩
+        # Convert Qiskit circuit to MPO
+        u_mpo = MatrixProductOperator.from_qiskit_circuit(qc)
 
-    Returns:
-        MatrixProductOperator representing the unitary V
-    """
-    assert psi_C.num_sites == psi_D.num_sites, "psi_C and psi_D must have the same number of sites"
-    N = psi_C.num_sites
+        return u_mpo
 
-    # Compute outer product MPOs
-    proj_DC = psi_D.outer_product(psi_C)  # calculate |D><C|
-    proj_CD = psi_C.outer_product(psi_D)  # calculate |C><D|
-    proj_CC = psi_C.outer_product(psi_C)  # calculate |C><C|
-    proj_DD = psi_D.outer_product(psi_D)  # calculate |D><D|
+    def build_trotterised_unitary(
+        self, K: ndarray, trotter_steps: int = 1
+    ) -> MatrixProductOperator:
+        """
+        Build an MPO approximation of the fermionic unitary:
+            U = exp(Σ_{pq} K_{pq} a†_p a_q)
 
-    # Identity MPO
-    identity = MatrixProductOperator.identity_mpo(N)
+        using first-order Trotter decomposition.
 
-    # Build V = |D><C| + |C><D| + I - |C><C| - |D><D|
-    V = proj_DC + proj_CD + identity - proj_CC - proj_DD
+        Args:
+            K: Anti-Hermitian matrix (N x N)
+            trotter_steps: Number of Trotter steps
 
-    return V
+        Returns:
+            MatrixProductOperator representing the unitary
+        """
+        N = K.shape[0]
+        assert K.shape[1] == N
+        assert np.allclose(K + K.conj().T, 0, atol=1e-10), "K must be anti-Hermitian"
 
-def exponentiate_K(K: np.ndarray) -> np.ndarray:
-    """
-    Compute U = exp(K) using eigendecomposition, where K is anti-Hermitian.
+        u_mpo = MatrixProductOperator.identity_mpo(N)
+        dt = 1.0 / trotter_steps
 
-    Args:
-    K: Anti-Hermitian matrix of shape (N, N)
+        for _ in range(trotter_steps):
+            for p in range(N):
+                for q in range(N):
+                    if abs(K[p, q]) > 1e-12:
+                        theta = dt * K[p, q]
+                        hop_exp_mpo = self.exponential_hopping_term(p, q, theta)
+                        u_mpo = u_mpo @ hop_exp_mpo
 
-    Returns:
-    U = exp(K): a unitary matrix
-    """
-    assert K.shape[0] == K.shape[1], "K must be square"
-    assert np.allclose(K + K.conj().T, 0), "K must be anti-Hermitian"
+        return u_mpo
 
-    # Eigendecomposition: K = V D V^{-1}
-    eigvals, eigvecs = np.linalg.eig(K)
+    def optimisation_cost(
+        self, theta: ndarray, mpo: MatrixProductOperator, mps: MatrixProductState
+    ) -> float:
+        """Optimisation cost function.
 
-    # Compute exp(K) = V exp(D) V^{-1)
-    exp_D = np.diag(np.exp(eigvals))
-    V_inv = np.linalg.inv(eigvecs)
-    U = eigvecs @ exp_D @ V_inv
-    return U
+        Args;
+            theta: Paramter list for K
+            mpo: QI cost function MPO
+            mps: Groundstate approximation from DMRG
 
-#----------------------------------------------------------------------------------------------------------
+        Returns:
+            < MPS | (exp(Σ_{pq} K_{pq} a†_p a_q))† MPO exp(Σ_{pq} K_{pq} a†_p a_q) | MPS >
+        """
+        # N = V.num_sites
+        K = self.vector_to_antihermitian(theta)
+        W_rotated = self.build_trotterised_unitary(K)  # returns an MPO
+        transformed_state = mps.apply_mpo(W_rotated)
+        doubled_transformed_state = transformed_state.to_two_copy_mps()
+        cost = doubled_transformed_state.compute_expectation_value(mpo)
+        return cost
 
-def active_space_selection(hamiltonian: dict, 
-                           coeff_matrix: np.ndarray, 
-                           num_active_orbitals: int) -> np.ndarray:
-    """
-    Perform active space selection by optimising a unitary transformation of the orbital coefficients.
+    def optimise_K(
+        self, theta_init: ndarray, mpo: MatrixProductOperator, mps: MatrixProductState
+    ):
+        """
+        Run BFGS optimisation over K to minimise optimisation_cost.
 
-    Args:
-        coeff_matrix: HF coefficient matrix of shape (N, N)
-        num_active_orbitals: Number of active orbitals to select
+        Args:
+            theta_init: Initial guess for theta
+            mpo: QI cost function MPO
+            mps: Groundstate approximation from DMRG
 
-    Returns:
-        Transformed coefficient matrix with optimal active orbitals
-    """
-    N = coeff_matrix.shape[0]
-    assert coeff_matrix.shape[1] == N, "Coefficient matrix must be square"
+        Returns:
+            Optimal real-valued parameter vector θ defining anti-Hermitian K
+        """
+        # N = V.num_sites
+        # num_params = N**2
+        # theta0 = np.zeros(num_params)
 
-    # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
-    psi_C = run_dmrg(hamiltonian)
+        result = minimize(
+            self.optimisation_cost,
+            theta_init,
+            args=(mpo, mps),
+            method="BFGS",
+            options={"disp": True},
+        )
 
-    # Cost function to MPO 
-    cost_mpo = build_cost_function_mpo()  
+        return result.x
 
-    # Orbital DMRG to find |psi>_D 
-    psi_D = run_dmrg(cost_mpo)
+    def exponentiate_K(self, K: ndarray) -> ndarray:
+        """
+        Compute U = exp(K) using eigendecomposition, where K is anti-Hermitian.
 
-    # Unitary operation that maps |psi>_C to |psi>_D
-    # This is the Householder-like map that swaps the two MPS
-    V = householder_map(psi_C, psi_D)
+        Args:
+        K: Anti-Hermitian matrix of shape (N, N)
 
-    # Run BFGS optimisation to find optimal K
-    W_init = MatrixProductOperator.identity_mpo(N)  # Initial guess for W
-    theta_opt = optimise_K(V, W_init)
+        Returns:
+        U = exp(K): a unitary matrix
+        """
+        assert K.shape[0] == K.shape[1], "K must be square"
+        assert np.allclose(K + K.conj().T, 0), "K must be anti-Hermitian"
 
-    # Exponentiate K to get a unitary U = exp(K)
-    K_opt = vector_to_antihermitian(theta_opt, N)
-    U = exponentiate_K(K_opt)
+        # Eigendecomposition: K = V D V^{-1}
+        eigvals, eigvecs = np.linalg.eig(K)
 
-    # Apply U to the input coefficient matrix, returning the transformed coefficient matrix (the new basis)
-    transformed_coeff_matrix = U @ coeff_matrix
-
-    return transformed_coeff_matrix
-
-
+        # Compute exp(K) = V exp(D) V^{-1)
+        exp_D = np.diag(np.exp(eigvals))
+        V_inv = np.linalg.inv(eigvecs)
+        U = eigvecs @ exp_D @ V_inv
+        return U
 
 
+# def hs_squared_distance(V, W) -> float:
+#     hs = hilbert_schmidt_distance(V, W)
+#     # Return the squared distance
+#     return hs**2
+
+# def householder_map(psi_C, psi_D):
+#     """
+#     Construct an MPO representing the Householder-like unitary V that swaps
+#     MPS |psi_C⟩ and |psi_D⟩, and acts as identity on the orthogonal complement.
+
+#     V = |D><C| + |C><D| + (I - |C><C| - |D><D|)
+
+#     Args:
+#         psi_C: MatrixProductState representing |psi_C⟩
+#         psi_D: MatrixProductState representing |psi_D⟩
+
+#     Returns:
+#         MatrixProductOperator representing the unitary V
+#     """
+#     assert psi_C.num_sites == psi_D.num_sites, "psi_C and psi_D must have the same number of sites"
+#     N = psi_C.num_sites
+
+#     # Compute outer product MPOs
+#     proj_DC = psi_D.outer_product(psi_C)  # calculate |D><C|
+#     proj_CD = psi_C.outer_product(psi_D)  # calculate |C><D|
+#     proj_CC = psi_C.outer_product(psi_C)  # calculate |C><C|
+#     proj_DD = psi_D.outer_product(psi_D)  # calculate |D><D|
+
+#     # Identity MPO
+#     identity = MatrixProductOperator.identity_mpo(N)
+
+#     # Build V = |D><C| + |C><D| + I - |C><C| - |D><D|
+#     V = proj_DC + proj_CD + identity - proj_CC - proj_DD
+
+#     return V
