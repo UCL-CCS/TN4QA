@@ -33,3 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Normalisation fixes in fidelity metrics
 - Fixed tensor network constructions from qiskit QuantumCircuits
+
+## [0.0.4] - 2025-07-16
+
+### Added
+- QSCI, TE-QSCI, CTE-QSCI quantum algorithms
+- HF Suppression and Active Space Selection TN methods
+- QI cost functions
+
+### Fixed
+- Various bug fixes and optimisations

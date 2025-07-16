@@ -1,6 +1,6 @@
 import copy
 
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
 
 from .base import QuantumBackend
@@ -51,6 +51,7 @@ class QiskitSimulatorBackend(QuantumBackend):
         """
         sim = AerSimulator()
         qc = copy.deepcopy(circuit)
+        qc = transpile(qc, basis_gates=["u", "cx"])
         qc.measure_all()
         result = sim.run(qc, shots=shots).result()
         counts = result.get_counts()

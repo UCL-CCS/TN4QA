@@ -29,12 +29,12 @@ class Result:
     def __str__(self):
         """Print statement"""
         output = "Quantum Alrogithm Result\n"
-        if self.metadata:
+        if self.metadata is not None:
             if "algorithm_name" in self.metadata:
                 output += f"Algorithm: {self.metadata['algorithm_name']}\n"
             if "total_runtime" in self.metadata:
                 output += f"Total runtime: {self.metadata['total_runtime']}\n"
-        if self.result:
+        if self.result is not None:
             output += f"Final result = {self.result}"
         return output
 
