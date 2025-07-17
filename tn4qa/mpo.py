@@ -17,6 +17,7 @@ from qiskit.quantum_info import Operator
 from scipy.sparse.linalg import svds
 from sparse import SparseArray
 
+from .quantum_algorithms.utils import exp_pauli_string_to_circ
 from .tensor import Tensor
 from .tn import TensorNetwork
 from .utils import _update_array, _update_array_fermion
@@ -976,7 +977,7 @@ class MatrixProductOperator(TensorNetwork):
 
     @classmethod
     def projector_from_samples(
-        cls, samples: List[str], max_bond: int
+        cls, samples: List[str], max_bond: int | None = None
     ) -> "MatrixProductOperator":
         """
         Construct an MPO projector from bitstring samples. For use in QHCI.
@@ -992,8 +993,9 @@ class MatrixProductOperator(TensorNetwork):
         for sample in samples[1:]:
             temp_mpo = cls.from_bitstring(sample)
             mpo = mpo + temp_mpo
-            if mpo.bond_dimension > max_bond:
-                mpo.compress(max_bond)
+            if max_bond:
+                if mpo.bond_dimension > max_bond:
+                    mpo.compress(max_bond)
         return mpo
 
     @classmethod
@@ -1520,6 +1522,36 @@ class MatrixProductOperator(TensorNetwork):
         for idx in target_sites:
             qc.swap(idx - 1, num_sites + idx - 1)
         mpo = cls.from_qiskit_circuit(qc)
+        return mpo
+
+    @classmethod
+    def from_hamiltonian_exponential(
+        cls,
+        hamiltonian: dict[str, complex],
+        time: float,
+        trotter_steps: int,
+        max_bond: int | None = None,
+    ) -> "MatrixProductOperator":
+        """Build an MPO for e^{-iHt} using Trotterisation
+
+        Args;
+            hamiltonian: The Hamiltonian dictionary
+            time: t
+            trotter_steps: Number of Trotter steps to use in decomposition
+        """
+
+        pauli_strings = list(hamiltonian.keys())
+        num_qubits = len(pauli_strings[0])
+        qc = QuantumCircuit(num_qubits)
+
+        for _ in range(trotter_steps):
+            for p in pauli_strings:
+                temp_qc = exp_pauli_string_to_circ(
+                    p, time / trotter_steps * hamiltonian[p]
+                )
+                qc.compose(temp_qc, inplace=True)
+
+        mpo = cls.from_qiskit_circuit(qc, max_bond=max_bond)
         return mpo
 
     def to_sparse_array(self) -> SparseArray:
