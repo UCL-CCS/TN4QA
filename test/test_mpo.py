@@ -351,7 +351,7 @@ def test_move_orthogonality_centre():
 def test_project_to_subspace():
     # Test projection of an MPO Hamiltonian onto a subspace
     ham = {"XYZ": 0.2 + 1.1j, "IXI": 1.1 - 0.8j, "YYY": -0.8 - 0.2j}
-    bs_list = ["101", "001"]
+    bs_list = ["111", "000"]
     mpo = MatrixProductOperator.from_hamiltonian(ham, 8)
     proj = MatrixProductOperator.projector_from_samples(bs_list, 8)
     # Project the MPO onto the subspace and get the dense representation
@@ -368,11 +368,14 @@ def test_project_to_subspace():
         + (1.1 - 0.8j) * np.kron(idmat, np.kron(xmat, idmat))
         + (-0.8 - 0.2j) * np.kron(ymat, np.kron(ymat, ymat))
     )
+
     proj_mat = np.zeros((8, 8))
     for bs in bs_list:
         bs_int = int(bs, 2)
         proj_mat[bs_int][bs_int] = 1
     expected = proj_mat @ ham_mat @ proj_mat
+
+    print(expected - mpo_dense)
 
     assert np.allclose(
         expected, mpo_dense

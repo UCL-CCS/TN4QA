@@ -1869,11 +1869,9 @@ class MatrixProductOperator(TensorNetwork):
         Args:
             projector: The projector onto the subspace in MPO form.
         """
-        max_bond = self.bond_dimension
         self_copy = copy.deepcopy(self)
         mpo = projector * self_copy
         mpo = mpo * projector
-        mpo.compress(max_bond)
         return mpo
 
     def multiply_by_constant(self, const: complex) -> None:
@@ -2308,4 +2306,41 @@ class MatrixProductOperator(TensorNetwork):
         if max_bond:
             if self.bond_dimension > max_bond:
                 self.compress(max_bond)
+        return
+
+    def compress(self, max_bond: int) -> None:
+        """Special compress method for MPO
+
+        Args:
+            max_bond: Bond dimension to compress to
+        """
+        for tidx in range(self.num_sites - 1):
+            t = self.tensors[tidx]
+            original_inds = copy.deepcopy(t.indices)
+            original_next_inds = copy.deepcopy(self.tensors[tidx + 1].indices)
+            bond_name = t.indices[0] if len(t.indices) == 3 else t.indices[1]
+            input_indices = (
+                t.indices[1:]
+                if len(t.indices) == 3
+                else [t.indices[0]] + [t.indices[2], t.indices[3]]
+            )
+            output_indices = [bond_name]
+            self.svd(
+                t,
+                input_indices=input_indices,
+                output_indices=output_indices,
+                max_bond=max_bond,
+                new_index_name="TEMP",
+            )
+            self.contract_index(bond_name)
+            reordered_indices = (
+                ["TEMP", original_inds[1], original_inds[2]]
+                if len(original_inds) == 3
+                else [original_inds[0], "TEMP", original_inds[2], original_inds[3]]
+            )
+            reordered_indices_next = ["TEMP"] + original_next_inds[1:]
+            self.tensors[tidx].reorder_indices(reordered_indices)
+            self.tensors[tidx + 1].reorder_indices(reordered_indices_next)
+            self.tensors[tidx].indices = original_inds
+            self.tensors[tidx + 1].indices = original_next_inds
         return
