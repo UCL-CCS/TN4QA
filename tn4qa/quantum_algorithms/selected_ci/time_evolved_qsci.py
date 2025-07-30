@@ -35,7 +35,7 @@ class TimeEvolvedQSCI(QSCI):
         self.qdrift_config = kwargs
         self.qdrift = qdrift
         hamiltonian = self.sanitize_dict(hamiltonian)
-        super().__init__(hamiltonian, hf_state, backend)
+        super().__init__(hamiltonian, hf_state=hf_state, backend=backend)
 
     @property
     def circuit(self) -> QuantumCircuit:

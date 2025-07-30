@@ -33,6 +33,7 @@ class QSCI(QuantumAlgorithm):
         Constructor for QSCI class.
         """
         self.hamiltonian = hamiltonian
+        self.max_bond = max_bond
         self.hf_state = hf_state
         if hf_state is not None:
             self.num_electrons = hf_state.count("1")
@@ -41,10 +42,16 @@ class QSCI(QuantumAlgorithm):
             self.num_electrons = None
             self.num_qubits = None
         self.hfs = hfs
+        mpo_timer = default_timer()
         self.hamiltonian_mpo = MatrixProductOperator.from_hamiltonian(
             self.hamiltonian, max_bond=max_bond
         )
-        self.state, self.energy = self.run_dmrg(self.hamiltonian)
+        mpo_timer_end = default_timer()
+        print(f"MPO built in {mpo_timer_end-mpo_timer}s")
+        dmrg_timer = default_timer()
+        self.state, self.energy = self.run_dmrg(self.hamiltonian_mpo)
+        dmrg_timer_end = default_timer()
+        print(f"DMRG run in {dmrg_timer_end-dmrg_timer}s")
         self._circuit = None
         self.set_backend(backend=backend)
 
@@ -53,7 +60,10 @@ class QSCI(QuantumAlgorithm):
         return self._circuit
 
     def run_dmrg(
-        self, hamiltonian: dict, max_bond: int = 8, maxiter: int = 6
+        self,
+        hamiltonian: dict | MatrixProductOperator,
+        max_bond: int = 2,
+        maxiter: int = 6,
     ) -> tuple[MatrixProductState, float]:
         """Run DMRG"""
         hf_mps = None
@@ -163,10 +173,10 @@ class QSCI(QuantumAlgorithm):
 
     def project_hamiltonian_tn(self, samples: list[str]) -> MatrixProductOperator:
         """Project the Hamiltonian as an MPO"""
-        n = len(samples)
-        max_bond = int(2 ** (np.floor(n / 2)))
+        max_bond = self.max_bond
         proj_mpo = MatrixProductOperator.projector_from_samples(samples)
         proj_ham = proj_mpo * copy.deepcopy(self.hamiltonian_mpo)
+        proj_ham.compress(max_bond)
         proj_ham = proj_ham * proj_mpo
         proj_ham.compress(max_bond)
         return proj_ham

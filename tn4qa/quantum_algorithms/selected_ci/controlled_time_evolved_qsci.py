@@ -36,7 +36,9 @@ class ControlledTimeEvolvedQSCI(QSCI):
         self.qdrift_config = kwargs
         self.qdrift = qdrift
         hamiltonian = self.sanitize_dict(hamiltonian)
-        super().__init__(hamiltonian, hf_state, backend)
+        hamiltonian = self.normalise_hamiltonian(hamiltonian)
+        hamiltonian = self.rescale_hamiltonian(hamiltonian)
+        super().__init__(hamiltonian, hf_state=hf_state, backend=backend)
 
     @property
     def circuit(self) -> QuantumCircuit:
@@ -47,6 +49,15 @@ class ControlledTimeEvolvedQSCI(QSCI):
             k: float(v.real) if isinstance(v, complex) else float(v)
             for k, v in d.items()
         }
+
+    def normalise_hamiltonian(self, d: dict[str, float]) -> dict[str, float]:
+        norm = np.sum([np.abs(x) for x in d.values()])
+        return {k: v / norm for k, v in d.items()}
+
+    def rescale_hamiltonian(self, d: dict[str, float]) -> dict[str, float]:
+        num_qubits = len(list(d.keys())[0])
+        d["I" * num_qubits] = d.get("I" * num_qubits, 0) + 1.0
+        return {k: v * np.pi / 2 for k, v in d.items()}
 
     def perform_controlled_time_evolution(self, duration: float) -> QuantumCircuit:
         """Add time evolution to the circuit"""
@@ -137,8 +148,8 @@ class ControlledTimeEvolvedQSCI(QSCI):
         start_time = default_timer()
         for idx in range(num_iterations):
             print("Starting iteration", idx + 1)
-            if self.hfs:
-                self.state, _ = self.hf_suppression(self.state)
+            # if self.hfs:
+            #     self.state, _ = self.hf_suppression(self.state)
             self._circuit = self.prepare_state(self.state)
             if self.qdrift:
                 counts = self.get_counts_qdrift(
