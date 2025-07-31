@@ -78,10 +78,11 @@ class ActiveSpaceSelection:
 
         # Run BFGS optimisation to find optimal K
         theta_init = np.zeros((N**2,), dtype=float)  # Initial guess for theta
-        theta_opt = self.optimise_K(theta_init, cost_mpo, psi_C)
+        self.theta_opt = self.optimise_K(theta_init, cost_mpo, psi_C)
+
 
         # Exponentiate K to get a unitary U = exp(K)
-        K_opt = self.vector_to_antihermitian(theta_opt)
+        K_opt = self.vector_to_antihermitian(self.theta_opt)
         U = self.exponentiate_K(K_opt)
 
         # Apply U to the input coefficient matrix, returning the transformed coefficient matrix (the new basis)
