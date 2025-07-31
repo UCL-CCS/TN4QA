@@ -27,7 +27,7 @@ class ActiveSpaceSelection:
             coeff_matrix: HF coefficient matrix of shape (N, N)
         """
         self.hamiltonian = hamiltonian
-        self.num_spin_orbitals = coeff_matrix.shape[0]
+        self.num_spin_orbitals = coeff_matrix.shape[1]
         self.num_orbitals = int(self.num_spin_orbitals / 2)
         self.coeff_matrix = coeff_matrix
 
@@ -53,7 +53,8 @@ class ActiveSpaceSelection:
         """
         function_args = kwargs
         N = self.num_spin_orbitals
-        assert self.coeff_matrix.shape[1] == N, "Coefficient matrix must be square"
+        assert self.coeff_matrix.shape[1] == N, "Number of columns must be twice the number of rows"
+        assert self.coeff_matrix.shape[0] == N/2, "Number of columns must be twice the number of rows"
 
         # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
         max_mps_bond = function_args.get("dmrg_max_mps_bond", 8)
