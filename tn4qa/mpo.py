@@ -2343,4 +2343,18 @@ class MatrixProductOperator(TensorNetwork):
             self.tensors[tidx + 1].reorder_indices(reordered_indices_next)
             self.tensors[tidx].indices = original_inds
             self.tensors[tidx + 1].indices = original_next_inds
+        self.update_bond_information()
         return
+
+    def update_bond_information(self) -> None:
+        """Update bond dimension information"""
+        self.internal_inds = self.get_internal_indices()
+        self.external_inds = self.get_external_indices()
+        self.bond_dims = []
+        self.physical_dims = []
+        for idx in self.internal_inds:
+            self.bond_dims.append(self.get_dimension_of_index(idx))
+        for idx in self.external_inds:
+            self.physical_dims.append(self.get_dimension_of_index(idx))
+        self.bond_dimension = max(self.bond_dims)
+        self.physical_dimension = max(self.physical_dims)

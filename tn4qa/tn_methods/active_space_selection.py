@@ -80,7 +80,6 @@ class ActiveSpaceSelection:
         theta_init = np.zeros((N**2,), dtype=float)  # Initial guess for theta
         self.theta_opt = self.optimise_K(theta_init, cost_mpo, psi_C)
 
-
         # Exponentiate K to get a unitary U = exp(K)
         K_opt = self.vector_to_antihermitian(self.theta_opt)
         U = self.exponentiate_K(K_opt)
@@ -192,7 +191,7 @@ class ActiveSpaceSelection:
         return u_mpo
 
     def build_trotterised_unitary(
-        self, K: ndarray, trotter_steps: int = 1
+        self, K: ndarray, trotter_steps: int = 1, max_bond: int = 16
     ) -> MatrixProductOperator:
         """
         Build an MPO approximation of the fermionic unitary:
@@ -211,17 +210,35 @@ class ActiveSpaceSelection:
         assert K.shape[1] == N, "K must be square"
         assert np.allclose(K + K.conj().T, 0, atol=1e-10), "K must be anti-Hermitian"
 
+        print(
+            f"[build_trotterised_unitary] Building unitary for {N} spin orbitals, {trotter_steps} Trotter steps"
+        )
         u_mpo = MatrixProductOperator.identity_mpo(N)
         dt = 1.0 / trotter_steps
 
-        for _ in range(trotter_steps):
+        for step in range(trotter_steps):
+            print(
+                f"[build_trotterised_unitary] Trotter step {step + 1}/{trotter_steps}"
+            )
             for p in range(N):
                 for q in range(p, N):
                     if abs(K[p, q]) > 1e-12:
+                        print(f"  [trotter] Applying term for (p={p}, q={q})")
                         K_dt = dt * K[p, q]
                         hop_exp_mpo = self.exponential_hopping_term(p, q, K_dt)
                         u_mpo = u_mpo * hop_exp_mpo
-
+                        if max_bond:
+                            if u_mpo.bond_dimension >= max_bond:
+                                print(
+                                    f"    [compress] Bond dim exceeded: compressing to max_bond={max_bond}"
+                                )
+                                u_mpo.compress(max_bond)
+                                print("    [compress] Post-compression MPO:")
+                                print(u_mpo)
+                            else:
+                                print(
+                                    f"    [compress] Bond dim {u_mpo.bond_dimension} < {max_bond} → no compression needed"
+                                )
         return u_mpo
 
     def optimisation_cost(
@@ -243,6 +260,12 @@ class ActiveSpaceSelection:
         transformed_state = mps.apply_mpo(W_rotated)
         doubled_transformed_state = transformed_state.to_two_copy_mps()
         cost = doubled_transformed_state.compute_expectation_value(mpo)
+        print("[optimisation_cost] Cost:", cost)
+        print("Cost MPO:", mpo)
+        print("Unitary MPO:", W_rotated)
+        print("Original state MPS:", mps)
+        print("Transformed state MPS:", transformed_state)
+        print("Anti-Hermitian K matrix:", K)
         return cost.real
 
     def optimise_K(
@@ -268,7 +291,7 @@ class ActiveSpaceSelection:
             theta_init,
             args=(mpo, mps),
             method="COBYLA",
-            options={"disp": True},
+            options={"disp": True, "maxiter": 10},
         )
         print("Optimisation result:", result.x)
         return result.x
