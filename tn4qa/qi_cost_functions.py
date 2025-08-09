@@ -130,7 +130,9 @@ def cost_function_to_dict(cost_function: Callable, **kwargs) -> dict[str, float]
         case "cost_mutual_info_decay":
             num_orbitals = function_params["num_orbitals"]
             decay_power = function_params["decay_power"]
-            return cost_mutual_info_decay_dict(num_orbitals=num_orbitals, decay_power=decay_power)
+            return cost_mutual_info_decay_dict(
+                num_orbitals=num_orbitals, decay_power=decay_power
+            )
         case _:
             raise ValueError
     return
@@ -143,7 +145,8 @@ def calculate_purity(density_matrix: ndarray) -> float:
 
 
 def cost_function_dict_to_callable(
-    cost_function_dict: dict[str, float], entropy_function: Callable[[ndarray], float]
+    cost_function_dict: dict[str, float],
+    entropy_function: Callable[[ndarray], float],
 ) -> Callable[[MatrixProductState], float]:
     def cost_function(mps: MatrixProductState):
         cost = 0.0
@@ -164,7 +167,9 @@ def cost_function_dict_to_callable(
 
 
 def cost_function_dict_to_purity_mpo(
-    num_sites: int, cost_function_dict: dict[str, float]
+    num_sites: int,
+    cost_function_dict: dict[str, float],
+    max_bond: int | None = None,
 ) -> MatrixProductOperator:
     mpos = []
     for s, weight in cost_function_dict.items():
@@ -192,4 +197,10 @@ def cost_function_dict_to_purity_mpo(
     for next_mpo in mpos[1:]:
         mpo = mpo + next_mpo
 
-    return mpo
+    final_mpo = MatrixProductOperator.from_arrays([m.data for m in mpo.tensors])
+
+    if max_bond:
+        if final_mpo.bond_dimension >= max_bond:
+            final_mpo.compress(max_bond)
+
+    return final_mpo

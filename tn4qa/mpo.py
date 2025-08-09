@@ -14,7 +14,6 @@ from qiskit.circuit import CircuitInstruction
 from qiskit.circuit.library import UnitaryGate
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.quantum_info import Operator
-from scipy.sparse.linalg import svds
 from sparse import SparseArray
 
 from .quantum_algorithms.utils import exp_pauli_string_to_circ
@@ -553,7 +552,8 @@ class MatrixProductOperator(TensorNetwork):
         site_mapping: dict,
         max_bond: int | None = None,
         tol: float = 1e-12,
-    ) -> None:
+        global_scale: float | None = None,
+    ) -> float:
         """
         Apply a two qubit gate in place
 
@@ -683,12 +683,29 @@ class MatrixProductOperator(TensorNetwork):
         else:
             bond_dim = min([mat_shape[0], mat_shape[1]])
 
-        if bond_dim >= min([mat_shape[0], mat_shape[1]]) - 1:
-            u, s, vh = svd(output_data.todense(), full_matrices=False)
-        else:
-            u, s, vh = svds(output_data, k=bond_dim)
+        u, s, vh = svd(output_data.todense(), full_matrices=False)
 
-        s = s[s > 1e-14]
+        def normalise_two_site_svd(U, S, Vh, global_scale):
+            """Normalize SVD factors so largest singular value is 1."""
+            max_sv = S.max()
+            if max_sv == 0:  # avoid divide by zero
+                return U, S, Vh
+            scale = 1.0 / max_sv
+            S = S * scale
+            # absorb half the scale into U and half into Vh to keep symmetry
+            U *= np.sqrt(scale)
+            Vh *= np.sqrt(scale)
+            if global_scale:
+                global_scale *= scale
+            return U, S, Vh, global_scale
+
+        u, s, vh, global_scale = normalise_two_site_svd(u, s, vh, global_scale)
+        # if bond_dim >= min([mat_shape[0], mat_shape[1]]) - 1:
+        #     u, s, vh = svd(output_data.todense(), full_matrices=False)
+        # else:
+        #     u, s, vh = svds(output_data, k=bond_dim)
+
+        s = s[s > 1e-16]
         sq = s**2
         cumulative = np.cumsum(sq[::-1])[::-1]
         keep_dim = len(s)
@@ -698,8 +715,14 @@ class MatrixProductOperator(TensorNetwork):
                 break
         keep_dim = min(keep_dim, bond_dim)
 
-        new_data0 = sparse.COO.from_numpy(vh[:keep_dim, :])
-        new_data1 = sparse.COO.from_numpy(u[:, :keep_dim] * s[:keep_dim])
+        threshold = 1e-14
+        data0 = vh[:keep_dim, :]
+        data0[np.abs(data0) < threshold] = 0.0
+        data1 = u[:, :keep_dim] * s[:keep_dim]
+        data1[np.abs(data1) < threshold] = 0.0
+
+        new_data0 = sparse.COO.from_numpy(data0)
+        new_data1 = sparse.COO.from_numpy(data1)
 
         if site1 < site0:
             if site0 - 1 == 1:
@@ -743,7 +766,7 @@ class MatrixProductOperator(TensorNetwork):
             self.tensors[site0].dimensions = self.tensors[site0].data.shape
             self.bond_dims = [t.dimensions[0] for t in self.tensors[1:]]
             self.bond_dimension = max(self.bond_dims)
-        return
+        return global_scale
 
     def apply_general_gate(
         self,
@@ -789,6 +812,7 @@ class MatrixProductOperator(TensorNetwork):
             data = qc.data
         mpo = MatrixProductOperator.identity_mpo(qc.num_qubits)
         site_mapping = {str(idx): str(idx) for idx in range(1, mpo.num_sites + 1)}
+        global_scale = 1.0
         for inst in data:
             qidxs = [
                 inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
@@ -799,17 +823,26 @@ class MatrixProductOperator(TensorNetwork):
                 mpo.apply_one_qubit_gate(data, site_loc)
             elif len(qidxs) == 2:
                 sites_locs = [int(site_mapping[str(site)]) for site in qidxs]
-                mpo.apply_two_qubit_gate(
-                    data, sites_locs, site_mapping, max_bond=max_bond
+                global_scale = mpo.apply_two_qubit_gate(
+                    data,
+                    sites_locs,
+                    site_mapping,
+                    max_bond=max_bond,
+                    global_scale=global_scale,
                 )
             else:
                 mpo = mpo.apply_general_gate(inst, site_mapping, max_bond=max_bond)
 
+        mpo.multiply_by_constant(global_scale)
         reversed_mapping = {v: k for k, v in site_mapping.items()}
         target_site_ordering = [
             int(reversed_mapping[str(site)]) for site in range(1, mpo.num_sites + 1)
         ]
         mpo.reorder_sites(target_site_ordering)
+        mpo.update_bond_information()
+        if max_bond:
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
         return mpo
 
     @classmethod
@@ -1554,14 +1587,14 @@ class MatrixProductOperator(TensorNetwork):
         mpo = cls.from_qiskit_circuit(qc, max_bond=max_bond)
         return mpo
 
-    def to_sparse_array(self) -> SparseArray:
+    def to_sparse_array(self, optimisation_method: str = "greedy") -> SparseArray:
         """
         Converts MPO to a sparse matrix.
         """
         mpo = copy.deepcopy(self)
         mpo.reshape()
         mpo.set_default_indices()
-        tensor = mpo.contract_entire_network()
+        tensor = mpo.contract_entire_network(optimisation_method)
         output_indices = [x for x in mpo.indices if x[0] == "R"]
         input_indices = [x for x in mpo.indices if x[0] == "L"]
 
@@ -1569,12 +1602,12 @@ class MatrixProductOperator(TensorNetwork):
 
         return tensor.data
 
-    def to_dense_array(self) -> ndarray:
+    def to_dense_array(self, optimisation_method: str = "greedy") -> ndarray:
         """
         Converts MPO to a dense matrix.
         """
         mpo = copy.deepcopy(self)
-        sparse_matrix = mpo.to_sparse_array()
+        sparse_matrix = mpo.to_sparse_array(optimisation_method)
         dense_matrix = sparse_matrix.todense()
 
         return dense_matrix
@@ -1724,6 +1757,34 @@ class MatrixProductOperator(TensorNetwork):
         self.physical_dimension = max(self.physical_dims)
 
         return self
+
+    # def multiply_and_compress(
+    #     self, other: "MatrixProductOperator", max_bond: int
+    # ) -> "MatrixProductOperator":
+    #     """Multiply and compress simultaneously
+
+    #     Args:
+    #         other: The other MPO
+    #         max_bond: Maximum allowed bond dimension
+    #     """
+    #     mpo1 = copy.deepcopy(self)
+    #     mpo2 = copy.deepcopy(other)
+    #     return
+
+    # def multiply_and_compress_three(
+    #     self,
+    #     other1: "MatrixProductOperator",
+    #     other2: "MatrixProductOperator",
+    #     max_bond: int,
+    # ) -> "MatrixProductOperator":
+    #     """Mutiply and compress 3 MPOs simultaneously
+
+    #     Args:
+    #         other1: Another MPO
+    #         other2: Another MPO
+    #         max_bond: Maximum allowed bond dimension
+    #     """
+    #     return
 
     def zip_up(
         self, other: "MatrixProductOperator", max_bond: int | None = None
@@ -2314,7 +2375,8 @@ class MatrixProductOperator(TensorNetwork):
         Args:
             max_bond: Bond dimension to compress to
         """
-        for tidx in range(self.num_sites - 1):
+        midpoint = int(np.ceil(self.num_sites / 2))
+        for tidx in range(midpoint):
             t = self.tensors[tidx]
             original_inds = copy.deepcopy(t.indices)
             original_next_inds = copy.deepcopy(self.tensors[tidx + 1].indices)
@@ -2343,6 +2405,36 @@ class MatrixProductOperator(TensorNetwork):
             self.tensors[tidx + 1].reorder_indices(reordered_indices_next)
             self.tensors[tidx].indices = original_inds
             self.tensors[tidx + 1].indices = original_next_inds
+
+        for tidx in range(1, midpoint + 1):
+            tidx = -tidx
+            t = self.tensors[tidx]
+            original_inds = copy.deepcopy(t.indices)
+            original_next_inds = copy.deepcopy(self.tensors[tidx - 1].indices)
+            bond_name = t.indices[0]
+            input_indices = t.indices[1:]
+            output_indices = [bond_name]
+            self.svd(
+                t,
+                input_indices=input_indices,
+                output_indices=output_indices,
+                max_bond=max_bond,
+                new_index_name="TEMP",
+            )
+            self.contract_index(bond_name)
+            reordered_indices = (
+                ["TEMP", original_inds[1], original_inds[2]]
+                if len(original_inds) == 3
+                else ["TEMP", original_inds[1], original_inds[2], original_inds[3]]
+            )
+            reordered_indices_next = [
+                original_next_inds[0],
+                "TEMP",
+            ] + original_next_inds[2:]
+            self.tensors[tidx].reorder_indices(reordered_indices)
+            self.tensors[tidx - 1].reorder_indices(reordered_indices_next)
+            self.tensors[tidx].indices = original_inds
+            self.tensors[tidx - 1].indices = original_next_inds
         self.update_bond_information()
         return
 
@@ -2358,3 +2450,4 @@ class MatrixProductOperator(TensorNetwork):
             self.physical_dims.append(self.get_dimension_of_index(idx))
         self.bond_dimension = max(self.bond_dims)
         self.physical_dimension = max(self.physical_dims)
+        return

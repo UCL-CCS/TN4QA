@@ -47,6 +47,8 @@ class ActiveSpaceSelection:
                 dmrg_initial_state [MatrixProductState]: an initial MPS state for DMRG, default random MPS
                 dmrg_maxiter: maximum number of sweeps to perform in DMRG, default 10
                 cost_function_decay_power [float]: Required parameter for cost_mutual_info_decay, default 2.0
+                cost_function_max_bond [int]: Maximum bond dimension for cost function MPO
+                rotation_mpo_max_bond [int]: Maximum bond dimension for rotation MPO
 
         Returns:
             Transformed coefficient matrix with optimal active orbitals
@@ -61,11 +63,12 @@ class ActiveSpaceSelection:
         ), "Number of columns must be twice the number of rows"
 
         # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
+        print("Start DMRG")
         max_mps_bond = function_args.get("dmrg_max_mps_bond", 8)
         method = function_args.get("dmrg_method", "two-site")
         convergence_threshold = function_args.get("dmrg_convergence_threshold", 1e-9)
         initial_state = function_args.get("dmrg_initial_state", None)
-        maxiter = function_args.get("dmrg_maxiter", 10)
+        maxiter = function_args.get("dmrg_maxiter", 1000)
         psi_C = self.run_dmrg(
             hamiltonian=self.hamiltonian,
             max_mps_bond=max_mps_bond,
@@ -76,14 +79,18 @@ class ActiveSpaceSelection:
         )
 
         # Cost function to MPO
+        print("Start building cost MPO")
         decay_power = function_args.get("cost_function_decay_power", 2.0)
+        cost_max_bond = function_args.get("cost_function_max_bond", None)
         cost_mpo = self.build_cost_function_mpo(
-            cost_function=cost_function, decay_power=decay_power
+            cost_function=cost_function, decay_power=decay_power, max_bond=cost_max_bond
         )
 
         # Run BFGS optimisation to find optimal K
+        print("Start optimisation")
         theta_init = np.zeros((N**2,), dtype=float)  # Initial guess for theta
-        self.theta_opt = self.optimise_K(theta_init, cost_mpo, psi_C)
+        opt_max_bond = function_args.get("rotation_mpo_max_bond", None)
+        self.theta_opt = self.optimise_K(theta_init, cost_mpo, psi_C, opt_max_bond)
 
         # Exponentiate K to get a unitary U = exp(K)
         K_opt = self.vector_to_antihermitian(self.theta_opt)
@@ -115,13 +122,13 @@ class ActiveSpaceSelection:
         return psi
 
     def build_cost_function_mpo(
-        self, cost_function: Callable, decay_power: float
+        self, cost_function: Callable, decay_power: float, max_bond: int | None = None
     ) -> MatrixProductOperator:
         """Build the cost function as an MPO"""
         d = cost_function_to_dict(
             cost_function, num_orbitals=self.num_orbitals, decay_power=decay_power
         )
-        mpo = cost_function_dict_to_purity_mpo(self.num_spin_orbitals, d)
+        mpo = cost_function_dict_to_purity_mpo(self.num_spin_orbitals, d, max_bond)
         return mpo
 
     def vector_to_antihermitian(self, theta: ndarray) -> ndarray:
@@ -196,7 +203,7 @@ class ActiveSpaceSelection:
         return u_mpo
 
     def build_trotterised_unitary(
-        self, K: ndarray, trotter_steps: int = 1, max_bond: int = 16
+        self, K: ndarray, trotter_steps: int = 1, max_bond: int | None = None
     ) -> MatrixProductOperator:
         """
         Build an MPO approximation of the fermionic unitary:
@@ -215,39 +222,44 @@ class ActiveSpaceSelection:
         assert K.shape[1] == N, "K must be square"
         assert np.allclose(K + K.conj().T, 0, atol=1e-10), "K must be anti-Hermitian"
 
-        print(
-            f"[build_trotterised_unitary] Building unitary for {N} spin orbitals, {trotter_steps} Trotter steps"
-        )
+        # print(
+        #     f"[build_trotterised_unitary] Building unitary for {N} spin orbitals, {trotter_steps} Trotter steps"
+        # )
         u_mpo = MatrixProductOperator.identity_mpo(N)
         dt = 1.0 / trotter_steps
 
-        for step in range(trotter_steps):
-            print(
-                f"[build_trotterised_unitary] Trotter step {step + 1}/{trotter_steps}"
-            )
+        for _ in range(trotter_steps):
+            # print(
+            #     f"[build_trotterised_unitary] Trotter step {step + 1}/{trotter_steps}"
+            # )
             for p in range(N):
                 for q in range(p, N):
                     if abs(K[p, q]) > 1e-12:
-                        print(f"  [trotter] Applying term for (p={p}, q={q})")
+                        # print(f"  [trotter] Applying term for (p={p}, q={q})")
                         K_dt = dt * K[p, q]
                         hop_exp_mpo = self.exponential_hopping_term(p, q, K_dt)
                         u_mpo = u_mpo * hop_exp_mpo
                         if max_bond:
                             if u_mpo.bond_dimension >= max_bond:
-                                print(
-                                    f"    [compress] Bond dim exceeded: compressing to max_bond={max_bond}"
-                                )
+                                # print(
+                                #     f"    [compress] Bond dim exceeded: compressing to max_bond={max_bond}"
+                                # )
                                 u_mpo.compress(max_bond)
-                                print("    [compress] Post-compression MPO:")
-                                print(u_mpo)
+                                # print("    [compress] Post-compression MPO:")
+                                # print(u_mpo)
                             else:
-                                print(
-                                    f"    [compress] Bond dim {u_mpo.bond_dimension} < {max_bond} → no compression needed"
-                                )
+                                pass
+                                # print(
+                                #     f"    [compress] Bond dim {u_mpo.bond_dimension} < {max_bond} → no compression needed"
+                                # )
         return u_mpo
 
     def optimisation_cost(
-        self, theta: ndarray, mpo: MatrixProductOperator, mps: MatrixProductState
+        self,
+        theta: ndarray,
+        mpo: MatrixProductOperator,
+        mps: MatrixProductState,
+        max_bond: int | None,
     ) -> float:
         """Optimisation cost function.
 
@@ -260,21 +272,32 @@ class ActiveSpaceSelection:
             < MPS | (exp(Σ_{pq} K_{pq} a†_p a_q))† MPO exp(Σ_{pq} K_{pq} a†_p a_q) | MPS >
         """
         # N = V.num_sites
+        print("starting")
         K = self.vector_to_antihermitian(theta)
-        W_rotated = self.build_trotterised_unitary(K)  # returns an MPO
+        W_rotated = self.build_trotterised_unitary(
+            K, max_bond=max_bond
+        )  # returns an MPO
+        print("built W")
         transformed_state = mps.apply_mpo(W_rotated)
+        print("got transformed state")
         doubled_transformed_state = transformed_state.to_two_copy_mps()
+        print("got two copy state")
         cost = doubled_transformed_state.compute_expectation_value(mpo)
-        print("[optimisation_cost] Cost:", cost)
-        print("Cost MPO:", mpo)
-        print("Unitary MPO:", W_rotated)
-        print("Original state MPS:", mps)
-        print("Transformed state MPS:", transformed_state)
-        print("Anti-Hermitian K matrix:", K)
+        print("exp val done")
+        # print("[optimisation_cost] Cost:", cost)
+        # print("Cost MPO:", mpo)
+        # print("Unitary MPO:", W_rotated)
+        # print("Original state MPS:", mps)
+        # print("Transformed state MPS:", transformed_state)
+        # print("Anti-Hermitian K matrix:", K)
         return cost.real
 
     def optimise_K(
-        self, theta_init: ndarray, mpo: MatrixProductOperator, mps: MatrixProductState
+        self,
+        theta_init: ndarray,
+        mpo: MatrixProductOperator,
+        mps: MatrixProductState,
+        max_bond: int | None = None,
     ):
         """
         Run BFGS optimisation over K to minimise optimisation_cost.
@@ -291,12 +314,15 @@ class ActiveSpaceSelection:
         # num_params = N**2
         # theta0 = np.zeros(num_params)
 
+        # def print_progress(x):
+        #     print(x)
+
         result = minimize(
             self.optimisation_cost,
             theta_init,
-            args=(mpo, mps),
+            args=(mpo, mps, max_bond),
             method="COBYLA",
-            options={"disp": True, "maxiter": 10},
+            options={"disp": True, "maxiter": 50},
         )
         print("Optimisation result:", result.x)
         return result.x
