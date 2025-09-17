@@ -309,6 +309,7 @@ class CircuitSimulator:
                 self.apply_general_gate(inst, max_bond_dimension)
         self.restore_ordering()
         self.output_state = self.current_state
+        self.output_state.normalise()
 
         if samples:
             sample_dict = self.output_state.sample_bitstrings(samples)

@@ -323,6 +323,7 @@ class MatrixProductState(TensorNetwork):
         else:
             mps = input_mps
         mps = mps.apply_mpo(qc_mpo, max_bond)
+        mps.normalise()
         return mps
 
     @classmethod

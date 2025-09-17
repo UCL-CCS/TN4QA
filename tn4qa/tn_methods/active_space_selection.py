@@ -64,11 +64,12 @@ class ActiveSpaceSelection:
 
         # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
         print("Start DMRG")
+
         max_mps_bond = function_args.get("dmrg_max_mps_bond", 8)
         method = function_args.get("dmrg_method", "two-site")
         convergence_threshold = function_args.get("dmrg_convergence_threshold", 1e-9)
         initial_state = function_args.get("dmrg_initial_state", None)
-        maxiter = function_args.get("dmrg_maxiter", 1000)
+        maxiter = function_args.get("dmrg_maxiter", 10)
         psi_C = self.run_dmrg(
             hamiltonian=self.hamiltonian,
             max_mps_bond=max_mps_bond,
@@ -257,6 +258,7 @@ class ActiveSpaceSelection:
         K = self.vector_to_antihermitian(theta)
         W_rotated = self.build_trotterised_unitary(K, max_bond=max_bond)
         transformed_state = mps.apply_mpo(W_rotated)
+        transformed_state.normalise()
         doubled_transformed_state = transformed_state.to_two_copy_mps()
         cost = doubled_transformed_state.compute_expectation_value(mpo)
         return cost.real

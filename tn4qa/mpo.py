@@ -684,19 +684,19 @@ class MatrixProductOperator(TensorNetwork):
 
         u, s, vh = svd(output_data.todense(), full_matrices=False)
 
-        def normalise_two_site_svd(U, S, Vh):
-            """Normalize SVD factors so largest singular value is 1."""
-            max_sv = S.max()
-            if max_sv == 0:  # avoid divide by zero
-                return U, S, Vh
-            scale = 1.0 / max_sv
-            S = S * scale
-            # absorb half the scale into U and half into Vh to keep symmetry
-            U *= np.sqrt(scale)
-            Vh *= np.sqrt(scale)
-            return U, S, Vh
+        # def normalise_two_site_svd(U, S, Vh):
+        #     """Normalize SVD factors so largest singular value is 1."""
+        #     max_sv = S.max()
+        #     if max_sv == 0:  # avoid divide by zero
+        #         return U, S, Vh
+        #     scale = 1.0 / max_sv
+        #     S = S * scale
+        #     # absorb half the scale into U and half into Vh to keep symmetry
+        #     U *= np.sqrt(scale)
+        #     Vh *= np.sqrt(scale)
+        #     return U, S, Vh
 
-        u, s, vh = normalise_two_site_svd(u, s, vh)
+        # u, s, vh = normalise_two_site_svd(u, s, vh)
         # if bond_dim >= min([mat_shape[0], mat_shape[1]]) - 1:
         #     u, s, vh = svd(output_data.todense(), full_matrices=False)
         # else:
