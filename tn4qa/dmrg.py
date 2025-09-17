@@ -418,7 +418,7 @@ class DMRG:
         else:
             original_dims = self.mps.tensors[site].dimensions + (1,)
             effective_matrix = self.construct_effective_matrix()
-        w, v = eigs(effective_matrix, k=1, which="SR")
+        w, v = eigs(effective_matrix.todense(), k=1, which="SR")
         eigval = w[0]
         eigvec = sparse.COO.from_numpy(
             v[:, 0]

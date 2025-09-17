@@ -222,36 +222,19 @@ class ActiveSpaceSelection:
         assert K.shape[1] == N, "K must be square"
         assert np.allclose(K + K.conj().T, 0, atol=1e-10), "K must be anti-Hermitian"
 
-        # print(
-        #     f"[build_trotterised_unitary] Building unitary for {N} spin orbitals, {trotter_steps} Trotter steps"
-        # )
         u_mpo = MatrixProductOperator.identity_mpo(N)
         dt = 1.0 / trotter_steps
 
         for _ in range(trotter_steps):
-            # print(
-            #     f"[build_trotterised_unitary] Trotter step {step + 1}/{trotter_steps}"
-            # )
             for p in range(N):
                 for q in range(p, N):
                     if abs(K[p, q]) > 1e-12:
-                        # print(f"  [trotter] Applying term for (p={p}, q={q})")
                         K_dt = dt * K[p, q]
                         hop_exp_mpo = self.exponential_hopping_term(p, q, K_dt)
                         u_mpo = u_mpo * hop_exp_mpo
                         if max_bond:
                             if u_mpo.bond_dimension >= max_bond:
-                                # print(
-                                #     f"    [compress] Bond dim exceeded: compressing to max_bond={max_bond}"
-                                # )
                                 u_mpo.compress(max_bond)
-                                # print("    [compress] Post-compression MPO:")
-                                # print(u_mpo)
-                            else:
-                                pass
-                                # print(
-                                #     f"    [compress] Bond dim {u_mpo.bond_dimension} < {max_bond} → no compression needed"
-                                # )
         return u_mpo
 
     def optimisation_cost(
@@ -271,25 +254,11 @@ class ActiveSpaceSelection:
         Returns:
             < MPS | (exp(Σ_{pq} K_{pq} a†_p a_q))† MPO exp(Σ_{pq} K_{pq} a†_p a_q) | MPS >
         """
-        # N = V.num_sites
-        print("starting")
         K = self.vector_to_antihermitian(theta)
-        W_rotated = self.build_trotterised_unitary(
-            K, max_bond=max_bond
-        )  # returns an MPO
-        print("built W")
+        W_rotated = self.build_trotterised_unitary(K, max_bond=max_bond)
         transformed_state = mps.apply_mpo(W_rotated)
-        print("got transformed state")
         doubled_transformed_state = transformed_state.to_two_copy_mps()
-        print("got two copy state")
         cost = doubled_transformed_state.compute_expectation_value(mpo)
-        print("exp val done")
-        # print("[optimisation_cost] Cost:", cost)
-        # print("Cost MPO:", mpo)
-        # print("Unitary MPO:", W_rotated)
-        # print("Original state MPS:", mps)
-        # print("Transformed state MPS:", transformed_state)
-        # print("Anti-Hermitian K matrix:", K)
         return cost.real
 
     def optimise_K(
@@ -310,12 +279,6 @@ class ActiveSpaceSelection:
         Returns:
             Optimal real-valued parameter vector θ defining anti-Hermitian K
         """
-        # N = V.num_sites
-        # num_params = N**2
-        # theta0 = np.zeros(num_params)
-
-        # def print_progress(x):
-        #     print(x)
 
         result = minimize(
             self.optimisation_cost,

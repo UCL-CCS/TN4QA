@@ -12,6 +12,7 @@ from scipy.sparse.linalg import LinearOperator, eigsh
 from ...dmrg import DMRG
 from ...mpo import MatrixProductOperator
 from ...mps import MatrixProductState
+from ...tn import TensorNetwork
 from ...tn_methods.hf_suppression import HFSuppression
 from ...tn_methods.mps_to_circuit import MPStoCircuit
 from ..backend.base import QuantumBackend
@@ -54,6 +55,9 @@ class QSCI(QuantumAlgorithm):
         print(f"DMRG run in {dmrg_timer_end-dmrg_timer}s")
         self._circuit = None
         self.set_backend(backend=backend)
+        self.energies_per_iteration = []
+        self.important_configurations = []
+        self.unimportant_configurations = []
 
     @property
     def circuit(self) -> QuantumCircuit:
@@ -63,7 +67,7 @@ class QSCI(QuantumAlgorithm):
         self,
         hamiltonian: dict | MatrixProductOperator,
         max_bond: int = 2,
-        maxiter: int = 6,
+        maxiter: int = 10,
     ) -> tuple[MatrixProductState, float]:
         """Run DMRG"""
         hf_mps = None
@@ -93,7 +97,9 @@ class QSCI(QuantumAlgorithm):
         self, counts: dict[str, int], particle_number: int | None = None
     ) -> dict:
         """Perform configuration recovery"""
-        new_counts = {k: v for k, v in counts.items() if v > 2}
+        new_counts = {k: v for k, v in counts.items() if v > 3}
+        for sample in self.unimportant_configurations:
+            counts[sample] = 0
         if particle_number is None:
             return new_counts
         else:
@@ -110,20 +116,28 @@ class QSCI(QuantumAlgorithm):
     def compute_hij(self, args):
         i, j, basis, hamiltonian_mpo = args
         psi_i = MatrixProductState.from_bitstring(basis[i])
-        psi_i = psi_i.apply_mpo(copy.deepcopy(hamiltonian_mpo))
         psi_j = MatrixProductState.from_bitstring(basis[j])
-        h_ij = psi_i.compute_inner_product(psi_j)
+        ham = copy.deepcopy(hamiltonian_mpo)
+        psi_i.set_default_indices("X", "A")
+        ham.set_default_indices("Y", "A", "B")
+        psi_j.set_default_indices("Z", "B")
+        tn = TensorNetwork(psi_i.tensors + ham.tensors + psi_j.tensors)
+        h_ij = tn.contract_entire_network()
         return (i, j, h_ij)
 
-    def project_hamiltonian(self, samples: list[str]) -> ndarray:
+    def project_hamiltonian(
+        self, samples: list[str], reset_hamiltonian: bool = False
+    ) -> ndarray:
         """Project Hamiltonian onto subspace"""
         n = len(samples)
         ham_proj = np.zeros((n, n), dtype=complex)
 
         # Prepare arguments for each task
-        args_list = [
-            (i, j, samples, self.hamiltonian_mpo) for i in range(n) for j in range(i, n)
-        ]
+        if reset_hamiltonian:
+            ham = MatrixProductOperator.from_hamiltonian(self.hamiltonian)
+        else:
+            ham = self.hamiltonian_mpo
+        args_list = [(i, j, samples, ham) for i in range(n) for j in range(i, n)]
 
         # Launch worker pool
         with Pool(processes=cpu_count()) as pool:
@@ -188,11 +202,25 @@ class QSCI(QuantumAlgorithm):
         new_mps = MatrixProductState.from_bitstring(samples[0])
         new_mps.multiply_by_constant(groundstate_vec[0])
         for i in range(1, len(samples)):
-            temp_mps = MatrixProductState.from_bitstring(samples[i])
-            temp_mps.multiply_by_constant(groundstate_vec[i])
-            new_mps = new_mps + temp_mps
+            if np.abs(groundstate_vec[i]) ** 2 > 0.0:
+                temp_mps = MatrixProductState.from_bitstring(samples[i])
+                temp_mps.multiply_by_constant(groundstate_vec[i])
+                new_mps = new_mps + temp_mps
 
         return new_mps
+
+    def final_energy(self) -> float:
+        """Calculate the final energy with the obtained groundstate approximation and the full Hamiltonian"""
+        ham_mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian)
+        state = copy.deepcopy(self.state)
+        state_dag = copy.deepcopy(self.state)
+        state_dag.dagger()
+        state.set_default_indices("X", "A")
+        ham_mpo.set_default_indices("Y", "A", "B")
+        state_dag.set_default_indices("Z", "B")
+        tn = TensorNetwork(state.tensors + ham_mpo.tensors + state_dag.tensors)
+        energy = tn.contract_entire_network()
+        return energy.real
 
     def run(
         self, num_shots: int, subspace_size: int, num_iterations: int = 1
@@ -215,6 +243,12 @@ class QSCI(QuantumAlgorithm):
                 self.energy, groundstate_vec = self.linear_operator_diagonalisation(
                     samples
                 )
+            for sidx in range(len(samples)):
+                sample = samples[sidx]
+                amp = groundstate_vec[sidx]
+                if np.abs(amp) ** 2 > 0.0:
+                    self.important_configurations.append(sample)
+            self.important_configurations = list(set(self.important_configurations))
             self.state = self.reconstruct_mps(samples, groundstate_vec)
         end_time = default_timer()
 

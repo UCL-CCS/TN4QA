@@ -39,6 +39,7 @@ class ControlledTimeEvolvedQSCI(QSCI):
         hamiltonian = self.normalise_hamiltonian(hamiltonian)
         hamiltonian = self.rescale_hamiltonian(hamiltonian)
         super().__init__(hamiltonian, hf_state=hf_state, backend=backend)
+        self.circuit_depths = []
 
     @property
     def circuit(self) -> QuantumCircuit:
@@ -73,8 +74,10 @@ class ControlledTimeEvolvedQSCI(QSCI):
         controlled_sim_circ = add_controls(controlled_sim_circ, [0])
         circ_copy = copy.deepcopy(self.circuit)
         ref = QuantumCircuit(circ_copy.num_qubits + 1)
+        ref.h(0)
         ref.compose(circ_copy, qubits=range(1, circ_copy.num_qubits + 1), inplace=True)
         ref.compose(controlled_sim_circ, inplace=True)
+        ref.h(0)
         return ref
 
     def perform_controlled_time_evolution_qdrift(
@@ -93,8 +96,10 @@ class ControlledTimeEvolvedQSCI(QSCI):
         controlled_sim_circ = add_controls(controlled_sim_circ, [0])
         circ_copy = copy.deepcopy(self.circuit)
         ref = QuantumCircuit(circ_copy.num_qubits + 1)
+        ref.h(0)
         ref.compose(circ_copy, qubits=range(1, circ_copy.num_qubits + 1), inplace=True)
         ref.compose(controlled_sim_circ, inplace=True)
+        ref.h(0)
         return ref
 
     def post_selection(self, counts: dict[str, int]) -> dict[str, int]:
@@ -134,6 +139,7 @@ class ControlledTimeEvolvedQSCI(QSCI):
                 qc = self.perform_controlled_time_evolution_qdrift(
                     idx * duration_per_circuit, error=self.qdrift_config["error"]
                 )
+                self.circuit_depths.append(qc.depth())
                 subcounts = self.backend.run(qc, shots=shots_per_circuit)
                 for b, count in subcounts.items():
                     if idx == 0:
@@ -160,18 +166,37 @@ class ControlledTimeEvolvedQSCI(QSCI):
             ps_counts = self.post_selection(counts)
             cr_counts = self.configuration_recovery(ps_counts, self.num_electrons)
             samples = self.gather_samples(cr_counts, subspace_size)
-            if self.hfs and self.hf_state not in samples:
-                samples += self.hf_state
+            if self.hf_state not in samples:
+                samples.append(self.hf_state)
+            for sample in self.important_configurations:
+                if sample not in samples:
+                    samples.append(sample)
+            if idx == num_iterations - 1:
+                reset_hamiltonian = True
+            else:
+                reset_hamiltonian = False
             print(f"Collected {len(samples)} unique samples")
             if len(samples) <= 500:
-                projected_ham = self.project_hamiltonian(samples)
+                projected_ham = self.project_hamiltonian(
+                    samples, reset_hamiltonian=reset_hamiltonian
+                )
                 self.energy, groundstate_vec = self.exact_diagonalisation(projected_ham)
             else:
                 self.energy, groundstate_vec = self.linear_operator_diagonalisation(
                     samples
                 )
+            for sidx in range(len(samples)):
+                sample = samples[sidx]
+                amp = groundstate_vec[sidx]
+                if np.abs(amp) ** 2 > 0.0:
+                    self.important_configurations.append(sample)
+                else:
+                    self.unimportant_configurations.append(sample)
+            self.important_configurations = list(set(self.important_configurations))
             print(f"New groundtate found with energy {self.energy}")
             self.state = self.reconstruct_mps(samples, groundstate_vec)
+            self.energy = self.final_energy()
+            self.energies_per_iteration.append(self.energy)
             print("Finished iteration", idx + 1)
         end_time = default_timer()
 
@@ -181,7 +206,9 @@ class ControlledTimeEvolvedQSCI(QSCI):
             "num_shots": num_shots,
             "num_iterations": num_iterations,
             "max_subspace_size": subspace_size,
-            "actual_subspace_size": len(samples),
+            "actual_subspace_size": len(self.important_configurations),
+            "average_circuit_depth": np.mean(self.circuit_depths),
+            "subspace": samples,
             "total_runtime": end_time - start_time,
         }
         if self.backend is not None:

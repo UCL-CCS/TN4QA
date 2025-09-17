@@ -552,8 +552,7 @@ class MatrixProductOperator(TensorNetwork):
         site_mapping: dict,
         max_bond: int | None = None,
         tol: float = 1e-12,
-        global_scale: float | None = None,
-    ) -> float:
+    ) -> None:
         """
         Apply a two qubit gate in place
 
@@ -685,7 +684,7 @@ class MatrixProductOperator(TensorNetwork):
 
         u, s, vh = svd(output_data.todense(), full_matrices=False)
 
-        def normalise_two_site_svd(U, S, Vh, global_scale):
+        def normalise_two_site_svd(U, S, Vh):
             """Normalize SVD factors so largest singular value is 1."""
             max_sv = S.max()
             if max_sv == 0:  # avoid divide by zero
@@ -695,11 +694,9 @@ class MatrixProductOperator(TensorNetwork):
             # absorb half the scale into U and half into Vh to keep symmetry
             U *= np.sqrt(scale)
             Vh *= np.sqrt(scale)
-            if global_scale:
-                global_scale *= scale
-            return U, S, Vh, global_scale
+            return U, S, Vh
 
-        u, s, vh, global_scale = normalise_two_site_svd(u, s, vh, global_scale)
+        u, s, vh = normalise_two_site_svd(u, s, vh)
         # if bond_dim >= min([mat_shape[0], mat_shape[1]]) - 1:
         #     u, s, vh = svd(output_data.todense(), full_matrices=False)
         # else:
@@ -766,7 +763,7 @@ class MatrixProductOperator(TensorNetwork):
             self.tensors[site0].dimensions = self.tensors[site0].data.shape
             self.bond_dims = [t.dimensions[0] for t in self.tensors[1:]]
             self.bond_dimension = max(self.bond_dims)
-        return global_scale
+        return
 
     def apply_general_gate(
         self,
@@ -812,7 +809,6 @@ class MatrixProductOperator(TensorNetwork):
             data = qc.data
         mpo = MatrixProductOperator.identity_mpo(qc.num_qubits)
         site_mapping = {str(idx): str(idx) for idx in range(1, mpo.num_sites + 1)}
-        global_scale = 1.0
         for inst in data:
             qidxs = [
                 inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
@@ -823,17 +819,15 @@ class MatrixProductOperator(TensorNetwork):
                 mpo.apply_one_qubit_gate(data, site_loc)
             elif len(qidxs) == 2:
                 sites_locs = [int(site_mapping[str(site)]) for site in qidxs]
-                global_scale = mpo.apply_two_qubit_gate(
+                mpo.apply_two_qubit_gate(
                     data,
                     sites_locs,
                     site_mapping,
                     max_bond=max_bond,
-                    global_scale=global_scale,
                 )
             else:
                 mpo = mpo.apply_general_gate(inst, site_mapping, max_bond=max_bond)
 
-        mpo.multiply_by_constant(global_scale)
         reversed_mapping = {v: k for k, v in site_mapping.items()}
         target_site_ordering = [
             int(reversed_mapping[str(site)]) for site in range(1, mpo.num_sites + 1)
