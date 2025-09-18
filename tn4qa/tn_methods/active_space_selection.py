@@ -65,7 +65,7 @@ class ActiveSpaceSelection:
         # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
         print("Start DMRG")
 
-        max_mps_bond = function_args.get("dmrg_max_mps_bond", 8)
+        max_mps_bond = function_args.get("dmrg_max_mps_bond", 2)
         method = function_args.get("dmrg_method", "two-site")
         convergence_threshold = function_args.get("dmrg_convergence_threshold", 1e-9)
         initial_state = function_args.get("dmrg_initial_state", None)
@@ -90,7 +90,7 @@ class ActiveSpaceSelection:
         # Run BFGS optimisation to find optimal K
         print("Start optimisation")
         theta_init = np.zeros((N**2,), dtype=float)  # Initial guess for theta
-        opt_max_bond = function_args.get("rotation_mpo_max_bond", None)
+        opt_max_bond = function_args.get("rotation_mpo_max_bond", 64)
         self.theta_opt = self.optimise_K(theta_init, cost_mpo, psi_C, opt_max_bond)
 
         # Exponentiate K to get a unitary U = exp(K)
@@ -257,7 +257,7 @@ class ActiveSpaceSelection:
         """
         K = self.vector_to_antihermitian(theta)
         W_rotated = self.build_trotterised_unitary(K, max_bond=max_bond)
-        transformed_state = mps.apply_mpo(W_rotated)
+        transformed_state = mps.apply_mpo(W_rotated, max_bond=max_bond)
         transformed_state.normalise()
         doubled_transformed_state = transformed_state.to_two_copy_mps()
         cost = doubled_transformed_state.compute_expectation_value(mpo)

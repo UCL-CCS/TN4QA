@@ -800,16 +800,29 @@ class MatrixProductState(TensorNetwork):
         Returns:
             The expectation value.
         """
-        mps1 = copy.deepcopy(self)
-        mpo1 = copy.deepcopy(mpo)
+        mps_ket = copy.deepcopy(self)
+        mpo_op = copy.deepcopy(mpo)
 
-        mpo1.reshape("udrl")
-        mps1.reshape("udp")
+        mps_bra = copy.deepcopy(mps_ket)
+        mps_bra.dagger()
 
-        mps1 = mps1.apply_mpo(mpo1)
+        # Relabel
+        # MPS ket: internal A*, external B*
+        mps_ket.set_default_indices(internal_prefix="A", external_prefix="B")
 
-        exp_val = self.compute_inner_product(mps1)
-        return exp_val
+        # MPO: input = B* (to match ket physical), output = D*, internal = C*
+        mpo_op.set_default_indices(
+            input_prefix="B", output_prefix="D", internal_prefix="C"
+        )
+
+        # MPS bra: internal E*, physical D* (to match MPO output)
+        mps_bra.set_default_indices(internal_prefix="E", external_prefix="D")
+
+        tn = TensorNetwork(mps_bra.tensors + mpo_op.tensors + mps_ket.tensors)
+
+        val = tn.contract_entire_network()
+
+        return complex(val)
 
     def outer_product(self, other: "MatrixProductState") -> MatrixProductOperator:
         """
