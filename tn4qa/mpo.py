@@ -2283,6 +2283,7 @@ class MatrixProductOperator(TensorNetwork):
         internal_prefix: str | None = None,
         input_prefix: str | None = None,
         output_prefix: str | None = None,
+        index_from: int | None = None,
     ) -> None:
         """
         Set default indices to an MPO
@@ -2298,31 +2299,36 @@ class MatrixProductOperator(TensorNetwork):
             input_prefix = "L"
         if not output_prefix:
             output_prefix = "R"
+        if not index_from:
+            index_from = 1
         self.reshape("udrl")
 
         if self.num_sites == 1:
-            self.tensors[0].indices = [output_prefix + "1", input_prefix + "1"]
+            self.tensors[0].indices = [
+                output_prefix + f"{index_from}",
+                input_prefix + f"{index_from}",
+            ]
             return
 
         new_indices_first = [
-            internal_prefix + "1",
-            output_prefix + "1",
-            input_prefix + "1",
+            internal_prefix + f"{index_from}",
+            output_prefix + f"{index_from}",
+            input_prefix + f"{index_from}",
         ]
         self.tensors[0].indices = new_indices_first
         for tidx in range(1, self.num_sites - 1):
             t = self.tensors[tidx]
             new_indices_t = [
-                internal_prefix + str(tidx),
-                internal_prefix + str(tidx + 1),
-                output_prefix + str(tidx + 1),
-                input_prefix + str(tidx + 1),
+                internal_prefix + str(tidx + index_from - 1),
+                internal_prefix + str(tidx + index_from),
+                output_prefix + str(tidx + index_from),
+                input_prefix + str(tidx + index_from),
             ]
             t.indices = new_indices_t
         new_indices_last = [
-            internal_prefix + str(self.num_sites - 1),
-            output_prefix + str(self.num_sites),
-            input_prefix + str(self.num_sites),
+            internal_prefix + str(index_from + self.num_sites - 2),
+            output_prefix + str(index_from + self.num_sites - 1),
+            input_prefix + str(index_from + self.num_sites - 1),
         ]
         self.tensors[-1].indices = new_indices_last
         self.indices = self.get_all_indices()

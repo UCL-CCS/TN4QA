@@ -718,7 +718,10 @@ class MatrixProductState(TensorNetwork):
         return mps
 
     def set_default_indices(
-        self, internal_prefix: str | None = None, external_prefix: str | None = None
+        self,
+        internal_prefix: str | None = None,
+        external_prefix: str | None = None,
+        index_from: int | None = None,
     ) -> None:
         """
         Rename all indices to a standard form.
@@ -731,25 +734,30 @@ class MatrixProductState(TensorNetwork):
             internal_prefix = "B"
         if not external_prefix:
             external_prefix = "P"
+        if not index_from:
+            index_from = 1
         self.reshape("udp")
 
         if self.num_sites == 1:
-            self.tensors[0].indices = [external_prefix + "1"]
+            self.tensors[0].indices = [external_prefix + f"{index_from}"]
             return
 
-        new_indices_first = [internal_prefix + "1", external_prefix + "1"]
+        new_indices_first = [
+            internal_prefix + f"{index_from}",
+            external_prefix + f"{index_from}",
+        ]
         self.tensors[0].indices = new_indices_first
         for tidx in range(1, self.num_sites - 1):
             t = self.tensors[tidx]
             new_indices_t = [
-                internal_prefix + str(tidx),
-                internal_prefix + str(tidx + 1),
-                external_prefix + str(tidx + 1),
+                internal_prefix + str(index_from + tidx - 1),
+                internal_prefix + str(index_from + tidx),
+                external_prefix + str(index_from + tidx),
             ]
             t.indices = new_indices_t
         new_indices_last = [
-            internal_prefix + str(self.num_sites - 1),
-            external_prefix + str(self.num_sites),
+            internal_prefix + str(index_from + self.num_sites - 2),
+            external_prefix + str(index_from + self.num_sites - 1),
         ]
         self.tensors[-1].indices = new_indices_last
         self.indices = self.get_all_indices()
