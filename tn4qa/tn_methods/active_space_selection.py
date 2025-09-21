@@ -346,6 +346,7 @@ class ActiveSpaceSelection:
         max_bond: int | None,
     ) -> dict[int, float]:
         mpo = copy.deepcopy(mpo)
+        mps = copy.deepcopy(mps)
         gradients = {}
 
         pauli_ham_dict = {}
