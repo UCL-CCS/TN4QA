@@ -524,8 +524,10 @@ class ActiveSpaceSelection:
                     break
 
             theta -= lr * grad
-            if iter % 10 == 0 or iter == max_iters - 1:
-                print(f"Iteration number: {iter:3d} grad_norm={grad_norm:.3e}")
+            if iter % 2 == 0 or iter == max_iters - 1:
+                print(
+                    f"Iteration number: {iter:3d} grad_norm={grad_norm:.3e} cost={self.all_costs[-1]}"
+                )
 
         return theta
 
