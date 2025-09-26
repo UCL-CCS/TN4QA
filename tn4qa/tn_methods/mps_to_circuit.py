@@ -439,6 +439,171 @@ class MPSAnalyticDecomposition:
             final_qc.compose(qcs[qc_idx], qidxs[qc_idx], inplace=True)
 
         return final_qc
+    
+    def bond_dim_2_to_qc_parallel(
+        self, bond_dim_2_mps: MatrixProductState
+        ) -> QuantumCircuit:
+        """Map a bond dimension 2 MPS to a quantum circuit exactly
+            Gates are applied from both ends and meet in the middle"""
+        mps = bond_dim_2_mps
+        n = mps.num_sites
+        if n % 2 == 0:
+            mps.move_orthogonality_centre(int(n/2))
+        else:
+            mps.move_orthogonality_centre(int(n//2 + 1))
+
+        # identify cuts where bond-dim == 1 (so we split the MPS into pieces)
+        mps_dims = [mps.tensors[idx].dimensions[0] for idx in range(1, mps.num_sites)]
+        bond_dim_1_idxs = ([0] + [i + 1 for i, x in enumerate(mps_dims) if x == 1] +
+                        [mps.num_sites])
+        
+        # collect arrays per piece
+        separate_mps_arrays = []
+        for i in range(len(bond_dim_1_idxs) - 1):
+            separate_mps_arrays.append(
+                [
+                    mps.tensors[idx].data.todense()
+                    for idx in list(range(mps.num_sites))[
+                        bond_dim_1_idxs[i] : bond_dim_1_idxs[i + 1]
+                    ]
+                ]
+            )
+
+        # build MatrixProductState objects for the pieces (preserve reshaping rules)
+        separate_mps = []
+        for arrays in separate_mps_arrays:
+            if len(arrays) == 1:
+                array = copy.deepcopy(arrays[0]).reshape((2,))
+                separate_mps.append(MatrixProductState.from_arrays([array]))
+                continue
+
+            if len(arrays) == 2:
+                first_array = copy.deepcopy(arrays[0]).reshape((2, 2))
+                last_array = copy.deepcopy(arrays[1]).reshape((2, 2))
+                separate_mps.append(
+                    MatrixProductState.from_arrays([first_array, last_array])
+                )
+                continue
+
+            reshaped_arrays = []
+            first_array = copy.deepcopy(arrays[0])
+            if first_array.ndim != 2:
+                first_array = first_array.reshape((first_array.shape[1], first_array.shape[2]))
+            reshaped_arrays.append(first_array)
+
+            for a in arrays[1:-1]:
+                reshaped_arrays.append(copy.deepcopy(a))
+
+            last_array = copy.deepcopy(arrays[-1])
+            if last_array.ndim != 2:
+                last_array = last_array.reshape((last_array.shape[0], last_array.shape[2]))
+            reshaped_arrays.append(last_array)
+
+            separate_mps.append(MatrixProductState.from_arrays(reshaped_arrays))
+
+        # For each piece, build a circuit with meet-in-the-middle gates
+        qcs = []
+        qidxs = []
+        for sub_mps in separate_mps:
+            # single-site: just make a single-qubit unitary mapping |0> -> v
+            if sub_mps.num_sites == 1:
+                v = sub_mps.tensors[0].data.todense().reshape((2,))
+                a, b = v
+                v_perp = np.array([-np.conj(b), np.conj(a)])
+                unitary = np.column_stack((v, v_perp))
+                gate = UnitaryGate(unitary)
+                qc = QuantumCircuit(1)
+                qc.append(gate, [0])
+                qcs.append(qc)
+                if len(qidxs) == 0:
+                    qidxs.append([0])
+                else:
+                    qidxs.append([qidxs[-1][-1] + 1])
+                continue
+#------------------------------------------------------------------------------------------------------------------------------
+            # build the "unitaries" list
+            sub_n = int(sub_mps.num_sites)
+            unitaries_left = []
+            unitaries_right = []
+
+            # first unitaries at edges
+            first_left = self.extend_to_unitary(sub_mps.tensors[0], "first")
+            first_right = self.extend_to_unitary(sub_mps.tensors[-1], "first")
+            unitaries_left.append(first_left)
+            unitaries_right.append(first_right)
+
+            # define midpoints (even only)
+            mid_left = int(sub_n / 2 - 1)
+            mid_right = int(sub_n / 2)
+
+            # build left stream (1, mid_left)
+            for tidx in range(1, mid_left):
+                t = sub_mps.tensors[tidx]
+                uni = self.extend_to_unitary(t)
+                unitaries_left.append(uni)
+
+            # build right stream (reverse) (mid_right, n-2)
+            for tidx in range(sub_n - 2, mid_right, -1):
+                t = sub_mps.tensors[tidx]
+                uni = self.extend_to_unitary(t)
+                unitaries_right.append(uni)
+
+            # middle tensor
+            if sub_n % 2 == 0: # even
+                A = sub_mps.tensors[mid_left]   
+                B = sub_mps.tensors[mid_right]
+
+                # Contract the shared bond: result shape
+                TN = TensorNetwork([A, B])
+
+                # Contract into a single tensor
+                T = TN.contract_entire_network()
+
+                # reshape to a matrix
+                T.tensor_to_matrix(input_idxs=['B2', 'B4'], output_idxs=['P3', 'P4'])
+
+                # unitary part 
+                U, H = polar(T.data.todense())
+
+                unitaries_left.append(U)
+
+            else: # odd
+                raise ValueError("sub_n needs to be even because isabelle is lazy")   
+            
+            print("Left unitaries:", len(unitaries_left))
+            print(unitaries_left)
+            print("Right unitaries:", len(unitaries_right))
+            print(unitaries_right)
+            # combine streams into a single circuit
+            qc = QuantumCircuit(sub_n)
+            if len(qidxs) == 0:
+                qidxs.append(list(range(sub_n)))
+            else:
+                qidxs.append(
+                    list(
+                        range(qidxs[-1][-1] + 1, qidxs[-1][-1] + 1 + sub_n)
+                    )
+                )
+            # Apply right stream gates
+            for uni_idx in range(len(unitaries_right)):
+                uni = unitaries_right[uni_idx]
+                gate = UnitaryGate(uni)
+                qc.append(gate, [sub_n - 2 - uni_idx, sub_n - 1 - uni_idx])
+
+            # Apply left stream gates
+            for uni_idx in range(mid_left + 1):
+                uni = unitaries_left[uni_idx]
+                gate = UnitaryGate(uni)
+                qc.append(gate, [uni_idx, uni_idx + 1])
+
+            qcs.append(qc)
+#------------------------------------------------------------------------------------------------------------------------------
+        # bring together all of the little circuits into the final big circuit
+        final_qc = QuantumCircuit(mps.num_sites)
+        for qc_idx in range(len(qcs)):
+            final_qc.compose(qcs[qc_idx], qidxs[qc_idx], inplace=True)
+
+        return final_qc
 
     def disentangle_mps(
         self, mps: MatrixProductState, qc_layer: QuantumCircuit
