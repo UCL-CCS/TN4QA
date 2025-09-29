@@ -301,6 +301,9 @@ class MPSAnalyticDecomposition:
         elif position == "last":
             data.reorder_indices([data.indices[1], data.indices[0]])
             matrix = data.data.todense().reshape((2, 2))
+        elif position == "middle":
+            data.reorder_indices([data.indices[0], data.indices[2], data.indices[1]])
+            matrix = data.data.todense().reshape((8,1))
         else:
             if reverse_direction:
                 data.tensor_to_matrix(
@@ -318,13 +321,43 @@ class MPSAnalyticDecomposition:
         orthogonal_basis_2 = null_space(matrix.conj().T)
 
         if shape[0] > shape[1]:
-            unitary = np.concatenate([matrix, orthogonal_basis_2], 1)
-        elif shape[0] < shape[1]:
-            unitary = np.concatenate([matrix.conj().T, orthogonal_basis_1], 1).conj().T
-        else:
-            unitary = matrix
 
+            if position is None and reverse_direction:
+
+                unitary = np.empty((matrix.shape[0], matrix.shape[1] + orthogonal_basis_2.shape[1]), dtype=matrix.dtype)
+
+                unitary[:, 0::2] = matrix
+
+                unitary[:, 1::2] = orthogonal_basis_2
+
+                # unitary = np.concatenate([orthogonal_basis_2, matrix], 1)
+
+            else:
+
+                unitary = np.concatenate([matrix, orthogonal_basis_2], 1)
+
+        elif shape[0] < shape[1]:
+
+            if position is None and reverse_direction:
+
+                unitary = np.empty((matrix.shape[0], matrix.shape[1] + orthogonal_basis_1.shape[1]), dtype=matrix.dtype)
+
+                unitary[:, 0::2] = matrix
+
+                unitary[:, 1::2] = orthogonal_basis_1
+
+                # unitary = np.concatenate([orthogonal_basis_1, matrix.conj().T], 1).conj().T
+
+            else:
+
+                unitary = np.concatenate([matrix.conj().T, orthogonal_basis_1], 1).conj().T
+
+        else:
+
+            unitary = matrix
+        print("pre-polar", unitary)
         unitary, _ = polar(unitary)
+        print("post-polar", unitary)
         return unitary
 
     def bond_dim_2_to_qc_exact(
@@ -575,11 +608,17 @@ class MPSAnalyticDecomposition:
                 # Contract into a single tensor
                 T = TN.contract_entire_network()
 
+                print("Mid T:", T.data.todense() @ T.data.todense().conj().T)
+
                 # reshape to a matrix
                 T.tensor_to_matrix(input_idxs=["B2", "B4"], output_idxs=["P3", "P4"])
 
                 # unitary part
-                U, H = polar(T.data.todense())
+                U, S, Vh = np.linalg.svd(T.data.todense(), full_matrices=False)
+
+                print("S", S)
+
+                print("difference between U and T",  U @ Vh - T.data.todense())
 
                 unitaries_left.append(U)
 
@@ -607,6 +646,174 @@ class MPSAnalyticDecomposition:
                 uni = unitaries_left[uni_idx]
                 gate = UnitaryGate(uni)
                 qc.append(gate, [uni_idx, uni_idx + 1])
+
+            qcs.append(qc)
+        # ------------------------------------------------------------------------------------------------------------------------------
+        # bring together all of the little circuits into the final big circuit
+        final_qc = QuantumCircuit(mps.num_sites)
+        for qc_idx in range(len(qcs)):
+            final_qc.compose(qcs[qc_idx], qidxs[qc_idx], inplace=True)
+
+        return final_qc
+    
+    def bond_dim_2_to_qc_middle_out(
+        self, bond_dim_2_mps: MatrixProductState
+    ) -> QuantumCircuit:
+        """Map a bond dimension 2 MPS to a quantum circuit 
+        Gates are applied from the middle and move outwards"""
+        mps = bond_dim_2_mps
+        n = mps.num_sites
+        if n % 2 == 0:
+            mps.move_orthogonality_centre(int(n // 2 + 1))
+        else:
+            mps.move_orthogonality_centre(int(n // 2 + 1))
+
+        # identify cuts where bond-dim == 1 (so we split the MPS into pieces)
+        mps_dims = [mps.tensors[idx].dimensions[0] for idx in range(1, mps.num_sites)]
+        bond_dim_1_idxs = (
+            [0] + [i + 1 for i, x in enumerate(mps_dims) if x == 1] + [mps.num_sites]
+        )
+
+        # collect arrays per piece
+        separate_mps_arrays = []
+        for i in range(len(bond_dim_1_idxs) - 1):
+            separate_mps_arrays.append(
+                [
+                    mps.tensors[idx].data.todense()
+                    for idx in list(range(mps.num_sites))[
+                        bond_dim_1_idxs[i] : bond_dim_1_idxs[i + 1]
+                    ]
+                ]
+            )
+
+        # build MatrixProductState objects for the pieces (preserve reshaping rules)
+        separate_mps = []
+        for arrays in separate_mps_arrays:
+            if len(arrays) == 1:
+                array = copy.deepcopy(arrays[0]).reshape((2,))
+                separate_mps.append(MatrixProductState.from_arrays([array]))
+                continue
+
+            if len(arrays) == 2:
+                first_array = copy.deepcopy(arrays[0]).reshape((2, 2))
+                last_array = copy.deepcopy(arrays[1]).reshape((2, 2))
+                separate_mps.append(
+                    MatrixProductState.from_arrays([first_array, last_array])
+                )
+                continue
+
+            reshaped_arrays = []
+            first_array = copy.deepcopy(arrays[0])
+            if first_array.ndim != 2:
+                first_array = first_array.reshape(
+                    (first_array.shape[1], first_array.shape[2])
+                )
+            reshaped_arrays.append(first_array)
+
+            for a in arrays[1:-1]:
+                reshaped_arrays.append(copy.deepcopy(a))
+
+            last_array = copy.deepcopy(arrays[-1])
+            if last_array.ndim != 2:
+                last_array = last_array.reshape(
+                    (last_array.shape[0], last_array.shape[2])
+                )
+            reshaped_arrays.append(last_array)
+
+            separate_mps.append(MatrixProductState.from_arrays(reshaped_arrays))
+
+        # For each piece, build a circuit with meet-in-the-middle gates
+        qcs = []
+        qidxs = []
+        for sub_mps in separate_mps:
+            # single-site: just make a single-qubit unitary mapping |0> -> v
+            if sub_mps.num_sites == 1:
+                v = sub_mps.tensors[0].data.todense().reshape((2,))
+                a, b = v
+                v_perp = np.array([-np.conj(b), np.conj(a)])
+                unitary = np.column_stack((v, v_perp))
+                gate = UnitaryGate(unitary)
+                qc = QuantumCircuit(1)
+                qc.append(gate, [0])
+                qcs.append(qc)
+                if len(qidxs) == 0:
+                    qidxs.append([0])
+                else:
+                    qidxs.append([qidxs[-1][-1] + 1])
+                continue
+            # ------------------------------------------------------------------------------------------------------------------------------
+            # build the "unitaries" list
+            sub_n = int(sub_mps.num_sites)
+            unitaries_left = []
+            unitaries_right = []
+
+            # define midpoints
+            mid_left = int(sub_n // 2 - 1)
+            mid_mid = int(sub_n // 2)
+            mid_right = int(sub_n // 2  + 1)
+
+            # middle tensor
+            middle_unitary = self.extend_to_unitary(sub_mps.tensors[mid_mid], "middle")
+            print("Number of sites", sub_mps.num_sites)
+            print("Tensor Indices", sub_mps.tensors)
+
+            # grow outward 
+            if n % 2 == 1:
+                for offset in range(1, mid_mid):
+                    left_idx = mid_mid - offset
+                    right_idx = mid_mid + offset 
+
+                    left_uni = self.extend_to_unitary(sub_mps.tensors[left_idx], reverse_direction=True)
+                    unitaries_left.append(left_uni)
+                    right_uni = self.extend_to_unitary(sub_mps.tensors[right_idx])
+                    unitaries_right.append(right_uni)
+
+            else:
+                for offset in range(1, mid_left):
+                    left_idx = mid_mid - offset
+                    right_idx = mid_mid + offset 
+
+                    left_uni = self.extend_to_unitary(sub_mps.tensors[left_idx], reverse_direction=True)
+                    unitaries_left.append(left_uni)
+                    extra_left_uni = self.extend_to_unitary(sub_mps.tensors[2])
+                    unitaries_left.append(extra_left_uni)
+                    right_uni = self.extend_to_unitary(sub_mps.tensors[right_idx])
+                    unitaries_right.append(right_uni)
+
+            # last unitaries at edges
+            last_left = self.extend_to_unitary(sub_mps.tensors[0], "last") 
+            last_right = self.extend_to_unitary(sub_mps.tensors[-1], "last")
+            unitaries_left.append(last_left)
+            unitaries_right.append(last_right)
+
+            # combine streams into a single circuit
+            qc = QuantumCircuit(sub_n)
+            if len(qidxs) == 0:
+                qidxs.append(list(range(sub_n)))
+            else:
+                qidxs.append(list(range(qidxs[-1][-1] + 1, qidxs[-1][-1] + 1 + sub_n)))
+
+            # Apply centre gate
+            centre_gate = UnitaryGate(middle_unitary)
+            qc.append(centre_gate, [mid_left, mid_mid, mid_right])
+   
+            # Apply left stream gates
+            for uni_idx in range(len(unitaries_left)):
+                uni = unitaries_left[uni_idx]
+                gate = UnitaryGate(uni)
+                if uni.shape == (4, 4):
+                    qc.append(gate, [mid_left - uni_idx, mid_left - uni_idx - 1])
+                elif uni.shape == (2, 2):
+                    qc.append(gate, [mid_left - uni_idx])
+            
+            # Apply right stream gates
+            for uni_idx in range(len(unitaries_right)):
+                uni = unitaries_right[uni_idx]
+                gate = UnitaryGate(uni)
+                if uni.shape == (4, 4):
+                    qc.append(gate, [mid_right + uni_idx, mid_right + uni_idx + 1])
+                elif uni.shape == (2, 2):
+                    qc.append(gate, [mid_right + uni_idx])
 
             qcs.append(qc)
         # ------------------------------------------------------------------------------------------------------------------------------
