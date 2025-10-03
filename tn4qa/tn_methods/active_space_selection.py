@@ -3,6 +3,7 @@ from typing import Callable
 
 import numpy as np
 from numpy import ndarray
+from qiskit import QuantumCircuit
 
 from tn4qa.qi_cost_functions import (
     cost_function_dict_to_purity_mpo,
@@ -330,6 +331,10 @@ class ActiveSpaceSelection:
             # Update MPO
             pauli_dict_theta = {key: val * theta[k] for key, val in pauli_dict.items()}
             trotter_circ = TrotterSimulation(pauli_dict_theta, 1.0, num_steps=1)
+            n = trotter_circ.circuit.num_qubits
+            qc = QuantumCircuit(2 * n)
+            qc.compose(trotter_circ.circuit, qubits=range(n), inplace=True)
+            qc.compose(trotter_circ.circuit, qubits=range(n, 2 * n), inplace=True)
             mpo.evolve_by_quantum_circuit(trotter_circ.circuit)
 
         return gradients
