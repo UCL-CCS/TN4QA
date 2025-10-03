@@ -6,6 +6,7 @@ import scipy.linalg
 
 from .mpo import MatrixProductOperator
 from .mps import MatrixProductState
+from .tn import TensorNetwork
 
 
 def trace_nrom(
@@ -32,7 +33,8 @@ def trace_nrom(
 
     # Calculate directly
     # N.B. only doable for small operators
-    Adag = A.dagger()
+    Adag = copy.deepcopy(A)
+    Adag.dagger()
     prod = Adag * A
     prod_mat = prod.to_dense_array()
     sqrt_prod_mat = scipy.linalg.sqrtm(prod_mat)
@@ -52,9 +54,14 @@ def hilbert_schmidt_inner_product(
     Returns:
         Tr(A^dag B)
     """
-    A.dagger()
-    prod = A * B
-    return prod.trace()
+    Acopy = copy.deepcopy(A)
+    Bcopy = copy.deepcopy(B)
+    Acopy.dagger()
+    Acopy.set_default_indices("D", "C", "B")
+    Bcopy.set_default_indices("A", "B", "C")
+    tn = TensorNetwork(Acopy.tensors + Bcopy.tensors)
+    val = tn.contract_entire_network()
+    return val
 
 
 def frobenius_norm(
@@ -211,7 +218,9 @@ def hilbert_schmidt_fidelity(
     if isinstance(phi, MatrixProductState):
         phi = phi.form_density_operator()
     ip = hilbert_schmidt_inner_product(psi, phi)
-    return np.abs(ip) ** 2 / ((frobenius_norm(psi) ** 2) * (frobenius_norm(phi) ** 2))
+    psi_norm = frobenius_norm(psi)
+    phi_norm = frobenius_norm(phi)
+    return np.abs(ip) / (psi_norm * phi_norm)
 
 
 def total_variation_distance(

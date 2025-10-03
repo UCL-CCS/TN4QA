@@ -44,4 +44,5 @@ def test_qpe_1q():
 
     qpe = QPE(unitary, state, 2)
     result = qpe.run(1024)
+    print(result.measurements)
     assert result.result == 0.5

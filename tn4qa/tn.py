@@ -422,7 +422,9 @@ class TensorNetwork:
                 self.indices.append(idx)
         return
 
-    def contract_entire_network(self) -> Union[Tensor, complex]:
+    def contract_entire_network(
+        self, optimisation_method: str = "greedy"
+    ) -> Union[Tensor, complex]:
         """
         Contracts all internal indices in the network.
 
@@ -440,6 +442,7 @@ class TensorNetwork:
             output=output_indices,
             cache_expression=True,
             prefer_einsum=True,
+            optimize=optimisation_method,
         )
         if len(output_indices) == 0:
             return complex(output_tensor_data.flatten()[0])
@@ -554,10 +557,7 @@ class TensorNetwork:
         else:
             max_bond = min([max_bond, tensor.dimensions[0], tensor.dimensions[1]])
 
-        if max_bond >= min([tensor.dimensions[0], tensor.dimensions[1]]) - 1:
-            u, s, vh = svd(tensor.data.todense(), full_matrices=False)
-        else:
-            u, s, vh = svds(tensor.data, k=max_bond)
+        u, s, vh = svd(tensor.data.todense(), full_matrices=False)
 
         s = s[s > 1e-14]
         sq = s**2
