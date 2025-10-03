@@ -22,7 +22,7 @@ def test_DMRG_two_site():
     location = os.path.join(cwd, "molecules/LiH.json")
     mol_data = ReadMoleculeData(location)
     ham = mol_data.qubit_hamiltonian
-    dmrg = DMRG(ham, 4, method="two-site")
+    dmrg = DMRG(ham, 8, method="two-site")
     energy, _ = dmrg.run(10)
     assert np.isclose(energy, -7.881571973351853, atol=0.1)
 
@@ -31,6 +31,6 @@ def test_DMRG_fermionic():
     location = os.path.join(cwd, "molecules/H2.json")
     mol_data = ReadMoleculeData(location)
     ham = mol_data.fermionic_hamiltonian
-    dmrg = DMRG(ham, 4, method="one-site")
-    energy, _ = dmrg.run(4)
+    dmrg = DMRG(ham, 8, method="two-site")
+    energy, _ = dmrg.run(10)
     assert np.isclose(energy, -1.10115033023, atol=0.01)

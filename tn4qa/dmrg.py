@@ -63,9 +63,7 @@ class DMRG:
             self.mpo = self.add_trivial_tensors_mpo(ham_mpo)
         else:
             self.mpo = self.set_hamiltonian_mpo()
-        print("hi")
         self.energy = self.set_initial_energy()
-        print("bye")
         self.all_energies = [self.energy]
         self.left_block_cache = []
         self.right_block_cache = []
