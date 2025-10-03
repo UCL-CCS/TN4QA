@@ -5,7 +5,7 @@ from typing import Union
 import matplotlib.pyplot as plt
 from numpy import ndarray
 from qiskit import QuantumCircuit
-from qiskit.primitives import Estimator
+from qiskit.primitives import StatevectorEstimator
 from qiskit.quantum_info import SparsePauliOp
 from qiskit_algorithms import VQE
 from qiskit_algorithms.optimizers import Optimizer
@@ -36,7 +36,7 @@ class VQEAlgorithm(QuantumAlgorithm):
         initial_points: ndarray = None,
         ansatz: Union[QuantumCircuit, str] | None = None,
         optimiser: Union[Optimizer, str] | None = None,
-        estimator: Estimator | None = None,
+        estimator: StatevectorEstimator | None = None,
         backend: QuantumBackend | None = None,
     ) -> None:
         """
@@ -81,14 +81,14 @@ class VQEAlgorithm(QuantumAlgorithm):
     def circuit(self) -> QuantumCircuit:
         return self.ansatz
 
-    def set_estimator(self, estimator: Estimator | None = None) -> None:
+    def set_estimator(self, estimator: StatevectorEstimator | None = None) -> None:
         """Set the Estimator
 
         Args:
             estimator: The Estimator, optional, defaults to Estimator()
         """
         if not estimator:
-            self.estimator = Estimator()
+            self.estimator = StatevectorEstimator()
         else:
             self.estimator = estimator
         return
