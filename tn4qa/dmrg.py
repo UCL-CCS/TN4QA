@@ -63,7 +63,9 @@ class DMRG:
             self.mpo = self.add_trivial_tensors_mpo(ham_mpo)
         else:
             self.mpo = self.set_hamiltonian_mpo()
+        print("hi")
         self.energy = self.set_initial_energy()
+        print("bye")
         self.all_energies = [self.energy]
         self.left_block_cache = []
         self.right_block_cache = []
@@ -115,9 +117,7 @@ class DMRG:
         return mpo
 
     def set_initial_energy(self) -> float:
-        mps = copy.deepcopy(self.mps)
-        mpo = copy.deepcopy(self.mpo)
-        return mps.compute_expectation_value(mpo)
+        return self.mps.compute_expectation_value(self.mpo)
 
     def add_trivial_tensors_mps(self, mps: MatrixProductState) -> MatrixProductState:
         """

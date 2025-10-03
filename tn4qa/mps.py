@@ -799,7 +799,9 @@ class MatrixProductState(TensorNetwork):
 
         return val
 
-    def compute_expectation_value(self, mpo: MatrixProductOperator) -> complex:
+    def compute_expectation_value(
+        self, mpo: MatrixProductOperator, optimisation_method: str = "auto"
+    ) -> complex:
         """
         Calculate an expectation value of the form <MPS | MPO | MPS>.
 
@@ -828,7 +830,7 @@ class MatrixProductState(TensorNetwork):
         mps_bra.set_default_indices(internal_prefix="E", external_prefix="D")
 
         tn = TensorNetwork(mps_bra.tensors + mpo_op.tensors + mps_ket.tensors)
-        val = tn.contract_entire_network()
+        val = tn.contract_entire_network(optimisation_method)
 
         return complex(val)
 
