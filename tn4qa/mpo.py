@@ -2,6 +2,8 @@ import copy
 from itertools import islice
 from typing import List, TypeAlias, Union
 
+import cotengra as ctg
+
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
 import numpy as np
 import sparse
@@ -1761,9 +1763,27 @@ class MatrixProductOperator(TensorNetwork):
         # Middle contractions
         n = mpo1.num_sites
         for idx in range(1, n - 1):
-            tn.contract_index(f"A{idx}")
-            tn.contract_index(f"D{idx}")
-            tn.contract_index(f"C{idx+1}")
+            t1, t2 = tn.get_tensors_from_index_name(f"A{idx}")
+            t1.labels.append("T1_TEMP_LABEL")
+            t2.labels.append("T2_TEMP_LABEL")
+            t3 = tn.get_tensors_from_index_name(f"E{idx+1}")[0]
+            t3.labels.append("T3_TEMP_LABEL")
+            new_t_data = ctg.array_contract(
+                arrays=[t1.data, t2.data, t3.data],
+                inputs=[t1.indices, t2.indices, t3.indices],
+                output=[f"F{idx}", f"B{idx+1}", f"E{idx+1}", f"A{idx+1}", f"D{idx+1}"],
+                cache_expression=True,
+                prefer_einsum=True,
+            )
+            new_t = Tensor(
+                new_t_data,
+                [f"F{idx}", f"B{idx+1}", f"E{idx+1}", f"A{idx+1}", f"D{idx+1}"],
+                [f"NEW_LABEL_{idx}"],
+            )
+            tn.pop_tensors_by_label(t1.labels)
+            tn.pop_tensors_by_label(t2.labels)
+            tn.pop_tensors_by_label(t3.labels)
+            tn.add_tensor(new_t)
             tensor = tn.get_tensors_from_index_name(f"B{idx+1}")[0]
             tn.svd(
                 tensor,
@@ -1780,12 +1800,21 @@ class MatrixProductOperator(TensorNetwork):
             new_tensors.append(next_tensor)
 
         # Final contraction
-        tn.contract_index(f"A{n-1}")
-        tn.contract_index(f"D{n-1}")
-        tn.contract_index(f"C{n}")
-        tensor = tn.get_tensors_from_index_name(f"B{n}")[0]
-        tensor.reorder_indices([f"F{n-1}", f"E{n}", f"B{n}"])
-        new_tensors.append(tensor)
+        t1, t2 = tn.get_tensors_from_index_name(f"A{n-1}")
+        t3 = tn.get_tensors_from_index_name(f"E{n}")[0]
+        new_t_data = ctg.array_contract(
+            arrays=[t1.data, t2.data, t3.data],
+            inputs=[t1.indices, t2.indices, t3.indices],
+            output=[f"F{idx}", f"E{idx+1}", f"B{idx+1}"],
+            cache_expression=True,
+            prefer_einsum=True,
+        )
+        new_t = Tensor(new_t_data, [f"F{idx}", f"E{idx+1}", f"B{idx+1}"], [])
+        tn.pop_tensors_by_label(t1.labels)
+        tn.pop_tensors_by_label(t2.labels)
+        tn.pop_tensors_by_label(t3.labels)
+        tn.add_tensor(new_t)
+        new_tensors.append(new_t)
 
         output_mpo = MatrixProductOperator(new_tensors)
         output_mpo.set_default_indices()
@@ -1834,11 +1863,44 @@ class MatrixProductOperator(TensorNetwork):
         # Middle contractions
         n = self.num_sites
         for idx in range(1, n - 1):
-            tn.contract_index(f"X{idx}")
-            tn.contract_index(f"Y{idx}")
-            tn.contract_index(f"Z{idx}")
-            tn.contract_index(f"B{idx+1}")
-            tn.contract_index(f"C{idx+1}")
+            t1, t2 = tn.get_tensors_from_index_name(f"X{idx}")
+            t1.labels.append("T1_TEMP_LABEL")
+            t2.labels.append("T2_TEMP_LABEL")
+            t3, t4 = tn.get_tensors_from_index_name(f"C{idx+1}")
+            t3.labels.append("T3_TEMP_LABEL")
+            t4.labels.append("T4_TEMP_LABEL")
+            new_t_data = ctg.array_contract(
+                arrays=[t1.data, t2.data, t3.data, t4.data],
+                inputs=[t1.indices, t2.indices, t3.indices, t4.indices],
+                output=[
+                    f"W{idx}",
+                    f"A{idx+1}",
+                    f"D{idx+1}",
+                    f"X{idx+1}",
+                    f"Y{idx+1}",
+                    f"Z{idx+1}",
+                ],
+                cache_expression=True,
+                prefer_einsum=True,
+            )
+            new_t = Tensor(
+                new_t_data,
+                [
+                    f"W{idx}",
+                    f"A{idx+1}",
+                    f"D{idx+1}",
+                    f"X{idx+1}",
+                    f"Y{idx+1}",
+                    f"Z{idx+1}",
+                ],
+                [f"NEW_LABEL_{idx}"],
+            )
+            tn.pop_tensors_by_label(t1.labels)
+            tn.pop_tensors_by_label(t2.labels)
+            tn.pop_tensors_by_label(t3.labels)
+            tn.pop_tensors_by_label(t4.labels)
+            tn.add_tensor(new_t)
+
             tensor = tn.get_tensors_from_index_name(f"A{idx+1}")[0]
             tn.svd(
                 tensor,
@@ -1855,14 +1917,22 @@ class MatrixProductOperator(TensorNetwork):
             new_tensors.append(next_tensor)
 
         # Final contraction
-        tn.contract_index(f"X{n-1}")
-        tn.contract_index(f"Y{n-1}")
-        tn.contract_index(f"Z{n-1}")
-        tn.contract_index(f"B{n}")
-        tn.contract_index(f"C{n}")
-        tensor = tn.get_tensors_from_index_name(f"A{n}")[0]
-        tensor.reorder_indices([f"W{n-1}", f"D{n}", f"A{n}"])
-        new_tensors.append(tensor)
+        t1, t2 = tn.get_tensors_from_index_name(f"X{n-1}")
+        t3, t4 = tn.get_tensors_from_index_name(f"C{n}")
+        new_t_data = ctg.array_contract(
+            arrays=[t1.data, t2.data, t3.data, t4.data],
+            inputs=[t1.indices, t2.indices, t3.indices, t4.indices],
+            output=[f"W{n-1}", f"D{n}", f"A{n}"],
+            cache_expression=True,
+            prefer_einsum=True,
+        )
+        new_t = Tensor(new_t_data, [f"W{n-1}", f"D{n}", f"A{n}"], [])
+        tn.pop_tensors_by_label(t1.labels)
+        tn.pop_tensors_by_label(t2.labels)
+        tn.pop_tensors_by_label(t3.labels)
+        tn.pop_tensors_by_label(t4.labels)
+        tn.add_tensor(new_t)
+        new_tensors.append(new_t)
 
         output_mpo = MatrixProductOperator(new_tensors)
         output_mpo.set_default_indices()
@@ -2005,7 +2075,7 @@ class MatrixProductOperator(TensorNetwork):
         return
 
     def project_to_subspace(
-        self, projector: "MatrixProductOperator"
+        self, projector: "MatrixProductOperator", max_bond: int | None = None
     ) -> "MatrixProductOperator":
         """
         Project the MPO to a subspace.
@@ -2013,7 +2083,6 @@ class MatrixProductOperator(TensorNetwork):
         Args:
             projector: The projector onto the subspace in MPO form.
         """
-        max_bond = self.bond_dimension
         self_copy = copy.deepcopy(self)
         projector_copy = copy.deepcopy(projector)
         mpo = self_copy.multiply_and_compress_three(
