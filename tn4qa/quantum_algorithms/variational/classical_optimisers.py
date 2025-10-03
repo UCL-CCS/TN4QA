@@ -1,5 +1,5 @@
 from qiskit import QuantumCircuit
-from qiskit.primitives import Sampler
+from qiskit.primitives import StatevectorSampler
 from qiskit_algorithms.optimizers import ADAM, COBYLA, L_BFGS_B, QNSPSA, Optimizer
 
 
@@ -72,7 +72,7 @@ def qnspsa_optimiser(
         QNSPSA optimiser
     """
     opt_callback = get_optimiser_callback(opt_dict=opt_dict, index=index)
-    fidelity = QNSPSA.get_fidelity(ansatz, sampler=Sampler())
+    fidelity = QNSPSA.get_fidelity(ansatz, sampler=StatevectorSampler())
     return QNSPSA(fidelity, maxiter=max_iterations, callback=opt_callback)
 
 

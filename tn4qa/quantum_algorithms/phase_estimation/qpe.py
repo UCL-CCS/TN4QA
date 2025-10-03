@@ -101,7 +101,7 @@ class QPE(QuantumAlgorithm):
     def measurement_to_phase(self, bitstring: str) -> float:
         """ "Estimate the phase value theta in e^{2*i*pi*theta} given a measured bitstring"""
         phase = 0
-        bitstring = bitstring[: self.precision_bits][::-1]
+        bitstring = bitstring[: self.precision_bits]
         for b_idx in range(self.precision_bits):
             b = bitstring[b_idx]
             if b == "1":
