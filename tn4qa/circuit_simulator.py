@@ -5,8 +5,11 @@ import sparse
 from numpy.linalg import svd
 from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitInstruction
-from qiskit.circuit.library import UnitaryGate
+from qiskit.circuit.library import SwapGate, UnitaryGate
 from qiskit.quantum_info import Operator
+from qiskit.transpiler import CouplingMap, Layout, PassManager
+from qiskit.transpiler.passes import ApplyLayout, SetLayout
+from qiskit.transpiler.passes.routing import BasicSwap
 from scipy.sparse.linalg import svds
 from sparse import COO
 
@@ -28,7 +31,7 @@ class CircuitSimulator:
         Args:
             circuit: The Qiskit QuantumCircuit object
         """
-        self.circuit = circuit
+        self.circuit = self.linearise_circuit(circuit)
         self.num_qubits = circuit.num_qubits
         self.set_input_state(input_state)
         self.current_state = copy.deepcopy(self.input_state)
@@ -37,6 +40,40 @@ class CircuitSimulator:
             str(idx): str(idx) for idx in range(1, self.num_qubits + 1)
         }  # {physical_site:logical_site}
         self.mpo = MatrixProductOperator.identity_mpo(self.num_qubits)
+
+    def linearise_circuit(self, qc: QuantumCircuit) -> QuantumCircuit:
+        """
+        Linearise input circuit
+        """
+        cm = CouplingMap.from_line(qc.num_qubits)
+
+        # Force trivial layout: logical qubit i → physical qubit i
+        trivial_layout = Layout({q: i for i, q in enumerate(qc.qubits)})
+
+        pm = PassManager(
+            [
+                SetLayout(trivial_layout),
+                ApplyLayout(),
+                BasicSwap(coupling_map=cm),
+            ]
+        )
+
+        routed = pm.run(qc)
+
+        final_layout = routed.layout.final_index_layout()
+        for qidx in range(qc.num_qubits):
+            original_pos = final_layout.index(qidx)
+            where_is_q = final_layout[qidx]
+            start = min(where_is_q, qidx)
+            stop = max(where_is_q, qidx)
+            for i in range(start, stop):
+                routed.append(SwapGate(), [i, i + 1])
+            for i in list(range(start, stop - 1))[::-1]:
+                routed.append(SwapGate(), [i, i + 1])
+            final_layout[qidx] = qidx
+            final_layout[original_pos] = where_is_q
+
+        return routed
 
     def set_input_state(self, input_state: MatrixProductState | None) -> None:
         """

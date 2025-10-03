@@ -53,7 +53,12 @@ class TNQuantumBackend(QuantumBackend):
             Measurement results {bitstring : count}
         """
         qc = copy.deepcopy(circuit)
-        qc = transpile(qc, basis_gates=["u", "cx"])
+        qc = transpile(
+            qc,
+            basis_gates=["u3", "cx"],
+            layout_method="trivial",
+            routing_method="basic",
+        )
         sim = CircuitSimulator(qc, input_state=input_state)
         output = sim.run(max_bond_dimension=max_bond, samples=shots)
         return output
