@@ -422,7 +422,9 @@ class TensorNetwork:
                 self.indices.append(idx)
         return
 
-    def contract_entire_network(self) -> Union[Tensor, complex]:
+    def contract_entire_network(
+        self, optimisation_method: str = "greedy"
+    ) -> Union[Tensor, complex]:
         """
         Contracts all internal indices in the network.
 
@@ -440,6 +442,7 @@ class TensorNetwork:
             output=output_indices,
             cache_expression=True,
             prefer_einsum=True,
+            optimize=optimisation_method,
         )
         if len(output_indices) == 0:
             return complex(output_tensor_data.flatten()[0])
