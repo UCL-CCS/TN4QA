@@ -20,6 +20,7 @@ class DMRG:
         | tuple[ndarray, ndarray, float]
         | MatrixProductOperator,
         max_mps_bond: int,
+        max_mpo_bond: int | None = None,
         method: str = "two-site",
         convergence_threshold: float = 1e-9,
         initial_state: MatrixProductState | None = None,
@@ -29,8 +30,8 @@ class DMRG:
 
         Args:
             hamiltonian: A dict of the form {pauli_string : weight} or a tuple of (one_e_integrals, two_e_integrals, nuc_energy) or an MPO
-            max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             max_mps_bond: The maximum bond to use for MPS during DMRG.
+            max_mpo_bond: The maximum bond to use for the Hamiltonian MPO construction.
             method: Which method to use. One of "one-site", and "two-site". Defaults to "one-site".
             convergence_threshold: DMRG terminates once two successive sweeps differ in energy by less than this value.
             initial_state: The starting point for the DMRG calculation. If not provided, random MPS is generated.
@@ -52,10 +53,14 @@ class DMRG:
             self.nuc_energy = hamiltonian[2]
             self.hamiltonian_type = "fermionic"
         self.max_mps_bond = max_mps_bond
+        self.max_mpo_bond = max_mpo_bond
         self.current_max_mps_bond = 2
         self.mps = self.set_initial_state(initial_state)
         if self.hamiltonian_type == "MPO":
-            self.mpo = self.add_trivial_tensors_mpo(hamiltonian)
+            ham_mpo = copy.deepcopy(hamiltonian)
+            if max_mpo_bond and ham_mpo.bond_dimension > max_mpo_bond:
+                ham_mpo.compress(max_mpo_bond)
+            self.mpo = self.add_trivial_tensors_mpo(ham_mpo)
         else:
             self.mpo = self.set_hamiltonian_mpo()
         self.energy = self.set_initial_energy()
@@ -104,6 +109,8 @@ class DMRG:
                 )
 
         mpo = self.add_trivial_tensors_mpo(mpo)
+        if self.max_mpo_bond and mpo.bond_dimension > self.max_mpo_bond:
+            mpo.compress(self.max_mpo_bond)
 
         return mpo
 
@@ -406,7 +413,7 @@ class DMRG:
         else:
             original_dims = self.mps.tensors[site].dimensions + (1,)
             effective_matrix = self.construct_effective_matrix()
-        w, v = eigs(effective_matrix, k=1, which="SR")
+        w, v = eigs(effective_matrix.todense(), k=1, which="SR")
         eigval = w[0]
         eigvec = sparse.COO.from_numpy(
             v[:, 0]
