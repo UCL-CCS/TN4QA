@@ -1,21 +1,20 @@
+import copy
 from typing import Callable
 
 import numpy as np
 from numpy import ndarray
-from openfermion.ops import FermionOperator
-from openfermion.transforms import jordan_wigner
-from scipy.optimize import minimize
-from symmer.operators import PauliwordOp
 
 from tn4qa.qi_cost_functions import (
     cost_function_dict_to_purity_mpo,
     cost_function_to_dict,
 )
 
+from ..circuit_simulator import CircuitSimulator
 from ..dmrg import DMRG
 from ..mpo import MatrixProductOperator
 from ..mps import MatrixProductState
 from ..quantum_algorithms.hamiltonian_simulation.trotterisation import TrotterSimulation
+from ..tn import TensorNetwork
 
 
 class ActiveSpaceSelection:
@@ -30,6 +29,7 @@ class ActiveSpaceSelection:
         self.num_spin_orbitals = coeff_matrix.shape[1]
         self.num_orbitals = int(self.num_spin_orbitals / 2)
         self.coeff_matrix = coeff_matrix
+        self.all_costs = []
 
     def run(
         self, num_active_orbitals: int, cost_function: Callable, **kwargs
@@ -47,17 +47,29 @@ class ActiveSpaceSelection:
                 dmrg_initial_state [MatrixProductState]: an initial MPS state for DMRG, default random MPS
                 dmrg_maxiter: maximum number of sweeps to perform in DMRG, default 10
                 cost_function_decay_power [float]: Required parameter for cost_mutual_info_decay, default 2.0
+                cost_function_max_bond [int]: Maximum bond dimension for cost function MPO
+                optimisation_max_bond [int]: Maximum bond dimension for optimisation
+                optimisation_learning_rate [float]: LR for gradient descent optimisation
+                optimisation_maxiter [int]: Maximum iterations for gradient descent optimisation
+                optimisation_grad_tolerance [float]: Gradient convergence threshold for gradient descent optimisation
+                optimisation_cost_tolerance [float]: Cost convergence threshold for gradient descent optimisation
+
 
         Returns:
             Transformed coefficient matrix with optimal active orbitals
         """
         function_args = kwargs
         N = self.num_spin_orbitals
-        assert self.coeff_matrix.shape[1] == N, "Number of columns must be twice the number of rows"
-        assert self.coeff_matrix.shape[0] == N/2, "Number of columns must be twice the number of rows"
+        assert (
+            self.coeff_matrix.shape[1] == N
+        ), "Number of columns must be twice the number of rows"
+        assert (
+            self.coeff_matrix.shape[0] == N / 2
+        ), "Number of columns must be twice the number of rows"
 
         # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
-        max_mps_bond = function_args.get("dmrg_max_mps_bond", 8)
+        print("Start DMRG")
+        max_mps_bond = function_args.get("dmrg_max_mps_bond", 2)
         method = function_args.get("dmrg_method", "two-site")
         convergence_threshold = function_args.get("dmrg_convergence_threshold", 1e-9)
         initial_state = function_args.get("dmrg_initial_state", None)
@@ -71,16 +83,36 @@ class ActiveSpaceSelection:
             maxiter=maxiter,
         )
 
+        # Pauli Mapping Lookup
+        self.param_to_pauli_dict = self.build_param_lookup(self.num_spin_orbitals)
+
         # Cost function to MPO
+        print("Start building cost MPO")
         decay_power = function_args.get("cost_function_decay_power", 2.0)
+        cost_max_bond = function_args.get("cost_function_max_bond", None)
         cost_mpo = self.build_cost_function_mpo(
-            cost_function=cost_function, decay_power=decay_power
+            cost_function=cost_function, decay_power=decay_power, max_bond=cost_max_bond
         )
 
-        # Run BFGS optimisation to find optimal K
+        # Run gradient descent optimisation to find optimal theta
+        print("Start optimisation")
         theta_init = np.zeros((N**2,), dtype=float)  # Initial guess for theta
-        self.theta_opt = self.optimise_K(theta_init, cost_mpo, psi_C)
-
+        opt_max_bond = function_args.get("rotation_mpo_max_bond", 16)
+        opt_lr = function_args.get("optimisation_learning_rate", 0.01)
+        opt_max_iter = function_args.get("optimisation_maxiter", 100)
+        opt_grad_tol = function_args.get("optimisation_grad_tolerance", 1e-18)
+        opt_cost_tol = function_args.get("optimisation_cost_tolerance", 1e-12)
+        self.theta_opt = self.gradient_descent(
+            theta_init,
+            self.param_to_pauli_dict,
+            psi_C,
+            cost_mpo,
+            opt_max_bond,
+            opt_lr,
+            opt_max_iter,
+            opt_grad_tol,
+            opt_cost_tol,
+        )
 
         # Exponentiate K to get a unitary U = exp(K)
         K_opt = self.vector_to_antihermitian(self.theta_opt)
@@ -112,13 +144,13 @@ class ActiveSpaceSelection:
         return psi
 
     def build_cost_function_mpo(
-        self, cost_function: Callable, decay_power: float
+        self, cost_function: Callable, decay_power: float, max_bond: int | None = None
     ) -> MatrixProductOperator:
         """Build the cost function as an MPO"""
         d = cost_function_to_dict(
             cost_function, num_orbitals=self.num_orbitals, decay_power=decay_power
         )
-        mpo = cost_function_dict_to_purity_mpo(self.num_spin_orbitals, d)
+        mpo = cost_function_dict_to_purity_mpo(self.num_spin_orbitals, d, max_bond)
         return mpo
 
     def vector_to_antihermitian(self, theta: ndarray) -> ndarray:
@@ -150,83 +182,242 @@ class ActiveSpaceSelection:
 
         return K
 
-    def exponential_hopping_term(
-        self, p: int, q: int, K_pq: complex
-    ) -> MatrixProductOperator:
+    # def exponential_hopping_term(
+    #     self, p: int, q: int, K_pq: complex
+    # ) -> MatrixProductOperator:
+    #     """
+    #     Construct the MPO for exp(K_pq * a_p† a_q - K_pq* * a_q† a_p).
+
+    #     Args:
+    #         p, q: Indices of orbitals (must be different)
+    #         K_pq: Complex parameter
+
+    #     Returns:
+    #         MatrixProductOperator for exp(H), where H = K_pq * a_p† a_q - conj(K_pq) * a_q† a_p
+    #     """
+    #     if p == q:
+    #         h_fermion = FermionOperator(((p, 1), (q, 0)), K_pq)
+
+    #     else:
+    #         # Build the FermionOperator, 1 is the creation operator, 0 is the annihilation operator
+    #         # H = K_pq * a_p† a_q - conj(K_pq) * a_q† a_p
+    #         h_fermion = FermionOperator(((p, 1), (q, 0)), K_pq) - FermionOperator(
+    #             ((q, 1), (p, 0)), np.conj(K_pq)
+    #         )
+
+    #     # Map to QubitOperator using Jordan-Wigner
+    #     h_qubit = jordan_wigner(h_fermion)
+
+    #     # Convert to PauliwordOp
+    #     h_pauli = PauliwordOp.from_openfermion(h_qubit, n_qubits=self.num_spin_orbitals)
+
+    #     # Convert to a dictionary
+    #     h_dict = h_pauli.to_dictionary
+    #     h_dict = {k: v.real for k, v in h_dict.items()}
+
+    #     # Create a circuit
+    #     sim = TrotterSimulation(h_dict, duration=1.0, num_steps=1)
+    #     qc = sim.circuit
+
+    #     # Convert Qiskit circuit to MPO
+    #     u_mpo = MatrixProductOperator.from_qiskit_circuit(qc)
+
+    #     return u_mpo
+
+    # def build_trotterised_unitary(
+    #     self, K: ndarray, trotter_steps: int = 1, max_bond: int | None = None
+    # ) -> MatrixProductOperator:
+    #     """
+    #     Build an MPO approximation of the fermionic unitary:
+    #         U = exp(Σ_{pq} K_{pq} a†_p a_q)
+
+    #     using first-order Trotter decomposition.
+
+    #     Args:
+    #         K: Anti-Hermitian matrix (N x N)
+    #         trotter_steps: Number of Trotter steps
+
+    #     Returns:
+    #         MatrixProductOperator representing the unitary
+    #     """
+    #     N = K.shape[0]
+    #     assert K.shape[1] == N, "K must be square"
+    #     assert np.allclose(K + K.conj().T, 0, atol=1e-10), "K must be anti-Hermitian"
+
+    #     u_mpo = MatrixProductOperator.identity_mpo(N)
+    #     dt = 1.0 / trotter_steps
+
+    #     for _ in range(trotter_steps):
+    #         for p in range(N):
+    #             for q in range(p, N):
+    #                 if abs(K[p, q]) > 1e-12:
+    #                     K_dt = dt * K[p, q]
+    #                     hop_exp_mpo = self.exponential_hopping_term(p, q, K_dt)
+    #                     u_mpo = u_mpo * hop_exp_mpo
+    #                     if max_bond:
+    #                         if u_mpo.bond_dimension >= max_bond:
+    #                             u_mpo.compress(max_bond)
+    #     return u_mpo
+
+    # Map parameter index → (p,q) orbital pairs
+    def param_to_indices(self, N: int, k: int):
         """
-        Construct the MPO for exp(K_pq * a_p† a_q - K_pq* * a_q† a_p).
-
-        Args:
-            p, q: Indices of orbitals (must be different)
-            K_pq: Complex parameter
-
-        Returns:
-            MatrixProductOperator for exp(H), where H = K_pq * a_p† a_q - conj(K_pq) * a_q† a_p
+        Map theta index k into the orbital indices (p,q) it controls.
+        Diagonal: (p,p)
+        Off-diagonal: (p,q) and (q,p), tagged with 'real'/'imag'
         """
-        if p == q:
-            h_fermion = FermionOperator(((p, 1), (q, 0)), K_pq)
+        # Case 1: diagonal
+        if k < N:
+            return [(k, k, "diag")]
 
-        else:
-            # Build the FermionOperator, 1 is the creation operator, 0 is the annihilation operator
-            # H = K_pq * a_p† a_q - conj(K_pq) * a_q† a_p
-            h_fermion = FermionOperator(((p, 1), (q, 0)), K_pq) - FermionOperator(
-                ((q, 1), (p, 0)), np.conj(K_pq)
+        # Case 2: off-diagonal
+        j = k - N
+        pair_index, offset = divmod(j, 2)
+
+        # find (p,q) for this pair_index
+        count = 0
+        for p in range(N):
+            for q in range(p + 1, N):
+                if count == pair_index:
+                    if offset == 0:
+                        return [(p, q, "real")]
+                    else:
+                        return [(p, q, "imag")]
+                count += 1
+
+        raise ValueError("Index out of range")
+
+    # Map θ_i → {PauliString: coeff}
+    # Build Pauli dictionary for each θ_i
+    def build_param_lookup(self, N: int) -> dict[int, dict[str, complex]]:
+        """
+        Build mapping {theta index i: {PauliString: coeff}}.
+        Each theta corresponds to either:
+        - diagonal: (1/2)(I - Z_p)
+        - off-diagonal real: (1/2)(X_p X_q + Y_p Y_q) * Z-string
+        - off-diagonal imag: (1/2)(X_p Y_q - Y_p X_q) * Z-string
+        """
+        lookup = {}
+
+        for i in range(N**2):
+            term_dict = {}
+            for p, q, tag in self.param_to_indices(N, i):
+                if tag == "diag":
+                    # (i/2)(I - Z_p)
+                    term_dict["I" * N] = 0.5
+                    Zstr = ["I"] * N
+                    Zstr[p] = "Z"
+                    term_dict["".join(Zstr)] = -0.5
+                else:
+                    # Build Z-string between p and q
+                    Zbase = ["I"] * N
+                    start, stop = min(p, q), max(p, q)
+                    for k in range(start + 1, stop):
+                        Zbase[k] = "Z"
+
+                    if tag == "real":
+                        # (1/2)(X_p X_q + Y_p Y_q) * Z-string
+                        Xstr = Zbase.copy()
+                        Ystr = Zbase.copy()
+                        Xstr[p], Xstr[q] = "X", "X"
+                        Ystr[p], Ystr[q] = "Y", "Y"
+                        term_dict["".join(Xstr)] = 0.5
+                        term_dict["".join(Ystr)] = 0.5
+
+                    elif tag == "imag":
+                        # (i/2)(X_p Y_q - Y_p X_q) * Z-string
+                        XYstr = Zbase.copy()
+                        YXstr = Zbase.copy()
+                        XYstr[p], XYstr[q] = "X", "Y"
+                        YXstr[p], YXstr[q] = "Y", "X"
+                        term_dict["".join(XYstr)] = 0.5
+                        term_dict["".join(YXstr)] = -0.5
+
+            lookup[i] = term_dict
+
+        return lookup
+
+    def calculate_gradients(
+        self,
+        theta: np.ndarray,
+        pauli_lookup: dict,
+        mpo: MatrixProductOperator,
+        mps: MatrixProductState,
+        max_bond: int | None,
+    ) -> dict[int, float]:
+        mpo = copy.deepcopy(mpo)
+        mps = copy.deepcopy(mps)
+        gradients = {}
+
+        pauli_ham_dict = {}
+        for idx, d in pauli_lookup.items():
+            d = {key: val * theta[idx] for key, val in d.items()}
+            pauli_ham_dict.update(d)
+
+        num_params = len(list(pauli_lookup.keys()))
+        num_spinorbs = int(np.sqrt(num_params))
+
+        # Create exp(Σ_{pq} K_{pq} a†_p a_q) |mps>
+        trotter_circ = TrotterSimulation(pauli_ham_dict, 1.0, num_steps=1)
+        sim = CircuitSimulator(trotter_circ.circuit, input_state=mps)
+        rotated_state = sim.run(max_bond_dimension=max_bond)
+
+        # Calculate gradient for each theta_k
+        for k, pauli_dict in reversed(list(pauli_lookup.items())):
+            # Create MPO for gradient specific term
+            complex_pauli_dict = {
+                key: complex(1j * val) for key, val in pauli_dict.items()
+            }
+            grad_mpo = MatrixProductOperator.from_hamiltonian(complex_pauli_dict)
+
+            # Build full TN for gradient calculation
+            rotated_state_dag = copy.deepcopy(rotated_state)
+            rotated_state_dag.dagger()
+            rotated_state_copy = copy.deepcopy(rotated_state)
+            rotated_state_dag_copy = copy.deepcopy(rotated_state_dag)
+
+            rotated_state.set_default_indices("A", "B", 1)
+            mpo.set_default_indices("C", "B", "D", 1)
+            grad_mpo.set_default_indices("E", "D", "F", 1)
+            rotated_state_dag.set_default_indices("G", "F", 1)
+            rotated_state_copy.set_default_indices("H", "B", num_spinorbs + 1)
+            rotated_state_dag_copy.set_default_indices("I", "D", num_spinorbs + 1)
+
+            all_tensors = (
+                rotated_state.tensors
+                + mpo.tensors
+                + grad_mpo.tensors
+                + rotated_state_dag.tensors
+                + rotated_state_copy.tensors
+                + rotated_state_dag_copy.tensors
             )
+            full_tn = TensorNetwork(all_tensors)
+            grad = full_tn.contract_entire_network()
+            gradients[k] = 4 * grad.real
 
-        # Map to QubitOperator using Jordan-Wigner
-        h_qubit = jordan_wigner(h_fermion)
+            # Update rotated_state
+            reversed_pauli_dict = {
+                key: -1.0 * val * theta[k]
+                for key, val in reversed(list(pauli_dict.items()))
+            }
+            trotter_circ = TrotterSimulation(reversed_pauli_dict, 1.0, num_steps=1)
+            sim = CircuitSimulator(trotter_circ.circuit, input_state=rotated_state)
+            rotated_state = sim.run(max_bond_dimension=max_bond)
 
-        # Convert to PauliwordOp
-        h_pauli = PauliwordOp.from_openfermion(h_qubit, n_qubits=self.num_spin_orbitals)
+            # Update MPO
+            pauli_dict_theta = {key: val * theta[k] for key, val in pauli_dict.items()}
+            trotter_circ = TrotterSimulation(pauli_dict_theta, 1.0, num_steps=1)
+            mpo.evolve_by_quantum_circuit(trotter_circ.circuit)
 
-        # Convert to a dictionary
-        h_dict = h_pauli.to_dictionary
-        h_dict = {k: v.real for k, v in h_dict.items()}
+        return gradients
 
-        # Create a circuit
-        sim = TrotterSimulation(h_dict, duration=1.0, num_steps=1)
-        qc = sim.circuit
-
-        # Convert Qiskit circuit to MPO
-        u_mpo = MatrixProductOperator.from_qiskit_circuit(qc)
-
-        return u_mpo
-
-    def build_trotterised_unitary(
-        self, K: ndarray, trotter_steps: int = 1
-    ) -> MatrixProductOperator:
-        """
-        Build an MPO approximation of the fermionic unitary:
-            U = exp(Σ_{pq} K_{pq} a†_p a_q)
-
-        using first-order Trotter decomposition.
-
-        Args:
-            K: Anti-Hermitian matrix (N x N)
-            trotter_steps: Number of Trotter steps
-
-        Returns:
-            MatrixProductOperator representing the unitary
-        """
-        N = K.shape[0]
-        assert K.shape[1] == N, "K must be square"
-        assert np.allclose(K + K.conj().T, 0, atol=1e-10), "K must be anti-Hermitian"
-
-        u_mpo = MatrixProductOperator.identity_mpo(N)
-        dt = 1.0 / trotter_steps
-
-        for _ in range(trotter_steps):
-            for p in range(N):
-                for q in range(p, N):
-                    if abs(K[p, q]) > 1e-12:
-                        K_dt = dt * K[p, q]
-                        hop_exp_mpo = self.exponential_hopping_term(p, q, K_dt)
-                        u_mpo = u_mpo * hop_exp_mpo
-
-        return u_mpo
-
-    def optimisation_cost(
-        self, theta: ndarray, mpo: MatrixProductOperator, mps: MatrixProductState
+    def calculate_cost(
+        self,
+        theta: ndarray,
+        pauli_lookup: dict,
+        mpo: MatrixProductOperator,
+        mps: MatrixProductState,
+        max_bond: int | None,
     ) -> float:
         """Optimisation cost function.
 
@@ -238,41 +429,107 @@ class ActiveSpaceSelection:
         Returns:
             < MPS | (exp(Σ_{pq} K_{pq} a†_p a_q))† MPO exp(Σ_{pq} K_{pq} a†_p a_q) | MPS >
         """
-        # N = V.num_sites
-        K = self.vector_to_antihermitian(theta)
-        W_rotated = self.build_trotterised_unitary(K)  # returns an MPO
-        transformed_state = mps.apply_mpo(W_rotated)
-        doubled_transformed_state = transformed_state.to_two_copy_mps()
-        cost = doubled_transformed_state.compute_expectation_value(mpo)
+        pauli_ham_dict = {}
+        for idx, d in pauli_lookup.items():
+            d = {key: val * theta[idx] for key, val in d.items()}
+            pauli_ham_dict.update(d)
+
+        # Create exp(Σ_{pq} K_{pq} a†_p a_q) |mps>
+        trotter_circ = TrotterSimulation(pauli_ham_dict, 1.0, num_steps=1)
+        sim = CircuitSimulator(trotter_circ.circuit, input_state=mps)
+        rotated_state = sim.run(max_bond_dimension=max_bond)
+
+        # Calculate cost
+        rotated_state_doubled = rotated_state.to_two_copy_mps()
+        cost = rotated_state_doubled.compute_expectation_value(mpo)
         return cost.real
 
-    def optimise_K(
-        self, theta_init: ndarray, mpo: MatrixProductOperator, mps: MatrixProductState
-    ):
+    # def optimise_K(
+    #     self,
+    #     theta_init: ndarray,
+    #     mpo: MatrixProductOperator,
+    #     mps: MatrixProductState,
+    #     max_bond: int | None = None,
+    # ):
+    #     """
+    #     Run BFGS optimisation over K to minimise optimisation_cost.
+
+    #     Args:
+    #         theta_init: Initial guess for theta
+    #         mpo: QI cost function MPO
+    #         mps: Groundstate approximation from DMRG
+
+    #     Returns:
+    #         Optimal real-valued parameter vector θ defining anti-Hermitian K
+    #     """
+
+    #     result = minimize(
+    #         self.optimisation_cost,
+    #         theta_init,
+    #         args=(mpo, mps, max_bond),
+    #         method="COBYLA",
+    #         options={"disp": True, "maxiter": 50},
+    #     )
+    #     print("Optimisation result:", result.x)
+    #     return result.x
+
+    # ----- Gradient Descent Loop -----
+    def gradient_descent(
+        self,
+        theta_init: np.ndarray,
+        pauli_lookup: dict,
+        mps: MatrixProductState,
+        mpo: MatrixProductOperator,
+        max_bond: int | None,
+        lr: float,
+        max_iters: int,
+        grad_tol: float,
+        cost_tol: float,
+    ) -> np.ndarray:
         """
-        Run BFGS optimisation over K to minimise optimisation_cost.
-
-        Args:
-            theta_init: Initial guess for theta
-            mpo: QI cost function MPO
-            mps: Groundstate approximation from DMRG
-
+        Simple gradient descent loop.
+        Arguments:
+        theta_init : initial array of thetas
+        pauli_lookup : map from theta index to Pauli strings
+        mps : state for optimisation
+        mpo : Cost function MPO
+        max_bond : Maximum bond dimension
+        lr         : learning rate
+        max_iters  : maximum iterations
+        tol        : convergence threshold tolerance
         Returns:
-            Optimal real-valued parameter vector θ defining anti-Hermitian K
+        theta      : optimised parameters
         """
-        # N = V.num_sites
-        # num_params = N**2
-        # theta0 = np.zeros(num_params)
+        theta = theta_init.copy()
 
-        result = minimize(
-            self.optimisation_cost,
-            theta_init,
-            args=(mpo, mps),
-            method="COBYLA",
-            options={"disp": True},
-        )
-        print("Optimisation result:", result.x)
-        return result.x
+        for iter in range(max_iters):
+            self.all_costs.append(
+                self.calculate_cost(theta, pauli_lookup, mpo, mps, max_bond)
+            )
+
+            grad_dict = self.calculate_gradients(
+                theta, pauli_lookup, mpo, mps, max_bond
+            )
+            grad = np.array(list(grad_dict.values()), dtype=float)
+
+            grad_norm = np.linalg.norm(grad)
+            if grad_norm < grad_tol:
+                print(f"Converged at iteration {iter}, grad_norm={grad_norm:.3e}")
+                break
+
+            cost_diff = np.abs(self.all_costs[-1] - self.all_costs[-2])
+            if iter > 10:
+                if cost_diff < cost_tol:
+                    print(f"Converged at iteration {iter}, cost_diff={cost_diff:.3e}")
+                    break
+
+            theta -= lr * grad
+            if iter % 2 == 0 or iter == max_iters - 1:
+                print(
+                    f"Iteration number: {iter:3d} grad_norm={grad_norm:.3e} cost={self.all_costs[-1]}"
+                )
+
+        return theta
 
     def exponentiate_K(self, K: ndarray) -> ndarray:
         """
