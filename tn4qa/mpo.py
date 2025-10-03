@@ -936,9 +936,8 @@ class MatrixProductOperator(TensorNetwork):
             num_sites, [], list(range(1, num_sites)), num_sites, z_gate
         )
 
-        mpo = copy.deepcopy(x_layer_mpo)
-        mpo = mpo * mcz_mpo
-        mpo = mpo * x_layer_mpo
+        x_layer_copy = copy.deepcopy(x_layer_mpo)
+        mpo = mcz_mpo.multiply_and_compress_three(x_layer_mpo, x_layer_copy)
 
         return mpo
 
@@ -1729,7 +1728,7 @@ class MatrixProductOperator(TensorNetwork):
         return self
 
     def multiply_and_compress(
-        self, other: "MatrixProductOperator", max_bond: int
+        self, other: "MatrixProductOperator", max_bond: int | None = None
     ) -> "MatrixProductOperator":
         """Multiply and compress simultaneously
 
@@ -1797,7 +1796,7 @@ class MatrixProductOperator(TensorNetwork):
         self,
         left: "MatrixProductOperator",
         right: "MatrixProductOperator",
-        max_bond: int,
+        max_bond: int | None = None,
     ) -> "MatrixProductOperator":
         """Mutiply and compress 3 MPOs simultaneously
 
@@ -2016,9 +2015,10 @@ class MatrixProductOperator(TensorNetwork):
         """
         max_bond = self.bond_dimension
         self_copy = copy.deepcopy(self)
-        mpo = projector * self_copy
-        mpo = mpo * projector
-        mpo.compress(max_bond)
+        projector_copy = copy.deepcopy(projector)
+        mpo = self_copy.multiply_and_compress_three(
+            projector, projector_copy, max_bond=max_bond
+        )
         return mpo
 
     def multiply_by_constant(self, const: complex) -> None:
@@ -2375,6 +2375,7 @@ class MatrixProductOperator(TensorNetwork):
         internal_prefix: str | None = None,
         input_prefix: str | None = None,
         output_prefix: str | None = None,
+        index_from: int | None = None,
     ) -> None:
         """
         Set default indices to an MPO
@@ -2383,6 +2384,7 @@ class MatrixProductOperator(TensorNetwork):
             internal_prefix: If provided the internal bonds will have the form internal_prefix + index
             input_prefix: If provided the input bonds will have the form input_prefix + index
             output_prefix: If provided the output bonds will have the form output_prefix + index
+            index_from: Where to start counting from, default to 1
         """
         if not internal_prefix:
             internal_prefix = "B"
@@ -2390,31 +2392,36 @@ class MatrixProductOperator(TensorNetwork):
             input_prefix = "L"
         if not output_prefix:
             output_prefix = "R"
+        if not index_from:
+            index_from = 1
         self.reshape("udrl")
 
         if self.num_sites == 1:
-            self.tensors[0].indices = [output_prefix + "1", input_prefix + "1"]
+            self.tensors[0].indices = [
+                output_prefix + f"{index_from}",
+                input_prefix + f"{index_from}",
+            ]
             return
 
         new_indices_first = [
-            internal_prefix + "1",
-            output_prefix + "1",
-            input_prefix + "1",
+            internal_prefix + f"{index_from}",
+            output_prefix + f"{index_from}",
+            input_prefix + f"{index_from}",
         ]
         self.tensors[0].indices = new_indices_first
         for tidx in range(1, self.num_sites - 1):
             t = self.tensors[tidx]
             new_indices_t = [
-                internal_prefix + str(tidx),
-                internal_prefix + str(tidx + 1),
-                output_prefix + str(tidx + 1),
-                input_prefix + str(tidx + 1),
+                internal_prefix + str(tidx + index_from - 1),
+                internal_prefix + str(tidx + index_from),
+                output_prefix + str(tidx + index_from),
+                input_prefix + str(tidx + index_from),
             ]
             t.indices = new_indices_t
         new_indices_last = [
-            internal_prefix + str(self.num_sites - 1),
-            output_prefix + str(self.num_sites),
-            input_prefix + str(self.num_sites),
+            internal_prefix + str(index_from + self.num_sites - 2),
+            output_prefix + str(index_from + self.num_sites - 1),
+            input_prefix + str(index_from + self.num_sites - 1),
         ]
         self.tensors[-1].indices = new_indices_last
         self.indices = self.get_all_indices()
