@@ -323,6 +323,7 @@ class MatrixProductState(TensorNetwork):
         else:
             mps = input_mps
         mps = mps.apply_mpo(qc_mpo, max_bond)
+        mps.normalise()
         return mps
 
     @classmethod
@@ -717,7 +718,10 @@ class MatrixProductState(TensorNetwork):
         return mps
 
     def set_default_indices(
-        self, internal_prefix: str | None = None, external_prefix: str | None = None
+        self,
+        internal_prefix: str | None = None,
+        external_prefix: str | None = None,
+        index_from: int | None = None,
     ) -> None:
         """
         Rename all indices to a standard form.
@@ -725,30 +729,36 @@ class MatrixProductState(TensorNetwork):
         Args:
             internal_prefix: If provided the internal bonds will have the form internal_prefix + index
             external_prefix: If provided the external bonds will have the form external_prefix + index
+            index_from: Where to index from, default to 1
         """
         if not internal_prefix:
             internal_prefix = "B"
         if not external_prefix:
             external_prefix = "P"
+        if not index_from:
+            index_from = 1
         self.reshape("udp")
 
         if self.num_sites == 1:
-            self.tensors[0].indices = [external_prefix + "1"]
+            self.tensors[0].indices = [external_prefix + f"{index_from}"]
             return
 
-        new_indices_first = [internal_prefix + "1", external_prefix + "1"]
+        new_indices_first = [
+            internal_prefix + f"{index_from}",
+            external_prefix + f"{index_from}",
+        ]
         self.tensors[0].indices = new_indices_first
         for tidx in range(1, self.num_sites - 1):
             t = self.tensors[tidx]
             new_indices_t = [
-                internal_prefix + str(tidx),
-                internal_prefix + str(tidx + 1),
-                external_prefix + str(tidx + 1),
+                internal_prefix + str(index_from + tidx - 1),
+                internal_prefix + str(index_from + tidx),
+                external_prefix + str(index_from + tidx),
             ]
             t.indices = new_indices_t
         new_indices_last = [
-            internal_prefix + str(self.num_sites - 1),
-            external_prefix + str(self.num_sites),
+            internal_prefix + str(index_from + self.num_sites - 2),
+            external_prefix + str(index_from + self.num_sites - 1),
         ]
         self.tensors[-1].indices = new_indices_last
         self.indices = self.get_all_indices()
@@ -799,16 +809,28 @@ class MatrixProductState(TensorNetwork):
         Returns:
             The expectation value.
         """
-        mps1 = copy.deepcopy(self)
-        mpo1 = copy.deepcopy(mpo)
+        mps_ket = copy.deepcopy(self)
+        mpo_op = copy.deepcopy(mpo)
 
-        mpo1.reshape("udrl")
-        mps1.reshape("udp")
+        mps_bra = copy.deepcopy(mps_ket)
+        mps_bra.dagger()
 
-        mps1 = mps1.apply_mpo(mpo1)
+        # Relabel
+        # MPS ket: internal A*, external B*
+        mps_ket.set_default_indices(internal_prefix="A", external_prefix="B")
 
-        exp_val = self.compute_inner_product(mps1)
-        return exp_val
+        # MPO: input = B* (to match ket physical), output = D*, internal = C*
+        mpo_op.set_default_indices(
+            input_prefix="B", output_prefix="D", internal_prefix="C"
+        )
+
+        # MPS bra: internal E*, physical D* (to match MPO output)
+        mps_bra.set_default_indices(internal_prefix="E", external_prefix="D")
+
+        tn = TensorNetwork(mps_bra.tensors + mpo_op.tensors + mps_ket.tensors)
+        val = tn.contract_entire_network()
+
+        return complex(val)
 
     def outer_product(self, other: "MatrixProductState") -> MatrixProductOperator:
         """
@@ -1357,3 +1379,53 @@ class MatrixProductState(TensorNetwork):
         V = proj_DC + proj_CD + identity - proj_CC - proj_DD
 
         return V
+
+    def compress(self, max_bond: int) -> None:
+        """Special compress method for MPS
+        Args:
+            max_bond: Bond dimension to compress to
+        """
+        for tidx in range(self.num_sites - 1):
+            t = self.tensors[tidx]
+            original_inds = copy.deepcopy(t.indices)
+            original_next_inds = copy.deepcopy(self.tensors[tidx + 1].indices)
+            bond_name = t.indices[0] if len(t.indices) == 2 else t.indices[1]
+            input_indices = (
+                t.indices[1:]
+                if len(t.indices) == 2
+                else [t.indices[0]] + [t.indices[2]]
+            )
+            output_indices = [bond_name]
+            self.svd(
+                t,
+                input_indices=input_indices,
+                output_indices=output_indices,
+                max_bond=max_bond,
+                new_index_name="TEMP",
+            )
+            self.contract_index(bond_name)
+            reordered_indices = (
+                ["TEMP", original_inds[1]]
+                if len(original_inds) == 2
+                else [original_inds[0], "TEMP", original_inds[2]]
+            )
+            reordered_indices_next = ["TEMP"] + original_next_inds[1:]
+            self.tensors[tidx].reorder_indices(reordered_indices)
+            self.tensors[tidx + 1].reorder_indices(reordered_indices_next)
+            self.tensors[tidx].indices = original_inds
+            self.tensors[tidx + 1].indices = original_next_inds
+        self.update_bond_information()
+        return
+
+    def update_bond_information(self) -> None:
+        """Update bond dimension information"""
+        self.internal_inds = self.get_internal_indices()
+        self.external_inds = self.get_external_indices()
+        self.bond_dims = []
+        self.physical_dims = []
+        for idx in self.internal_inds:
+            self.bond_dims.append(self.get_dimension_of_index(idx))
+        for idx in self.external_inds:
+            self.physical_dims.append(self.get_dimension_of_index(idx))
+        self.bond_dimension = max(self.bond_dims)
+        self.physical_dimension = max(self.physical_dims)
