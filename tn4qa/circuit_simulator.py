@@ -3,11 +3,10 @@ import copy
 import numpy as np
 import sparse
 from numpy.linalg import svd
-from qiskit import QuantumCircuit, transpile
+from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitInstruction
 from qiskit.circuit.library import UnitaryGate
 from qiskit.quantum_info import Operator
-from qiskit.transpiler import CouplingMap
 from scipy.sparse.linalg import svds
 from sparse import COO
 
@@ -29,7 +28,7 @@ class CircuitSimulator:
         Args:
             circuit: The Qiskit QuantumCircuit object
         """
-        self.circuit = self.linearise_circuit(circuit)
+        self.circuit = circuit
         self.num_qubits = circuit.num_qubits
         self.set_input_state(input_state)
         self.current_state = copy.deepcopy(self.input_state)
@@ -38,14 +37,6 @@ class CircuitSimulator:
             str(idx): str(idx) for idx in range(1, self.num_qubits + 1)
         }  # {physical_site:logical_site}
         self.mpo = MatrixProductOperator.identity_mpo(self.num_qubits)
-
-    def linearise_circuit(self, qc: QuantumCircuit):
-        """
-        Transpile the circuit so there's only nearest neighbour gates so no swapping required
-        """
-        cm = CouplingMap.from_line(qc.num_qubits)
-        qc = transpile(qc, coupling_map=cm, basis_gates=["u", "cx"])
-        return qc
 
     def set_input_state(self, input_state: MatrixProductState | None) -> None:
         """
