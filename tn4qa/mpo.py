@@ -14,7 +14,6 @@ from qiskit.circuit import CircuitInstruction
 from qiskit.circuit.library import UnitaryGate
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.quantum_info import Operator
-from scipy.sparse.linalg import svds
 from sparse import SparseArray
 
 from .tensor import Tensor
@@ -682,12 +681,8 @@ class MatrixProductOperator(TensorNetwork):
         else:
             bond_dim = min([mat_shape[0], mat_shape[1]])
 
-        if bond_dim >= min([mat_shape[0], mat_shape[1]]) - 1:
-            u, s, vh = svd(output_data.todense(), full_matrices=False)
-        else:
-            u, s, vh = svds(output_data, k=bond_dim)
-
-        s = s[s > 1e-14]
+        u, s, vh = svd(output_data.todense(), full_matrices=False)
+        s = s[s > 1e-16]
         sq = s**2
         cumulative = np.cumsum(sq[::-1])[::-1]
         keep_dim = len(s)
@@ -697,8 +692,14 @@ class MatrixProductOperator(TensorNetwork):
                 break
         keep_dim = min(keep_dim, bond_dim)
 
-        new_data0 = sparse.COO.from_numpy(vh[:keep_dim, :])
-        new_data1 = sparse.COO.from_numpy(u[:, :keep_dim] * s[:keep_dim])
+        threshold = 1e-14
+        data0 = vh[:keep_dim, :]
+        data0[np.abs(data0) < threshold] = 0.0
+        data1 = u[:, :keep_dim] * s[:keep_dim]
+        data1[np.abs(data1) < threshold] = 0.0
+
+        new_data0 = sparse.COO.from_numpy(data0)
+        new_data1 = sparse.COO.from_numpy(data1)
 
         if site1 < site0:
             if site0 - 1 == 1:
@@ -809,6 +810,10 @@ class MatrixProductOperator(TensorNetwork):
             int(reversed_mapping[str(site)]) for site in range(1, mpo.num_sites + 1)
         ]
         mpo.reorder_sites(target_site_ordering)
+        mpo.update_bond_information()
+        if max_bond:
+            if mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
         return mpo
 
     @classmethod
