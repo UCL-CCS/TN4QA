@@ -557,10 +557,7 @@ class TensorNetwork:
         else:
             max_bond = min([max_bond, tensor.dimensions[0], tensor.dimensions[1]])
 
-        if max_bond >= min([tensor.dimensions[0], tensor.dimensions[1]]) - 1:
-            u, s, vh = svd(tensor.data.todense(), full_matrices=False)
-        else:
-            u, s, vh = svds(tensor.data, k=max_bond)
+        u, s, vh = svd(tensor.data.todense(), full_matrices=False)
 
         s = s[s > 1e-14]
         sq = s**2
