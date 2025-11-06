@@ -24,6 +24,8 @@ class DMRG:
         method: str = "two-site",
         convergence_threshold: float = 1e-9,
         initial_state: MatrixProductState | None = None,
+        symmetries: list[str] | None = None,
+        num_states: int = 1,
     ) -> "DMRG":
         """
         Constructor for the DMRG class.
@@ -35,6 +37,8 @@ class DMRG:
             method: Which method to use. One of "one-site", and "two-site". Defaults to "one-site".
             convergence_threshold: DMRG terminates once two successive sweeps differ in energy by less than this value.
             initial_state: The starting point for the DMRG calculation. If not provided, random MPS is generated.
+            symmetries: Which symmetries to conserve, any of "patricle_number", "sz"
+            num_states: The number of lowest energy states to find, default 1 (groundstate only)
 
         Returns:
             The DMRG object.
@@ -42,6 +46,7 @@ class DMRG:
         self.hamiltonian = hamiltonian
         self.method = method
         self.convergence_threshold = convergence_threshold
+        self.max_mpo_bond = max_mpo_bond
         if isinstance(hamiltonian, dict):
             self.num_sites = len(list(hamiltonian.keys())[0])
             self.hamiltonian_type = "qubit"
@@ -62,12 +67,14 @@ class DMRG:
                 ham_mpo.compress(max_mpo_bond)
             self.mpo = self.add_trivial_tensors_mpo(ham_mpo)
         else:
-            self.mpo = self.set_hamiltonian_mpo()
+            self.mpo = self.set_hamiltonian_mpo(max_mpo_bond)
         self.energy = self.set_initial_energy()
         self.all_energies = [self.energy]
         self.left_block_cache = []
         self.right_block_cache = []
         self.left_block, self.right_block = self.initialise_blocks()
+        self.symmetries = symmetries
+        self.num_states = num_states
 
         return
 
@@ -95,7 +102,7 @@ class DMRG:
 
         return mps
 
-    def set_hamiltonian_mpo(self) -> MatrixProductOperator:
+    def set_hamiltonian_mpo(self, max_bond: int | None = None) -> MatrixProductOperator:
         """
         Convert the Hamiltonian to an MPO for DMRG.
         """
@@ -107,7 +114,8 @@ class DMRG:
                 mpo = MatrixProductOperator.from_electron_integral_arrays(
                     self.hamiltonian[0], self.hamiltonian[1]
                 )
-
+        if max_bond and mpo.bond_dimension > max_bond:
+            mpo.compress(max_bond)
         mpo = self.add_trivial_tensors_mpo(mpo)
         if self.max_mpo_bond and mpo.bond_dimension > self.max_mpo_bond:
             mpo.compress(self.max_mpo_bond)

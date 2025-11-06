@@ -25,6 +25,7 @@ class TimeEvolvedQSCI(QSCI):
         duration: float = np.pi,
         num_circuits: int = 5,
         qdrift: bool = True,
+        max_mpo_bond: int | None = None,
         **kwargs,
     ) -> "QSCI":
         """
@@ -35,7 +36,10 @@ class TimeEvolvedQSCI(QSCI):
         self.qdrift_config = kwargs
         self.qdrift = qdrift
         hamiltonian = self.sanitize_dict(hamiltonian)
-        super().__init__(hamiltonian, hf_state, backend)
+        super().__init__(
+            hamiltonian, hf_state=hf_state, backend=backend, max_bond=max_mpo_bond
+        )
+        self.circuit_depths = []
 
     @property
     def circuit(self) -> QuantumCircuit:
@@ -96,6 +100,7 @@ class TimeEvolvedQSCI(QSCI):
                 qc = self.perform_time_evolution_qdrift(
                     idx * duration_per_circuit, error=self.qdrift_config["error"]
                 )
+                self.circuit_depths.append(qc.depth())
                 subcounts = self.backend.run(qc, shots=shots_per_circuit)
                 for b, count in subcounts.items():
                     counts[b] = counts.get(b, 0) + count
@@ -120,17 +125,38 @@ class TimeEvolvedQSCI(QSCI):
             cr_counts = self.configuration_recovery(counts, self.num_electrons)
             print("Samples Collected!")
             samples = self.gather_samples(cr_counts, subspace_size)
-            if self.hfs and self.hf_state not in samples:
-                samples += self.hf_state
+            # if self.hfs and self.hf_state not in samples:
+            #     samples += self.hf_state
+            if self.hf_state not in samples:
+                samples.append(self.hf_state)
+            for sample in self.important_configurations:
+                if sample not in samples:
+                    samples.append(sample)
+            if idx == num_iterations - 1:
+                reset_hamiltonian = True
+            else:
+                reset_hamiltonian = False
             if len(samples) <= 500:
-                projected_ham = self.project_hamiltonian(samples)
+                projected_ham = self.project_hamiltonian(
+                    samples, reset_hamiltonian=reset_hamiltonian
+                )
                 self.energy, groundstate_vec = self.exact_diagonalisation(projected_ham)
             else:
                 self.energy, groundstate_vec = self.linear_operator_diagonalisation(
                     samples
                 )
+            for sidx in range(len(samples)):
+                sample = samples[sidx]
+                amp = groundstate_vec[sidx]
+                if np.abs(amp) ** 2 > 0.0:
+                    self.important_configurations.append(sample)
+                else:
+                    self.unimportant_configurations.append(sample)
+            self.important_configurations = list(set(self.important_configurations))
             print("Exact Diagonalisation Complete!")
             self.state = self.reconstruct_mps(samples, groundstate_vec)
+            self.energy = self.final_energy()
+            self.energies_per_iteration.append(self.energy)
             print("Finished iteration", idx)
             print("Energy =", self.energy)
             print("Number of configuration =", len(samples))
@@ -145,6 +171,7 @@ class TimeEvolvedQSCI(QSCI):
             "actual_subspace_size": len(samples),
             "subspace": samples,
             "total_runtime": end_time - start_time,
+            "average_circuit_depth": np.mean(self.circuit_depths),
         }
         if self.backend is not None:
             metadata["backend_name"] = self.backend.name
@@ -162,6 +189,7 @@ class TimeEvolvedQSCI(QSCI):
             parameters=None,
             metadata=metadata,
         )
+        print("Run finished")
         return result
 
     def set_backend(self, backend: QuantumBackend | None) -> None:

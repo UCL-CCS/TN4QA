@@ -803,7 +803,10 @@ class MatrixProductOperator(TensorNetwork):
             elif len(qidxs) == 2:
                 sites_locs = [int(site_mapping[str(site)]) for site in qidxs]
                 mpo.apply_two_qubit_gate(
-                    data, sites_locs, site_mapping, max_bond=max_bond
+                    data,
+                    sites_locs,
+                    site_mapping,
+                    max_bond=max_bond,
                 )
             else:
                 mpo = mpo.apply_general_gate(inst, site_mapping, max_bond=max_bond)
