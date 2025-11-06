@@ -2,6 +2,8 @@ import copy
 from itertools import islice
 from typing import List, TypeAlias, Union
 
+import cotengra as ctg
+
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
 import numpy as np
 import sparse
@@ -683,25 +685,6 @@ class MatrixProductOperator(TensorNetwork):
             bond_dim = min([mat_shape[0], mat_shape[1]])
 
         u, s, vh = svd(output_data.todense(), full_matrices=False)
-
-        # def normalise_two_site_svd(U, S, Vh):
-        #     """Normalize SVD factors so largest singular value is 1."""
-        #     max_sv = S.max()
-        #     if max_sv == 0:  # avoid divide by zero
-        #         return U, S, Vh
-        #     scale = 1.0 / max_sv
-        #     S = S * scale
-        #     # absorb half the scale into U and half into Vh to keep symmetry
-        #     U *= np.sqrt(scale)
-        #     Vh *= np.sqrt(scale)
-        #     return U, S, Vh
-
-        # u, s, vh = normalise_two_site_svd(u, s, vh)
-        # if bond_dim >= min([mat_shape[0], mat_shape[1]]) - 1:
-        #     u, s, vh = svd(output_data.todense(), full_matrices=False)
-        # else:
-        #     u, s, vh = svds(output_data, k=bond_dim)
-
         s = s[s > 1e-16]
         sq = s**2
         cumulative = np.cumsum(sq[::-1])[::-1]
@@ -958,9 +941,8 @@ class MatrixProductOperator(TensorNetwork):
             num_sites, [], list(range(1, num_sites)), num_sites, z_gate
         )
 
-        mpo = copy.deepcopy(x_layer_mpo)
-        mpo = mpo * mcz_mpo
-        mpo = mpo * x_layer_mpo
+        x_layer_copy = copy.deepcopy(x_layer_mpo)
+        mpo = mcz_mpo.multiply_and_compress_three(x_layer_mpo, x_layer_copy)
 
         return mpo
 
@@ -1020,9 +1002,8 @@ class MatrixProductOperator(TensorNetwork):
         for sample in samples[1:]:
             temp_mpo = cls.from_bitstring(sample)
             mpo = mpo + temp_mpo
-            if max_bond:
-                if mpo.bond_dimension > max_bond:
-                    mpo.compress(max_bond)
+            if max_bond and mpo.bond_dimension > max_bond:
+                mpo.compress(max_bond)
         return mpo
 
     @classmethod
@@ -1560,7 +1541,6 @@ class MatrixProductOperator(TensorNetwork):
         max_bond: int | None = None,
     ) -> "MatrixProductOperator":
         """Build an MPO for e^{-iHt} using Trotterisation
-
         Args;
             hamiltonian: The Hamiltonian dictionary
             time: t
@@ -1752,33 +1732,215 @@ class MatrixProductOperator(TensorNetwork):
 
         return self
 
-    # def multiply_and_compress(
-    #     self, other: "MatrixProductOperator", max_bond: int
-    # ) -> "MatrixProductOperator":
-    #     """Multiply and compress simultaneously
+    def multiply_and_compress(
+        self, other: "MatrixProductOperator", max_bond: int | None = None
+    ) -> "MatrixProductOperator":
+        """Multiply and compress simultaneously
 
-    #     Args:
-    #         other: The other MPO
-    #         max_bond: Maximum allowed bond dimension
-    #     """
-    #     mpo1 = copy.deepcopy(self)
-    #     mpo2 = copy.deepcopy(other)
-    #     return
+        Args:
+            other: The other MPO acting to the right
+            max_bond: Maximum allowed bond dimension
+        """
+        mpo1 = copy.deepcopy(self)
+        mpo2 = copy.deepcopy(other)
+        mpo1.set_default_indices("A", "B", "C")
+        mpo2.set_default_indices("D", "C", "E")
+        tn = TensorNetwork(mpo1.tensors + mpo2.tensors)
+        new_tensors = []
 
-    # def multiply_and_compress_three(
-    #     self,
-    #     other1: "MatrixProductOperator",
-    #     other2: "MatrixProductOperator",
-    #     max_bond: int,
-    # ) -> "MatrixProductOperator":
-    #     """Mutiply and compress 3 MPOs simultaneously
+        # First contraction
+        tn.contract_index("C1")
+        tensor = tn.get_tensors_from_index_name("B1")[0]
+        tn.svd(
+            tensor,
+            input_indices=["B1", "E1"],
+            output_indices=["A1", "D1"],
+            new_index_name="F1",
+            new_labels=[["FIRST"], []],
+            max_bond=max_bond,
+        )
+        first_tensor = tn.get_tensors_from_label("FIRST")[0]
+        first_tensor.reorder_indices(["F1", "E1", "B1"])
+        new_tensors.append(first_tensor)
 
-    #     Args:
-    #         other1: Another MPO
-    #         other2: Another MPO
-    #         max_bond: Maximum allowed bond dimension
-    #     """
-    #     return
+        # Middle contractions
+        n = mpo1.num_sites
+        for idx in range(1, n - 1):
+            t1, t2 = tn.get_tensors_from_index_name(f"A{idx}")
+            t1.labels.append("T1_TEMP_LABEL")
+            t2.labels.append("T2_TEMP_LABEL")
+            t3 = tn.get_tensors_from_index_name(f"E{idx+1}")[0]
+            t3.labels.append("T3_TEMP_LABEL")
+            new_t_data = ctg.array_contract(
+                arrays=[t1.data, t2.data, t3.data],
+                inputs=[t1.indices, t2.indices, t3.indices],
+                output=[f"F{idx}", f"B{idx+1}", f"E{idx+1}", f"A{idx+1}", f"D{idx+1}"],
+                cache_expression=True,
+                prefer_einsum=True,
+            )
+            new_t = Tensor(
+                new_t_data,
+                [f"F{idx}", f"B{idx+1}", f"E{idx+1}", f"A{idx+1}", f"D{idx+1}"],
+                [f"NEW_LABEL_{idx}"],
+            )
+            tn.pop_tensors_by_label(t1.labels)
+            tn.pop_tensors_by_label(t2.labels)
+            tn.pop_tensors_by_label(t3.labels)
+            tn.add_tensor(new_t)
+            tensor = tn.get_tensors_from_index_name(f"B{idx+1}")[0]
+            tn.svd(
+                tensor,
+                input_indices=[f"F{idx}", f"B{idx+1}", f"E{idx+1}"],
+                output_indices=[f"A{idx+1}", f"D{idx+1}"],
+                new_index_name=f"F{idx+1}",
+                new_labels=[[f"NEXT{idx}"], []],
+                max_bond=max_bond,
+            )
+            next_tensor = tn.get_tensors_from_label(f"NEXT{idx}")[0]
+            next_tensor.reorder_indices(
+                [f"F{idx}", f"F{idx+1}", f"E{idx+1}", f"B{idx+1}"]
+            )
+            new_tensors.append(next_tensor)
+
+        # Final contraction
+        t1, t2 = tn.get_tensors_from_index_name(f"A{n-1}")
+        t3 = tn.get_tensors_from_index_name(f"E{n}")[0]
+        new_t_data = ctg.array_contract(
+            arrays=[t1.data, t2.data, t3.data],
+            inputs=[t1.indices, t2.indices, t3.indices],
+            output=[f"F{idx}", f"E{idx+1}", f"B{idx+1}"],
+            cache_expression=True,
+            prefer_einsum=True,
+        )
+        new_t = Tensor(new_t_data, [f"F{idx}", f"E{idx+1}", f"B{idx+1}"], [])
+        tn.pop_tensors_by_label(t1.labels)
+        tn.pop_tensors_by_label(t2.labels)
+        tn.pop_tensors_by_label(t3.labels)
+        tn.add_tensor(new_t)
+        new_tensors.append(new_t)
+
+        output_mpo = MatrixProductOperator(new_tensors)
+        output_mpo.set_default_indices()
+
+        return output_mpo
+
+    def multiply_and_compress_three(
+        self,
+        left: "MatrixProductOperator",
+        right: "MatrixProductOperator",
+        max_bond: int | None = None,
+    ) -> "MatrixProductOperator":
+        """Mutiply and compress 3 MPOs simultaneously
+
+        Args:
+            left: Another MPO acting to the left
+            right: Another MPO acting to the right
+            max_bond: Maximum allowed bond dimension
+        """
+        mpo_centre = copy.deepcopy(self)
+        mpo_left = copy.deepcopy(left)
+        mpo_right = copy.deepcopy(right)
+
+        mpo_left.set_default_indices("X", "A", "B")
+        mpo_centre.set_default_indices("Y", "B", "C")
+        mpo_right.set_default_indices("Z", "C", "D")
+        tn = TensorNetwork(mpo_left.tensors + mpo_centre.tensors + mpo_right.tensors)
+        new_tensors = []
+
+        # First contraction
+        tn.contract_index("B1")
+        tn.contract_index("C1")
+        tensor = tn.get_tensors_from_index_name("A1")[0]
+        tn.svd(
+            tensor,
+            input_indices=["A1", "D1"],
+            output_indices=["X1", "Y1", "Z1"],
+            new_index_name="W1",
+            new_labels=[["FIRST"], []],
+            max_bond=max_bond,
+        )
+        first_tensor = tn.get_tensors_from_label("FIRST")[0]
+        first_tensor.reorder_indices(["W1", "D1", "A1"])
+        new_tensors.append(first_tensor)
+
+        # Middle contractions
+        n = self.num_sites
+        for idx in range(1, n - 1):
+            t1, t2 = tn.get_tensors_from_index_name(f"X{idx}")
+            t1.labels.append("T1_TEMP_LABEL")
+            t2.labels.append("T2_TEMP_LABEL")
+            t3, t4 = tn.get_tensors_from_index_name(f"C{idx+1}")
+            t3.labels.append("T3_TEMP_LABEL")
+            t4.labels.append("T4_TEMP_LABEL")
+            new_t_data = ctg.array_contract(
+                arrays=[t1.data, t2.data, t3.data, t4.data],
+                inputs=[t1.indices, t2.indices, t3.indices, t4.indices],
+                output=[
+                    f"W{idx}",
+                    f"A{idx+1}",
+                    f"D{idx+1}",
+                    f"X{idx+1}",
+                    f"Y{idx+1}",
+                    f"Z{idx+1}",
+                ],
+                cache_expression=True,
+                prefer_einsum=True,
+            )
+            new_t = Tensor(
+                new_t_data,
+                [
+                    f"W{idx}",
+                    f"A{idx+1}",
+                    f"D{idx+1}",
+                    f"X{idx+1}",
+                    f"Y{idx+1}",
+                    f"Z{idx+1}",
+                ],
+                [f"NEW_LABEL_{idx}"],
+            )
+            tn.pop_tensors_by_label(t1.labels)
+            tn.pop_tensors_by_label(t2.labels)
+            tn.pop_tensors_by_label(t3.labels)
+            tn.pop_tensors_by_label(t4.labels)
+            tn.add_tensor(new_t)
+
+            tensor = tn.get_tensors_from_index_name(f"A{idx+1}")[0]
+            tn.svd(
+                tensor,
+                input_indices=[f"W{idx}", f"A{idx+1}", f"D{idx+1}"],
+                output_indices=[f"X{idx+1}", f"Y{idx+1}", f"Z{idx+1}"],
+                new_index_name=f"W{idx+1}",
+                new_labels=[[f"NEXT{idx}"], []],
+                max_bond=max_bond,
+            )
+            next_tensor = tn.get_tensors_from_label(f"NEXT{idx}")[0]
+            next_tensor.reorder_indices(
+                [f"W{idx}", f"W{idx+1}", f"D{idx+1}", f"A{idx+1}"]
+            )
+            new_tensors.append(next_tensor)
+
+        # Final contraction
+        t1, t2 = tn.get_tensors_from_index_name(f"X{n-1}")
+        t3, t4 = tn.get_tensors_from_index_name(f"C{n}")
+        new_t_data = ctg.array_contract(
+            arrays=[t1.data, t2.data, t3.data, t4.data],
+            inputs=[t1.indices, t2.indices, t3.indices, t4.indices],
+            output=[f"W{n-1}", f"D{n}", f"A{n}"],
+            cache_expression=True,
+            prefer_einsum=True,
+        )
+        new_t = Tensor(new_t_data, [f"W{n-1}", f"D{n}", f"A{n}"], [])
+        tn.pop_tensors_by_label(t1.labels)
+        tn.pop_tensors_by_label(t2.labels)
+        tn.pop_tensors_by_label(t3.labels)
+        tn.pop_tensors_by_label(t4.labels)
+        tn.add_tensor(new_t)
+        new_tensors.append(new_t)
+
+        output_mpo = MatrixProductOperator(new_tensors)
+        output_mpo.set_default_indices()
+
+        return output_mpo
 
     def zip_up(
         self, other: "MatrixProductOperator", max_bond: int | None = None
@@ -1916,7 +2078,7 @@ class MatrixProductOperator(TensorNetwork):
         return
 
     def project_to_subspace(
-        self, projector: "MatrixProductOperator"
+        self, projector: "MatrixProductOperator", max_bond: int | None = None
     ) -> "MatrixProductOperator":
         """
         Project the MPO to a subspace.
@@ -1925,8 +2087,10 @@ class MatrixProductOperator(TensorNetwork):
             projector: The projector onto the subspace in MPO form.
         """
         self_copy = copy.deepcopy(self)
-        mpo = projector * self_copy
-        mpo = mpo * projector
+        projector_copy = copy.deepcopy(projector)
+        mpo = self_copy.multiply_and_compress_three(
+            projector, projector_copy, max_bond=max_bond
+        )
         return mpo
 
     def multiply_by_constant(self, const: complex) -> None:
@@ -2292,6 +2456,7 @@ class MatrixProductOperator(TensorNetwork):
             internal_prefix: If provided the internal bonds will have the form internal_prefix + index
             input_prefix: If provided the input bonds will have the form input_prefix + index
             output_prefix: If provided the output bonds will have the form output_prefix + index
+            index_from: Where to start counting from, default to 1
         """
         if not internal_prefix:
             internal_prefix = "B"
@@ -2371,7 +2536,6 @@ class MatrixProductOperator(TensorNetwork):
 
     def compress(self, max_bond: int) -> None:
         """Special compress method for MPO
-
         Args:
             max_bond: Bond dimension to compress to
         """

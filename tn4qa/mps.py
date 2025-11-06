@@ -729,6 +729,7 @@ class MatrixProductState(TensorNetwork):
         Args:
             internal_prefix: If provided the internal bonds will have the form internal_prefix + index
             external_prefix: If provided the external bonds will have the form external_prefix + index
+            index_from: Where to index from, default to 1
         """
         if not internal_prefix:
             internal_prefix = "B"
@@ -798,7 +799,9 @@ class MatrixProductState(TensorNetwork):
 
         return val
 
-    def compute_expectation_value(self, mpo: MatrixProductOperator) -> complex:
+    def compute_expectation_value(
+        self, mpo: MatrixProductOperator, optimisation_method: str = "auto"
+    ) -> complex:
         """
         Calculate an expectation value of the form <MPS | MPO | MPS>.
 
@@ -827,8 +830,7 @@ class MatrixProductState(TensorNetwork):
         mps_bra.set_default_indices(internal_prefix="E", external_prefix="D")
 
         tn = TensorNetwork(mps_bra.tensors + mpo_op.tensors + mps_ket.tensors)
-
-        val = tn.contract_entire_network()
+        val = tn.contract_entire_network(optimisation_method)
 
         return complex(val)
 
@@ -1382,7 +1384,6 @@ class MatrixProductState(TensorNetwork):
 
     def compress(self, max_bond: int) -> None:
         """Special compress method for MPS
-
         Args:
             max_bond: Bond dimension to compress to
         """

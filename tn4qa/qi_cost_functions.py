@@ -200,7 +200,7 @@ def cost_function_dict_to_purity_mpo(
     final_mpo = MatrixProductOperator.from_arrays([m.data for m in mpo.tensors])
 
     if max_bond:
-        if final_mpo.bond_dimension >= max_bond:
+        if final_mpo.bond_dimension > max_bond:
             final_mpo.compress(max_bond)
 
     return final_mpo

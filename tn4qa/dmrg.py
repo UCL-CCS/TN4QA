@@ -58,13 +58,14 @@ class DMRG:
             self.nuc_energy = hamiltonian[2]
             self.hamiltonian_type = "fermionic"
         self.max_mps_bond = max_mps_bond
+        self.max_mpo_bond = max_mpo_bond
         self.current_max_mps_bond = 2
         self.mps = self.set_initial_state(initial_state)
         if self.hamiltonian_type == "MPO":
             ham_mpo = copy.deepcopy(hamiltonian)
             if max_mpo_bond and ham_mpo.bond_dimension > max_mpo_bond:
                 ham_mpo.compress(max_mpo_bond)
-            self.mpo = self.add_trivial_tensors_mpo(copy.deepcopy(hamiltonian))
+            self.mpo = self.add_trivial_tensors_mpo(ham_mpo)
         else:
             self.mpo = self.set_hamiltonian_mpo(max_mpo_bond)
         self.energy = self.set_initial_energy()
@@ -116,13 +117,13 @@ class DMRG:
         if max_bond and mpo.bond_dimension > max_bond:
             mpo.compress(max_bond)
         mpo = self.add_trivial_tensors_mpo(mpo)
+        if self.max_mpo_bond and mpo.bond_dimension > self.max_mpo_bond:
+            mpo.compress(self.max_mpo_bond)
 
         return mpo
 
     def set_initial_energy(self) -> float:
-        mps = copy.deepcopy(self.mps)
-        mpo = copy.deepcopy(self.mpo)
-        return mps.compute_expectation_value(mpo)
+        return self.mps.compute_expectation_value(self.mpo)
 
     def add_trivial_tensors_mps(self, mps: MatrixProductState) -> MatrixProductState:
         """

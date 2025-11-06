@@ -3,6 +3,7 @@ from typing import Callable
 
 import numpy as np
 from numpy import ndarray
+from qiskit import QuantumCircuit
 
 from tn4qa.qi_cost_functions import (
     cost_function_dict_to_purity_mpo,
@@ -182,83 +183,6 @@ class ActiveSpaceSelection:
 
         return K
 
-    # def exponential_hopping_term(
-    #     self, p: int, q: int, K_pq: complex
-    # ) -> MatrixProductOperator:
-    #     """
-    #     Construct the MPO for exp(K_pq * a_p† a_q - K_pq* * a_q† a_p).
-
-    #     Args:
-    #         p, q: Indices of orbitals (must be different)
-    #         K_pq: Complex parameter
-
-    #     Returns:
-    #         MatrixProductOperator for exp(H), where H = K_pq * a_p† a_q - conj(K_pq) * a_q† a_p
-    #     """
-    #     if p == q:
-    #         h_fermion = FermionOperator(((p, 1), (q, 0)), K_pq)
-
-    #     else:
-    #         # Build the FermionOperator, 1 is the creation operator, 0 is the annihilation operator
-    #         # H = K_pq * a_p† a_q - conj(K_pq) * a_q† a_p
-    #         h_fermion = FermionOperator(((p, 1), (q, 0)), K_pq) - FermionOperator(
-    #             ((q, 1), (p, 0)), np.conj(K_pq)
-    #         )
-
-    #     # Map to QubitOperator using Jordan-Wigner
-    #     h_qubit = jordan_wigner(h_fermion)
-
-    #     # Convert to PauliwordOp
-    #     h_pauli = PauliwordOp.from_openfermion(h_qubit, n_qubits=self.num_spin_orbitals)
-
-    #     # Convert to a dictionary
-    #     h_dict = h_pauli.to_dictionary
-    #     h_dict = {k: v.real for k, v in h_dict.items()}
-
-    #     # Create a circuit
-    #     sim = TrotterSimulation(h_dict, duration=1.0, num_steps=1)
-    #     qc = sim.circuit
-
-    #     # Convert Qiskit circuit to MPO
-    #     u_mpo = MatrixProductOperator.from_qiskit_circuit(qc)
-
-    #     return u_mpo
-
-    # def build_trotterised_unitary(
-    #     self, K: ndarray, trotter_steps: int = 1, max_bond: int | None = None
-    # ) -> MatrixProductOperator:
-    #     """
-    #     Build an MPO approximation of the fermionic unitary:
-    #         U = exp(Σ_{pq} K_{pq} a†_p a_q)
-
-    #     using first-order Trotter decomposition.
-
-    #     Args:
-    #         K: Anti-Hermitian matrix (N x N)
-    #         trotter_steps: Number of Trotter steps
-
-    #     Returns:
-    #         MatrixProductOperator representing the unitary
-    #     """
-    #     N = K.shape[0]
-    #     assert K.shape[1] == N, "K must be square"
-    #     assert np.allclose(K + K.conj().T, 0, atol=1e-10), "K must be anti-Hermitian"
-
-    #     u_mpo = MatrixProductOperator.identity_mpo(N)
-    #     dt = 1.0 / trotter_steps
-
-    #     for _ in range(trotter_steps):
-    #         for p in range(N):
-    #             for q in range(p, N):
-    #                 if abs(K[p, q]) > 1e-12:
-    #                     K_dt = dt * K[p, q]
-    #                     hop_exp_mpo = self.exponential_hopping_term(p, q, K_dt)
-    #                     u_mpo = u_mpo * hop_exp_mpo
-    #                     if max_bond:
-    #                         if u_mpo.bond_dimension >= max_bond:
-    #                             u_mpo.compress(max_bond)
-    #     return u_mpo
-
     # Map parameter index → (p,q) orbital pairs
     def param_to_indices(self, N: int, k: int):
         """
@@ -407,6 +331,10 @@ class ActiveSpaceSelection:
             # Update MPO
             pauli_dict_theta = {key: val * theta[k] for key, val in pauli_dict.items()}
             trotter_circ = TrotterSimulation(pauli_dict_theta, 1.0, num_steps=1)
+            n = trotter_circ.circuit.num_qubits
+            qc = QuantumCircuit(2 * n)
+            qc.compose(trotter_circ.circuit, qubits=range(n), inplace=True)
+            qc.compose(trotter_circ.circuit, qubits=range(n, 2 * n), inplace=True)
             mpo.evolve_by_quantum_circuit(trotter_circ.circuit)
 
         return gradients
