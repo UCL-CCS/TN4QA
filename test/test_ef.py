@@ -53,9 +53,19 @@ def test_split_mps_at_cut():
     assert len(right.tensors) == 2
     print("split_mps_at_cut: PASSED")
 
+
+def test_best_cut_on_random_mps():
+    num_qubits = 6              # 6 seems to be the cut off point, after which it explodes
+    mps = MPS.random_quantum_state_mps(num_qubits, 2, 2)
+    cut = ef_best_cut(mps)
+    assert 1 <= cut < num_qubits
+    print("best_cut_on_random_mps: PASSED")
+
+    
 if __name__ == "__main__":
     test_build_entanglement_feature_shapes()
     test_contract_ef_bitstring_identity_only()
     test_contract_ef_bitstring_mixed()
     test_ef_best_cut_bounds()
     test_split_mps_at_cut()
+    test_best_cut_on_random_mps()
