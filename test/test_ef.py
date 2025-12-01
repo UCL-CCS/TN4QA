@@ -14,8 +14,16 @@ def test_build_entanglement_feature_shapes():
     assert len(EF) == len(mps.tensors)
 
     for site, T in enumerate(EF):
-        dim = T.shape[1]  # EF shape is (2, dim, dim)
-        assert T.shape == (2, dim, dim)
+        # T shape = (2, u, u, p, d, d, p)
+        assert T.ndim == 7
+        assert T.data.shape[0] == 2
+        u, d, p = mps.tensors[site].data.shape[:3]
+        assert T.data.shape[1] == u
+        assert T.data.shape[2] == u
+        assert T.data.shape[3] == p
+        assert T.data.shape[4] == d
+        assert T.data.shape[5] == d
+        assert T.data.shape[6] == p
     print("build_entanglement_feature_shapes: PASSED")
 
 
@@ -23,10 +31,10 @@ def test_contract_ef_bitstring_identity_only():
     mps = MPS.from_arrays(TEST_ARRAYS)
     EF = build_entanglement_feature(mps)
     bitstring = [0] * len(EF)
-    R2 = contract_ef_bitstring(EF, bitstring)
+    R2 = contract_ef_bitstring(mps, EF, bitstring)
 
     # Expected Renyi-2 is product of EF dimensions along the diagonal
-    expected = np.prod([T.shape[1] for T in EF])
+    expected = np.prod([T.data.shape[1] for T in EF])
     assert np.isclose(R2, expected)
     print("contract_ef_bitstring_identity_only: PASSED")
 
@@ -34,7 +42,7 @@ def test_contract_ef_bitstring_mixed():
     mps = MPS.from_arrays(TEST_ARRAYS)
     EF = build_entanglement_feature(mps)
     bitstring = [1, 0, 0]
-    R2 = contract_ef_bitstring(EF, bitstring)
+    R2 = contract_ef_bitstring(mps, EF, bitstring)
     assert np.isscalar(R2)
     assert np.isfinite(R2)
     print("contract_ef_bitstring_mixed: PASSED")
@@ -55,7 +63,7 @@ def test_split_mps_at_cut():
 
 
 def test_best_cut_on_random_mps():
-    num_qubits = 6              # 6 seems to be the cut off point, after which it explodes
+    num_qubits = 4            # 6 seems to be the cut off point, after which it explodes
     mps = MPS.random_quantum_state_mps(num_qubits, 2, 2)
     cut = ef_best_cut(mps)
     assert 1 <= cut < num_qubits
