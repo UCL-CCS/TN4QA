@@ -1,5 +1,7 @@
 import numpy as np
 from tn4qa.mps import MatrixProductState as MPS
+from tn4qa.mpo import MatrixProductOperator as MPO
+from tn4qa.tn import TensorNetwork as TN
 
 def build_entanglement_feature(mps):
     """
@@ -32,8 +34,10 @@ def build_entanglement_feature(mps):
                 for c in range(p):
                     # identity: |c>⊗|c> stays |c>⊗|c>
                     T0[a, a, c, b, b, c] = 1.0
-                    # swap: |c>⊗|c> goes to |c>⊗|c>
-                    T1[a, a, c, b, b, c] = 1.0
+                for c_prime in range(p):
+                    for c in range(p):
+                        # swap: |c>⊗|c'> goes to |c'>⊗|c>
+                        T1[a, a, c_prime, b, b, c] = 1.0
 
         T_site = np.zeros((2, u, u, p, d, d, p))
         T_site[0] = T0
@@ -44,48 +48,28 @@ def build_entanglement_feature(mps):
     return EF
 
 # Contract EF with a given bitstring
-def contract_ef_bitstring(mps, EF, bitstring):
+def contract_ef_bitstring(EF, bitstring):
     """
     Compute <psi⊗psi | EF(bitstring) | psi⊗psi>
     Contract the entanglement feature EF with a given bitstring.
     bitstring: list of 0/1 of length N
-    Returns: Renyi-2 value 
+    Returns: Renyi-2 value (float)
     """
-    # extract MPS tensors
-    A_list = [getattr(A, "data", A) for A in mps.tensors]
-    N = len(A_list)
+    assert len(bitstring) == len(EF)
+    N = len(EF)
 
-    # left boundary environment: scalar 1
-    env = np.array([1.0]).reshape(1, 1)
-
+    # Use trace(A ⊗ B) = trace(A) * trace(B) to avoid exponential growth of matrix size
+    R2 = 1.0    # would be great if true but i dont think it is lol
+    
     for i in range(N):
-        A = A_list[i]                 # (u, d, p)
-        T = EF[i][bitstring[i]]  # (u, u, p, d, d, p)
+        Ti = EF[i][bitstring[i]]        # shape (u, u, p, d, d, p)
+        left = np.prod(Ti.shape[:3])   # dimensions to the left of the trace
+        right = np.prod(Ti.shape[3:])   # dimensions to the right of the trace
+        Ti_reshaped = Ti.reshape((left, right)) # shape (left, right)
+        print("Ti_reshaped shape:", Ti_reshaped.shape)
+        R2 *= np.trace(Ti_reshaped)   # trace over the reshaped matrix
 
-        # A ⊗ A
-        A2 = np.tensordot(A, A, axes=0)  # (u1, d1, p1, u2, d2, p2)
-
-        # Contract right physical leggies
-        # A2* with T
-        X = np.tensordot(A2.conj(), T , axes=([2, 3], [1, 2]))  # (u, d, u, d, p, p) 
-
-        # Contract the other physical leggies
-        # X with A2
-        X = np.tensordot(X, A2, axes=([4,5,6,7], [0,3,1,4]))  # (u1,d1,u2,d2,  u1'',d1'',u2'',d2'')
-
-        # Merge legs to form a matrix for environment update
-        # left
-        left = (X.shape[0], X.shape[1])*(X.shape[2], X.shape[3])
-        # right
-        right = (X.shape[4], X.shape[5])*(X.shape[6], X.shape[7])
-        Xmat = X.reshape(left, right)
-
-        # Update environment
-        env = np.dot(env, Xmat)  # (new left dim, new right dim)
-
-    # Final contraction to get scalar
-    return env.squeeze()
-
+    return R2
 
 # best cut according to EF
 def ef_best_cut(mps):
@@ -97,7 +81,7 @@ def ef_best_cut(mps):
     EF = build_entanglement_feature(mps)
     for i in range(1,N):
         bitstring = [1]*i + [0]*(N-i)
-        R2 = contract_ef_bitstring(mps, EF, bitstring)
+        R2 = contract_ef_bitstring(EF, bitstring)
         costs.append(R2)
         best_cut = np.argmin(costs) + 1
     return best_cut
