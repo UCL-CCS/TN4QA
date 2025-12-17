@@ -2,48 +2,48 @@ import numpy as np
 from tn4qa.mps import MatrixProductState as MPS
 from tn4qa.mpo import MatrixProductOperator as MPO
 from tn4qa.tn import TensorNetwork as TN
+from tn4qa.tensor import Tensor
 
 def build_entanglement_feature(mps):
     """
     Build entanglement feature (EF) for MPS.
-    Returns EF as a list of tensors, one per site
-    Each tensor has shape (2, dim_up, dim_up, phys_dim, dim_down, dim_down, phys_dim)
+    Returns EF as an MPS
     """
-    EF = []
+    ef_tensors = []
 
     for A in mps.tensors:
-        data = getattr(A, "data", A)
-        shape = data.shape
+        A1 = A.copy()
+        A2 = A.copy()
 
-        if len(shape) == 2:
-            # Boundary tensor: (up, phys)
-            u, p = shape
-            d = 1
-        elif len(shape) == 3:
-            # Bulk tensor: (up, down, phys)
-            u, d, p = shape
-        else:
-            raise ValueError(f"Unexpected tensor shape {shape}")
+        # Set index labels
+        A1.set_index_labels(['u1', 'd1', 'p1'])
+        A2.set_index_labels(['u2', 'd2', 'p2'])
 
-        # Identity (bit=0)
-        T0 = np.zeros((u, u, p, d, d, p))
-        # Swap up/down (bit=1)
-        T1 = np.zeros((u, u, p, d, d, p))
-        for a in range(u):
-            for b in range(d):
-                for c in range(p):
-                    # identity: |c>⊗|c> stays |c>⊗|c>
-                    T0[a, a, c, b, b, c] = 1.0
-                for c_prime in range(p):
-                    for c in range(p):
-                        # swap: |c>⊗|c'> goes to |c'>⊗|c>
-                        T1[a, a, c_prime, b, b, c] = 1.0
+        D = A1 @ A2
+        D = D.combine_indices([('u1', 'u2')], new_label='a')
+        D = D.combine_indices([('d1', 'd2')], new_label='b')
+        D.set_index_labels(['a', 'b', 'c', 'd'])
 
-        T_site = np.zeros((2, u, u, p, d, d, p))
-        T_site[0] = T0
-        T_site[1] = T1
+        D_conj = D.dagger()
+        D_conj.set_index_labels(['e', 'f', 'p1', 'p2'])
 
-        EF.append(T_site)
+        for p1 in [0,1]:
+            for p2 in [0,1]:
+                m1 = A1[:,:p1]
+                m2 = A2[:,:p2]
+                Terry[:,:,p1,p2] = m1 @ m2
+
+        if T[:,:,0] :
+            D_conj.set_index_labels(['e', 'f', 'c', 'd'])
+            Terry = TN(D, D_conj)
+
+        if SWAP:
+            D_conj.set_index_labels(['e', 'f', 'd', 'c'])
+            Terry = TN(D, D_conj)
+            Terry.contract_indexs(['c', 'd'])
+            Terry.combine_indices([('a', 'e')], new_label='up')
+            Terry.combine_indices([('b', 'f')], new_label='down') 
+
 
     return EF
 
@@ -55,20 +55,11 @@ def contract_ef_bitstring(EF, bitstring):
     bitstring: list of 0/1 of length N
     Returns: Renyi-2 value (float)
     """
-    assert len(bitstring) == len(EF)
-    N = len(EF)
-
-    # Use trace(A ⊗ B) = trace(A) * trace(B) to avoid exponential growth of matrix size
-    R2 = 1.0    # would be great if true but i dont think it is lol
-    
-    for i in range(N):
-        Ti = EF[i][bitstring[i]]        # shape (u, u, p, d, d, p)
-        left = np.prod(Ti.shape[:3])   # dimensions to the left of the trace
-        right = np.prod(Ti.shape[3:])   # dimensions to the right of the trace
-        Ti_reshaped = Ti.reshape((left, right)) # shape (left, right)
-        print("Ti_reshaped shape:", Ti_reshaped.shape)
-        R2 *= np.trace(Ti_reshaped)   # trace over the reshaped matrix
-
+    assert len(bitstring) == len(EF) , "Bitstring length must match EF length"
+    ef_mps = MPS.from_arrays(EF)
+    bit_mps = MPS.from_bitstring(bitstring)
+    a = ef_mps.compute_inner_product(bit_mps)
+    R2 = a.real
     return R2
 
 # best cut according to EF
