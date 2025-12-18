@@ -285,6 +285,46 @@ class TensorNetwork:
         self.add_tensor(new_tensor, position=pos)
 
         return
+    
+    def contract_indices(self, idxs: List[str]) -> None:
+        """
+        Contract multiple indices in the tensor network.
+
+        Args:
+            idxs: The names of the indices to contract.
+        """
+        tensors = self.get_tensors_from_index_name(idxs[0])
+        if len(tensors) != 2:
+            raise ValueError("Can only contract indices connecting two tensors.")
+        tensor0, tensor1 = tensors[0], tensors[1]
+        for idx in idxs:
+            if idx not in tensor0.indices or idx not in tensor1.indices:
+                raise ValueError(f"Index {idx} not found in both tensors.")
+            
+        output_indices = [i for i in tensor0.indices if i not in idxs] + [
+            i for i in tensor1.indices if i not in idxs
+        ]
+
+        new_data = ctg.array_contract(
+            arrays=[tensor0.data, tensor1.data],
+            inputs=[tensor0.indices, tensor1.indices],
+            output=output_indices,
+            cache_expression=True,
+            prefer_einsum=True,
+        )
+        new_labels = [self.get_new_label()]
+        if len(new_data.shape) > len(output_indices):
+            new_data = new_data.reshape(new_data.shape[1:])
+        new_tensor = Tensor(new_data, output_indices, new_labels)
+
+        pos = self.tensors.index(tensor0)
+        self.tensors.remove(tensor0)
+        self.tensors.remove(tensor1)
+        for idx in idxs:
+            self.indices.remove(idx)
+        self.add_tensor(new_tensor, position=pos)
+
+        return
 
     def compress_index(
         self,
