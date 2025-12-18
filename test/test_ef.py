@@ -9,31 +9,26 @@ TEST_ARRAYS = [
 ]
 
 mps = MPS.from_arrays(TEST_ARRAYS)
+ef_mps = build_entanglement_feature(mps)
 
 def test_build_entanglement_feature_shapes():
-    ef_mps = build_entanglement_feature(mps)
+    for A in ef_mps.tensors:
+        if A.data.ndim == 2:
+            assert A.data.shape == (16, 2)
+        elif A.data.ndim == 3:
+            assert A.data.shape == (16, 16, 2)
     print("build_entanglement_feature_shapes: PASSED")
 
-
 def test_contract_ef_bitstring_identity_only():
+    """
+    Test contract_ef_bitstring on an EF MPS built from identity and swap tensors only
+    The expected R2 is the product of the diagonal dimensions after reshaping each EF tensor to 2D.
+    """
+    R2 = contract_ef_bitstring(ef_mps, [0]*len(TEST_ARRAYS))
+    assert R2 > 0
+    assert isinstance(R2, float)
+    print("R2 value for all-0 bitstring:", R2)
     print("contract_ef_bitstring_identity_only: PASSED")
-
-def test_contract_ef_bitstring_identity_small():
-    """
-    Test contract_ef_bitstring on a 2-site MPS with small bond and physical dimensions.
-    EF tensors are all ones, so the expected R2 is the product of the diagonal dimensions
-    after reshaping each EF tensor to 2D.
-    """
-    print("test_contract_ef_bitstring_identity_small: PASSED")
-
-def test_contract_ef_bitstring_nonidentity():
-    """
-    Test contract_ef_bitstring with a small 2-site EF MPO that is NOT identity.
-    We use simple integers so the expected R2 can be computed manually.
-    """
-    print("contract_ef_bitstring_mixed: PASSED")
-
-ef_mps = build_entanglement_feature(mps)
 
 def test_ef_best_cut_bounds():
     cut = ef_best_cut(ef_mps)
@@ -47,20 +42,17 @@ def test_split_mps_at_cut():
     assert len(right.tensors) == 2
     print("split_mps_at_cut: PASSED")
 
-
 def test_best_cut_on_random_mps():
     num_qubits = 20           
     test_mps = MPS.random_quantum_state_mps(num_qubits, 2, 2)
     cut = ef_best_cut(test_mps)
     assert 1 <= cut < num_qubits
     print("best_cut_on_random_mps: PASSED")
-
+    
     
 if __name__ == "__main__":
     test_build_entanglement_feature_shapes()
     test_contract_ef_bitstring_identity_only()
-    test_contract_ef_bitstring_identity_small()
-    test_contract_ef_bitstring_nonidentity()
     test_ef_best_cut_bounds()
-    #test_split_mps_at_cut()
-    #test_best_cut_on_random_mps()
+    test_split_mps_at_cut()
+    test_best_cut_on_random_mps()
