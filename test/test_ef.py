@@ -19,15 +19,33 @@ def test_build_entanglement_feature_shapes():
             assert A.data.shape == (16, 16, 2)
     print("build_entanglement_feature_shapes: PASSED")
 
-def test_contract_ef_bitstring_identity_only():
-    """
-    Test contract_ef_bitstring on an EF MPS built from identity and swap tensors only
-    The expected R2 is the product of the diagonal dimensions after reshaping each EF tensor to 2D.
-    """
+def test_contract_ef_bitstring():
     R2 = contract_ef_bitstring(ef_mps, [0]*len(TEST_ARRAYS))
     assert R2 > 0
     assert isinstance(R2, float)
-    print("R2 value for all-0 bitstring:", R2)
+    N = len(ef_mps.tensors)
+    for i in range(1, N):
+        bitstring = [1]*i + [0]*(N-i)
+        bit_mps = MPS.from_bitstring(bitstring)
+
+        env = None
+        for A, B in zip(ef_mps.tensors, bit_mps.tensors):
+            A = A.data if hasattr(A, 'data') else A
+            B = B.data if hasattr(B, 'data') else B
+
+            C = np.tensordot(A.conj(), B, axes=([-1], [-1]))
+            C = np.squeeze(C)
+            if env is None:
+                env = C
+            else:
+                env = np.tensordot(env, C, axes=([-1], [0]))
+
+        if hasattr(env, 'todense'):
+            val = env.todense()
+        else:
+            val = np.asarray(env)
+        R2_test = float(val.real)
+        assert np.isclose(R2, R2_test)
     print("contract_ef_bitstring_identity_only: PASSED")
 
 def test_ef_best_cut_bounds():
@@ -52,7 +70,7 @@ def test_best_cut_on_random_mps():
     
 if __name__ == "__main__":
     test_build_entanglement_feature_shapes()
-    test_contract_ef_bitstring_identity_only()
+    test_contract_ef_bitstring()
     test_ef_best_cut_bounds()
     test_split_mps_at_cut()
     test_best_cut_on_random_mps()
