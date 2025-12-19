@@ -293,13 +293,14 @@ class TensorNetwork:
         Args:
             idxs: The names of the indices to contract.
         """
-        tensors = self.get_tensors_from_index_name(idxs[0])
-        if len(tensors) != 2:
+        candidate_tensors = [
+            t for t in self.tensors
+            if all(idx in t.indices for idx in idxs)
+        ]
+
+        if len(candidate_tensors) != 2:
             raise ValueError("Can only contract indices connecting two tensors.")
-        tensor0, tensor1 = tensors[0], tensors[1]
-        for idx in idxs:
-            if idx not in tensor0.indices or idx not in tensor1.indices:
-                raise ValueError(f"Index {idx} not found in both tensors.")
+        tensor0, tensor1 = candidate_tensors[0], candidate_tensors[1]
             
         output_indices = [i for i in tensor0.indices if i not in idxs] + [
             i for i in tensor1.indices if i not in idxs
