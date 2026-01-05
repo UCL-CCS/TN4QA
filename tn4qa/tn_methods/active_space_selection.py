@@ -70,7 +70,7 @@ class ActiveSpaceSelection:
 
         # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
         print("Start DMRG")
-        max_mps_bond = function_args.get("dmrg_max_mps_bond", 2)
+        max_mps_bond = function_args.get("dmrg_max_mps_bond", 8)
         method = function_args.get("dmrg_method", "two-site")
         convergence_threshold = function_args.get("dmrg_convergence_threshold", 1e-9)
         initial_state = function_args.get("dmrg_initial_state", None)
@@ -92,16 +92,19 @@ class ActiveSpaceSelection:
         decay_power = function_args.get("cost_function_decay_power", 2.0)
         cost_max_bond = function_args.get("cost_function_max_bond", None)
         cost_mpo = self.build_cost_function_mpo(
-            cost_function=cost_function, decay_power=decay_power, max_bond=cost_max_bond
+            cost_function=cost_function,
+            decay_power=decay_power,
+            max_bond=cost_max_bond,
+            num_active_orbitals=num_active_orbitals,
         )
 
         # Run gradient descent optimisation to find optimal theta
         print("Start optimisation")
         theta_init = np.zeros((N**2,), dtype=float)  # Initial guess for theta
         opt_max_bond = function_args.get("rotation_mpo_max_bond", 16)
-        opt_lr = function_args.get("optimisation_learning_rate", 0.01)
+        opt_lr = function_args.get("optimisation_learning_rate", 0.1)
         opt_max_iter = function_args.get("optimisation_maxiter", 100)
-        opt_grad_tol = function_args.get("optimisation_grad_tolerance", 1e-18)
+        opt_grad_tol = function_args.get("optimisation_grad_tolerance", 1e-16)
         opt_cost_tol = function_args.get("optimisation_cost_tolerance", 1e-12)
         self.theta_opt = self.gradient_descent(
             theta_init,
@@ -145,11 +148,18 @@ class ActiveSpaceSelection:
         return psi
 
     def build_cost_function_mpo(
-        self, cost_function: Callable, decay_power: float, max_bond: int | None = None
+        self,
+        cost_function: Callable,
+        decay_power: float,
+        max_bond: int | None = None,
+        num_active_orbitals: int | None = None,
     ) -> MatrixProductOperator:
         """Build the cost function as an MPO"""
         d = cost_function_to_dict(
-            cost_function, num_orbitals=self.num_orbitals, decay_power=decay_power
+            cost_function,
+            num_orbitals=self.num_orbitals,
+            decay_power=decay_power,
+            num_active_orbitals=num_active_orbitals,
         )
         mpo = cost_function_dict_to_purity_mpo(self.num_spin_orbitals, d, max_bond)
         return mpo
@@ -438,21 +448,22 @@ class ActiveSpaceSelection:
             grad_dict = self.calculate_gradients(
                 theta, pauli_lookup, mpo, mps, max_bond
             )
-            grad = np.array(list(grad_dict.values()), dtype=float)
+            grad = np.array([grad_dict[i] for i in range(len(theta))], dtype=float)
 
             grad_norm = np.linalg.norm(grad)
             if grad_norm < grad_tol:
                 print(f"Converged at iteration {iter}, grad_norm={grad_norm:.3e}")
                 break
 
-            cost_diff = np.abs(self.all_costs[-1] - self.all_costs[-2])
-            if iter > 10:
+            if iter >= 1:
+                cost_diff = np.abs(self.all_costs[-1] - self.all_costs[-2])
+            if iter > 100:
                 if cost_diff < cost_tol:
                     print(f"Converged at iteration {iter}, cost_diff={cost_diff:.3e}")
                     break
 
-            theta -= lr * grad
-            if iter % 2 == 0 or iter == max_iters - 1:
+            theta += lr * grad
+            if iter % 5 == 0 or iter == max_iters - 1:
                 print(
                     f"Iteration number: {iter:3d} grad_norm={grad_norm:.3e} cost={self.all_costs[-1]}"
                 )
