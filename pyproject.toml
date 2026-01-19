@@ -1,4 +1,4 @@
-[tool.poetry]
+[project]
 name = "tn4qa"
 version = "0.0.4"
 description = "A Python package to integrate tensor network methods with quantum algorithms."
@@ -8,60 +8,43 @@ authors = [
 ]
 license = "MIT"
 readme = "README.md"
-
-[tool.poetry.dependencies]
-python = ">=3.11, <3.12"
-sparse = "^0.15.4, <0.16"
-qiskit = ">=1.3.0, <2"
-qiskit-ibm-runtime = ">=0.34.0"
-qiskit-aer = ">=0.15.1"
-qiskit-algorithms = ">=0.3.1"
-cotengra = ">=0.6.2"
-kahypar = [
-    {version = "^1.3.5", platform = "darwin"},
-    {version = "^1.3.5", platform = "linux"}
+requires-python = ">=3.12, <3.15"
+dependencies = [
+    "sparse>=0.15.4, <0.16",
+    "qiskit>=2.0.0",
+    "qiskit-ibm-runtime>=0.34.0",
+    "qiskit-aer>=0.15.1",
+    "qiskit-algorithms>=0.3.1",
+    "cotengra>=0.6.2",
+    "scipy>=1.15.0, <2",
+    "numpy>=2.1, <3",
+    "cotengrust>=0.1.4",
+    "matplotlib>=3.10.1",
+    "cached-property>=1.5.2",
+    "scikit-learn>=1.3.0",
+    "kahypar>=1.3.6",
+    "networkx>=3.6.1",
+    "iqm-client>=22.4",
 ]
-symmer = ">=0.0.9"
-scipy = ">=1.15.0, <2"
-numpy = ">=2.1, <3"
-cotengrust = ">=0.1.4"
-matplotlib = ">=3.10.1"
-cached-property = ">=1.5.2"
-scikit-learn = ">=1.3.0"
-iqm-client = { version = ">=29.2.0", optional = true, python = "<3.13" }
 
-[[tool.poetry.source]]
-name = "PyPI"
-priority = "primary"
+[project.optional-dependencies]
+symmer = [
+    "symmer>=0.0.10",
+]
 
-
-[tool.poetry.group.dev.dependencies]
-coverage = "^7.6.9"
-ipykernel = "^6.29.5"
-pyscf = "^2.8.0"
-ruff = ">=0.8.2"
-black = ">=24.10.0"
-isort = ">=5.13.2"
-mypy = ">=1.13.0"
-poetry = "^1.8.5"
-pre-commit = "^4.0.1"
-pydocstyle = "^6.3.0"
-pytest = "^7.2.2"
-sphinx = "^5.3.0"
-myst-parser = "^0.18.1"
-
-[tool.poetry.extras]
-iqm = ["iqm-client"]
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
-
-# Ignore pytest warnings here
-[tool.pytest.ini_options]
-filterwarnings = [
-    "ignore:.*The property ``qiskit.dagcircuit.dagcircuit.DAGCircuit.(duration|unit)`` is deprecated as of qiskit 1.3.0.*",
-    "ignore:.*Couldn't import `kahypar` - skipping from default hyper optimizer and using basic `labels` method instead.*",
+[dependency-groups]
+dev = [
+    "coverage>=7.13.1",
+    "ipykernel>=7.1.0",
+    "mypy>=1.19.1",
+    "myst-parser>=5.0.0",
+    "poetry>=2.3.0",
+    "pre-commit>=4.5.1",
+    "pyscf>=2.11.0",
+    "pytest>=9.0.2",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.14.13",
+    "sphinx>=9.0.4",
 ]
 
 [tool.ruff]
