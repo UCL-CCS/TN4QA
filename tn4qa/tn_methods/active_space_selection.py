@@ -61,12 +61,12 @@ class ActiveSpaceSelection:
         """
         function_args = kwargs
         N = self.num_spin_orbitals
-        assert (
-            self.coeff_matrix.shape[1] == N
-        ), "Number of columns must be twice the number of rows"
-        assert (
-            self.coeff_matrix.shape[0] == N / 2
-        ), "Number of columns must be twice the number of rows"
+        assert self.coeff_matrix.shape[1] == N, (
+            "Number of columns must be twice the number of rows"
+        )
+        assert self.coeff_matrix.shape[0] == N / 2, (
+            "Number of columns must be twice the number of rows"
+        )
 
         # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
         print("Start DMRG")

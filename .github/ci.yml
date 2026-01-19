@@ -39,22 +39,18 @@ jobs:
         python-version: ["3.11", "3.14"]
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: "pip"
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - name: Install uv & Setup Python
+        uses: astral-sh/setup-uv@v7
         with:
           # Install a specific version of uv.
+          python-version: ${{matrix.python-version}}
           version: "0.7.12"
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Install Dependencies
         run: |
           uv venv .venv/
-          uv pip install -r pyproject.toml --all-extras
+          uv pip install -r pyproject.toml --all-extras --all-groups
       - name: Check Pre-commits
         run: |
           uv run pre-commit install

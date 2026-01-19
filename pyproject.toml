@@ -3,8 +3,8 @@ name = "tn4qa"
 version = "0.0.4"
 description = "A Python package to integrate tensor network methods with quantum algorithms."
 authors = [
-    "Angus Mingare <angus.mingare.22@ucl.ac.uk>",
-    "Isabelle Heuzé <isabelle.heuze.24@ucl.ac.uk>",
+    {name="Angus Mingare",  email="angus.mingare.22@ucl.ac.uk"},
+    {name="Isabelle Heuzé", email="isabelle.heuze.24@ucl.ac.uk"}
 ]
 license = "MIT"
 readme = "README.md"
@@ -26,6 +26,10 @@ dependencies = [
     "networkx>=3.6.1",
     "iqm-client>=22.4",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project.optional-dependencies]
 symmer = [

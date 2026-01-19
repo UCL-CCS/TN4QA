@@ -108,11 +108,11 @@ class MatrixProductOperator(TensorNetwork):
         for a_idx in range(1, len(arrays) - 1):
             a = arrays[a_idx]
             indices_k = ["", "", "", ""]
-            indices_k[right_idx_pos] = f"R{a_idx+1}"
-            indices_k[left_idx_pos] = f"L{a_idx+1}"
+            indices_k[right_idx_pos] = f"R{a_idx + 1}"
+            indices_k[left_idx_pos] = f"L{a_idx + 1}"
             indices_k[up_idx_pos] = f"B{a_idx}"
-            indices_k[down_idx_pos] = f"B{a_idx+1}"
-            tensor_k = Tensor(a, indices_k, [f"MPO_T{a_idx+1}"])
+            indices_k[down_idx_pos] = f"B{a_idx + 1}"
+            tensor_k = Tensor(a, indices_k, [f"MPO_T{a_idx + 1}"])
             tensors.append(tensor_k)
 
         last_shape = shape.replace("d", "")
@@ -122,7 +122,7 @@ class MatrixProductOperator(TensorNetwork):
         last_indices = ["", "", ""]
         last_indices[right_idx_pos] = f"R{len(arrays)}"
         last_indices[left_idx_pos] = f"L{len(arrays)}"
-        last_indices[up_idx_pos] = f"B{len(arrays)-1}"
+        last_indices[up_idx_pos] = f"B{len(arrays) - 1}"
         last_tensor = Tensor(arrays[-1], last_indices, [f"MPO_T{len(arrays)}"])
         tensors.append(last_tensor)
 
@@ -193,7 +193,7 @@ class MatrixProductOperator(TensorNetwork):
                 )
                 tensors.append(tensor)
             else:
-                indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
+                indices = [f"B{qidx - 1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
                 labels = [f"MPO_T{qidx}"]
                 tensor = Tensor.from_array(
                     np.array([[1, 0], [0, 1]], dtype=complex).reshape(1, 1, 2, 2),
@@ -207,7 +207,7 @@ class MatrixProductOperator(TensorNetwork):
                 indices = (
                     [f"B{qidx}", f"R{qidx}", f"L{qidx}"]
                     if qidx == 1
-                    else [f"B{qidx-1}", f"R{qidx}", f"L{qidx}"]
+                    else [f"B{qidx - 1}", f"R{qidx}", f"L{qidx}"]
                 )
                 labels = [f"MPO_T{qidx}"]
                 if qidx in zero_ctrls:
@@ -228,7 +228,7 @@ class MatrixProductOperator(TensorNetwork):
                     tensor = Tensor.rank_3_qiskit_gate(unitary_gate, indices, labels)
                 tensor.data = sparse.reshape(tensor.data, (1,) + tensor.dimensions)
                 tensor.dimensions = (1,) + tensor.dimensions
-                tensor.indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
+                tensor.indices = [f"B{qidx - 1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
                 tensor.rank = 4
                 tensors.append(tensor)
 
@@ -251,12 +251,12 @@ class MatrixProductOperator(TensorNetwork):
                     + (1,)
                     + (tensor.dimensions[1], tensor.dimensions[2])
                 )
-                tensor.indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
+                tensor.indices = [f"B{qidx - 1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
                 tensor.rank = 4
                 tensors.append(tensor)
 
             else:
-                indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
+                indices = [f"B{qidx - 1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
                 labels = [f"MPO_T{qidx}"]
                 if qidx in zero_ctrls:
                     tensor = Tensor.rank_4_copy_open(indices, labels)
@@ -272,7 +272,7 @@ class MatrixProductOperator(TensorNetwork):
 
         for qidx in range(last_mcu_qubit + 1, num_sites + 1):
             if qidx == num_sites:
-                last_indices = [f"B{num_sites-1}", f"R{num_sites}", f"L{num_sites}"]
+                last_indices = [f"B{num_sites - 1}", f"R{num_sites}", f"L{num_sites}"]
                 last_labels = [f"MPO_T{num_sites}"]
                 tensor = Tensor.from_array(
                     np.array([[1, 0], [0, 1]], dtype=complex).reshape(1, 2, 2),
@@ -281,7 +281,7 @@ class MatrixProductOperator(TensorNetwork):
                 )
                 tensors.append(tensor)
             else:
-                indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
+                indices = [f"B{qidx - 1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
                 labels = [f"MPO_T{qidx}"]
                 tensor = Tensor.from_array(
                     np.array([[1, 0], [0, 1]], dtype=complex).reshape(1, 1, 2, 2),
@@ -329,13 +329,13 @@ class MatrixProductOperator(TensorNetwork):
 
         num_sites = len(ps)
         for qidx in range(2, num_sites):
-            qidx_indices = [f"B{qidx-1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
+            qidx_indices = [f"B{qidx - 1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
             qidx_labels = [f"MPO_T{qidx}"]
             qidx_gate = pauli_dict[ps[qidx - 1]].reshape(1, 1, 2, 2)
             qidx_tensor = Tensor(qidx_gate, qidx_indices, qidx_labels)
             tensors.append(qidx_tensor)
 
-        last_indices = [f"B{num_sites-1}", f"R{num_sites}", f"L{num_sites}"]
+        last_indices = [f"B{num_sites - 1}", f"R{num_sites}", f"L{num_sites}"]
         last_labels = [f"MPO_T{num_sites}"]
         last_gate = pauli_dict[ps[-1]].reshape(1, 2, 2)
         last_tensor = Tensor(last_gate, last_indices, last_labels)
@@ -870,24 +870,24 @@ class MatrixProductOperator(TensorNetwork):
                     t,
                     input_indices=input_inds,
                     output_indices=output_inds,
-                    new_index_name=f"C{idx+1}",
-                    new_labels=[[f"T{idx+1}"], [f"T{idx+2}"]],
+                    new_index_name=f"C{idx + 1}",
+                    new_labels=[[f"T{idx + 1}"], [f"T{idx + 2}"]],
                 )
                 if idx == 0:
                     new_idx_order1 = [
-                        f"C{idx+1}",
+                        f"C{idx + 1}",
                         f"out{qidxs[idx]}",
                         f"in{qidxs[idx]}",
                     ]
-                    new_idx_order2 = [f"C{idx+1}"] + output_inds
+                    new_idx_order2 = [f"C{idx + 1}"] + output_inds
                 else:
                     new_idx_order1 = [
                         f"C{idx}",
-                        f"C{idx+1}",
+                        f"C{idx + 1}",
                         f"out{qidxs[idx]}",
                         f"in{qidxs[idx]}",
                     ]
-                new_idx_order2 = [f"C{idx+1}"] + output_inds
+                new_idx_order2 = [f"C{idx + 1}"] + output_inds
                 tn.tensors[idx].reorder_indices(new_idx_order1)
                 tn.tensors[idx + 1].reorder_indices(new_idx_order2)
             arrays = [tn.tensors[i].data for i in range(len(qidxs))]
@@ -1490,23 +1490,23 @@ class MatrixProductOperator(TensorNetwork):
                 t,
                 input_indices=input_inds,
                 output_indices=output_inds,
-                new_index_name=f"C{idx+1}",
-                new_labels=[[f"T{idx+1}"], [f"T{idx+2}"]],
+                new_index_name=f"C{idx + 1}",
+                new_labels=[[f"T{idx + 1}"], [f"T{idx + 2}"]],
             )
             if idx == 0:
                 new_idx_order1 = [
-                    f"C{idx+1}",
+                    f"C{idx + 1}",
                     "R1",
                     "L1",
                 ]
             else:
                 new_idx_order1 = [
                     f"C{idx}",
-                    f"C{idx+1}",
-                    f"R{idx+1}",
-                    f"L{idx+1}",
+                    f"C{idx + 1}",
+                    f"R{idx + 1}",
+                    f"L{idx + 1}",
                 ]
-            new_idx_order2 = [f"C{idx+1}"] + output_inds
+            new_idx_order2 = [f"C{idx + 1}"] + output_inds
             tn.tensors[idx].reorder_indices(new_idx_order1)
             tn.tensors[idx + 1].reorder_indices(new_idx_order2)
         arrays = [tn.tensors[i].data for i in range(num_qubits)]
@@ -1769,50 +1769,56 @@ class MatrixProductOperator(TensorNetwork):
             t1, t2 = tn.get_tensors_from_index_name(f"A{idx}")
             t1.labels.append("T1_TEMP_LABEL")
             t2.labels.append("T2_TEMP_LABEL")
-            t3 = tn.get_tensors_from_index_name(f"E{idx+1}")[0]
+            t3 = tn.get_tensors_from_index_name(f"E{idx + 1}")[0]
             t3.labels.append("T3_TEMP_LABEL")
             new_t_data = ctg.array_contract(
                 arrays=[t1.data, t2.data, t3.data],
                 inputs=[t1.indices, t2.indices, t3.indices],
-                output=[f"F{idx}", f"B{idx+1}", f"E{idx+1}", f"A{idx+1}", f"D{idx+1}"],
+                output=[
+                    f"F{idx}",
+                    f"B{idx + 1}",
+                    f"E{idx + 1}",
+                    f"A{idx + 1}",
+                    f"D{idx + 1}",
+                ],
                 cache_expression=True,
                 prefer_einsum=True,
             )
             new_t = Tensor(
                 new_t_data,
-                [f"F{idx}", f"B{idx+1}", f"E{idx+1}", f"A{idx+1}", f"D{idx+1}"],
+                [f"F{idx}", f"B{idx + 1}", f"E{idx + 1}", f"A{idx + 1}", f"D{idx + 1}"],
                 [f"NEW_LABEL_{idx}"],
             )
             tn.pop_tensors_by_label(t1.labels)
             tn.pop_tensors_by_label(t2.labels)
             tn.pop_tensors_by_label(t3.labels)
             tn.add_tensor(new_t)
-            tensor = tn.get_tensors_from_index_name(f"B{idx+1}")[0]
+            tensor = tn.get_tensors_from_index_name(f"B{idx + 1}")[0]
             tn.svd(
                 tensor,
-                input_indices=[f"F{idx}", f"B{idx+1}", f"E{idx+1}"],
-                output_indices=[f"A{idx+1}", f"D{idx+1}"],
-                new_index_name=f"F{idx+1}",
+                input_indices=[f"F{idx}", f"B{idx + 1}", f"E{idx + 1}"],
+                output_indices=[f"A{idx + 1}", f"D{idx + 1}"],
+                new_index_name=f"F{idx + 1}",
                 new_labels=[[f"NEXT{idx}"], []],
                 max_bond=max_bond,
             )
             next_tensor = tn.get_tensors_from_label(f"NEXT{idx}")[0]
             next_tensor.reorder_indices(
-                [f"F{idx}", f"F{idx+1}", f"E{idx+1}", f"B{idx+1}"]
+                [f"F{idx}", f"F{idx + 1}", f"E{idx + 1}", f"B{idx + 1}"]
             )
             new_tensors.append(next_tensor)
 
         # Final contraction
-        t1, t2 = tn.get_tensors_from_index_name(f"A{n-1}")
+        t1, t2 = tn.get_tensors_from_index_name(f"A{n - 1}")
         t3 = tn.get_tensors_from_index_name(f"E{n}")[0]
         new_t_data = ctg.array_contract(
             arrays=[t1.data, t2.data, t3.data],
             inputs=[t1.indices, t2.indices, t3.indices],
-            output=[f"F{idx}", f"E{idx+1}", f"B{idx+1}"],
+            output=[f"F{idx}", f"E{idx + 1}", f"B{idx + 1}"],
             cache_expression=True,
             prefer_einsum=True,
         )
-        new_t = Tensor(new_t_data, [f"F{idx}", f"E{idx+1}", f"B{idx+1}"], [])
+        new_t = Tensor(new_t_data, [f"F{idx}", f"E{idx + 1}", f"B{idx + 1}"], [])
         tn.pop_tensors_by_label(t1.labels)
         tn.pop_tensors_by_label(t2.labels)
         tn.pop_tensors_by_label(t3.labels)
@@ -1869,7 +1875,7 @@ class MatrixProductOperator(TensorNetwork):
             t1, t2 = tn.get_tensors_from_index_name(f"X{idx}")
             t1.labels.append("T1_TEMP_LABEL")
             t2.labels.append("T2_TEMP_LABEL")
-            t3, t4 = tn.get_tensors_from_index_name(f"C{idx+1}")
+            t3, t4 = tn.get_tensors_from_index_name(f"C{idx + 1}")
             t3.labels.append("T3_TEMP_LABEL")
             t4.labels.append("T4_TEMP_LABEL")
             new_t_data = ctg.array_contract(
@@ -1877,11 +1883,11 @@ class MatrixProductOperator(TensorNetwork):
                 inputs=[t1.indices, t2.indices, t3.indices, t4.indices],
                 output=[
                     f"W{idx}",
-                    f"A{idx+1}",
-                    f"D{idx+1}",
-                    f"X{idx+1}",
-                    f"Y{idx+1}",
-                    f"Z{idx+1}",
+                    f"A{idx + 1}",
+                    f"D{idx + 1}",
+                    f"X{idx + 1}",
+                    f"Y{idx + 1}",
+                    f"Z{idx + 1}",
                 ],
                 cache_expression=True,
                 prefer_einsum=True,
@@ -1890,11 +1896,11 @@ class MatrixProductOperator(TensorNetwork):
                 new_t_data,
                 [
                     f"W{idx}",
-                    f"A{idx+1}",
-                    f"D{idx+1}",
-                    f"X{idx+1}",
-                    f"Y{idx+1}",
-                    f"Z{idx+1}",
+                    f"A{idx + 1}",
+                    f"D{idx + 1}",
+                    f"X{idx + 1}",
+                    f"Y{idx + 1}",
+                    f"Z{idx + 1}",
                 ],
                 [f"NEW_LABEL_{idx}"],
             )
@@ -1904,32 +1910,32 @@ class MatrixProductOperator(TensorNetwork):
             tn.pop_tensors_by_label(t4.labels)
             tn.add_tensor(new_t)
 
-            tensor = tn.get_tensors_from_index_name(f"A{idx+1}")[0]
+            tensor = tn.get_tensors_from_index_name(f"A{idx + 1}")[0]
             tn.svd(
                 tensor,
-                input_indices=[f"W{idx}", f"A{idx+1}", f"D{idx+1}"],
-                output_indices=[f"X{idx+1}", f"Y{idx+1}", f"Z{idx+1}"],
-                new_index_name=f"W{idx+1}",
+                input_indices=[f"W{idx}", f"A{idx + 1}", f"D{idx + 1}"],
+                output_indices=[f"X{idx + 1}", f"Y{idx + 1}", f"Z{idx + 1}"],
+                new_index_name=f"W{idx + 1}",
                 new_labels=[[f"NEXT{idx}"], []],
                 max_bond=max_bond,
             )
             next_tensor = tn.get_tensors_from_label(f"NEXT{idx}")[0]
             next_tensor.reorder_indices(
-                [f"W{idx}", f"W{idx+1}", f"D{idx+1}", f"A{idx+1}"]
+                [f"W{idx}", f"W{idx + 1}", f"D{idx + 1}", f"A{idx + 1}"]
             )
             new_tensors.append(next_tensor)
 
         # Final contraction
-        t1, t2 = tn.get_tensors_from_index_name(f"X{n-1}")
+        t1, t2 = tn.get_tensors_from_index_name(f"X{n - 1}")
         t3, t4 = tn.get_tensors_from_index_name(f"C{n}")
         new_t_data = ctg.array_contract(
             arrays=[t1.data, t2.data, t3.data, t4.data],
             inputs=[t1.indices, t2.indices, t3.indices, t4.indices],
-            output=[f"W{n-1}", f"D{n}", f"A{n}"],
+            output=[f"W{n - 1}", f"D{n}", f"A{n}"],
             cache_expression=True,
             prefer_einsum=True,
         )
-        new_t = Tensor(new_t_data, [f"W{n-1}", f"D{n}", f"A{n}"], [])
+        new_t = Tensor(new_t_data, [f"W{n - 1}", f"D{n}", f"A{n}"], [])
         tn.pop_tensors_by_label(t1.labels)
         tn.pop_tensors_by_label(t2.labels)
         tn.pop_tensors_by_label(t3.labels)
@@ -1966,11 +1972,11 @@ class MatrixProductOperator(TensorNetwork):
             t2 = mpo2.tensors[tidx]
             t1_current_indices = t1.indices
             t1.indices = [
-                f"D{tidx+1}" if x[0] == "R" else x for x in t1_current_indices
+                f"D{tidx + 1}" if x[0] == "R" else x for x in t1_current_indices
             ]
             t2_current_indices = t2.indices
             t2.indices = [
-                f"D{tidx+1}" if x[0] == "L" else x + "_" for x in t2_current_indices
+                f"D{tidx + 1}" if x[0] == "L" else x + "_" for x in t2_current_indices
             ]
 
         all_tensors = mpo1.tensors + mpo2.tensors
@@ -1979,14 +1985,14 @@ class MatrixProductOperator(TensorNetwork):
         tn.contract_index(f"D{mpo1.num_sites}")
         tensor = tn.get_tensors_from_index_name(f"L{mpo1.num_sites}")[0]
         input_inds = [f"R{mpo1.num_sites}_", f"L{mpo1.num_sites}"]
-        output_inds = [f"B{mpo1.num_sites-1}", f"B{mpo1.num_sites-1}_"]
-        tn.svd(tensor, input_inds, output_inds, new_index_name=f"C{mpo1.num_sites-1}")
+        output_inds = [f"B{mpo1.num_sites - 1}", f"B{mpo1.num_sites - 1}_"]
+        tn.svd(tensor, input_inds, output_inds, new_index_name=f"C{mpo1.num_sites - 1}")
         for n in list(range(1, mpo1.num_sites - 1))[::-1]:
-            tn.contract_index(f"D{n+1}")
+            tn.contract_index(f"D{n + 1}")
             tn.combine_indices([f"B{n}", f"B{n}_"], new_index_name=f"B{n}")
             tn.contract_index(f"B{n}")
-            tensor = tn.get_tensors_from_index_name(f"L{n+1}")[0]
-            input_inds = [f"R{n+1}_", f"L{n+1}"]
+            tensor = tn.get_tensors_from_index_name(f"L{n + 1}")[0]
+            input_inds = [f"R{n + 1}_", f"L{n + 1}"]
             output_inds = [f"B{n}", f"B{n}_"]
             tn.svd(tensor, input_inds, output_inds, new_index_name=f"C{n}")
         tn.contract_index("D1")
@@ -1998,10 +2004,10 @@ class MatrixProductOperator(TensorNetwork):
             if tidx == 0:
                 t.reorder_indices(["C1", "R1_", "L1"])
             elif tidx == self.num_sites - 1:
-                t.reorder_indices([f"C{tidx}", f"R{tidx+1}_", f"L{tidx+1}"])
+                t.reorder_indices([f"C{tidx}", f"R{tidx + 1}_", f"L{tidx + 1}"])
             else:
                 t.reorder_indices(
-                    [f"C{tidx}", f"C{tidx+1}", f"R{tidx+1}_", f"L{tidx+1}"]
+                    [f"C{tidx}", f"C{tidx + 1}", f"R{tidx + 1}_", f"L{tidx + 1}"]
                 )
 
         arrays = [t.data for t in tn.tensors]
@@ -2344,12 +2350,12 @@ class MatrixProductOperator(TensorNetwork):
             t2 = mpo2.tensors[tidx]
             t1_current_indices = t1.indices
             t1.indices = [
-                f"D{tidx+1}" if x[0] == contraction_prefix else x
+                f"D{tidx + 1}" if x[0] == contraction_prefix else x
                 for x in t1_current_indices
             ]
             t2_current_indices = t2.indices
             t2.indices = [
-                f"D{tidx+1}" if x[0] == sub_mpo_prefix else x + "_"
+                f"D{tidx + 1}" if x[0] == sub_mpo_prefix else x + "_"
                 for x in t2_current_indices
             ]
 
@@ -2357,9 +2363,9 @@ class MatrixProductOperator(TensorNetwork):
 
         tn = TensorNetwork(all_tensors, "TotalTN")
         for n in range(len(sites)):
-            tn.contract_index(f"D{n+1}")
+            tn.contract_index(f"D{n + 1}")
         for n in range(len(sites) - 1):
-            tn.combine_indices([f"B{n+1}", f"B{n+1}_"], new_index_name=f"B{n+1}")
+            tn.combine_indices([f"B{n + 1}", f"B{n + 1}_"], new_index_name=f"B{n + 1}")
         if contract_right:
             tn.tensors[0].reorder_indices(["B1", "R1_", "L1"])
         else:
@@ -2367,11 +2373,11 @@ class MatrixProductOperator(TensorNetwork):
         for n in range(1, len(sites)):
             if contract_right:
                 tn.tensors[n].reorder_indices(
-                    [f"B{n}", f"B{n+1}", f"R{n+1}_", f"L{n+1}"]
+                    [f"B{n}", f"B{n + 1}", f"R{n + 1}_", f"L{n + 1}"]
                 )
             else:
                 tn.tensors[n].reorder_indices(
-                    [f"B{n}", f"B{n+1}", f"R{n+1}", f"L{n+1}_"]
+                    [f"B{n}", f"B{n + 1}", f"R{n + 1}", f"L{n + 1}_"]
                 )
         arrays = [t.data for t in tn.tensors]
         mpo = MatrixProductOperator.from_arrays(arrays)
@@ -2412,13 +2418,13 @@ class MatrixProductOperator(TensorNetwork):
                     output = sparse.einsum(
                         "brr,bcd->cd", mpo.tensors[0].data, mpo.tensors[1].data
                     )
-                    new_indices = [f"R{idx+2}", f"L{idx+2}"]
+                    new_indices = [f"R{idx + 2}", f"L{idx + 2}"]
                     new_dimensions = output.shape
                 else:
                     output = sparse.einsum(
                         "brr,bcde->cde", mpo.tensors[0].data, mpo.tensors[1].data
                     )
-                    new_indices = [f"B{idx+2}", f"R{idx+2}", f"L{idx+2}"]
+                    new_indices = [f"B{idx + 2}", f"R{idx + 2}", f"L{idx + 2}"]
                     new_dimensions = output.shape
                 mpo.tensors.pop(0)
                 mpo.tensors[0].data = output

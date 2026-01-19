@@ -177,17 +177,18 @@ class ReadMoleculeData:
             self.nuclear_energy,
         )
 
+
 def stitch_matrices(A: np.ndarray, B: np.ndarray = None) -> np.ndarray:
     """
     Stitch one or two N x N matrices to produce an N x 2N matrix with alternating columns.
-    
+
     If only A is provided, it is duplicated and interleaved with itself.
     If both A and B are provided, they must be N x N and of the same shape.
-    
+
     Args:
         A (np.ndarray): First N x N matrix.
         B (np.ndarray, optional): Second N x N matrix. Defaults to None.
-        
+
     Returns:
         np.ndarray: N x 2N matrix with alternating columns from A and B (or A and A).
     """
@@ -205,19 +206,20 @@ def stitch_matrices(A: np.ndarray, B: np.ndarray = None) -> np.ndarray:
     C[:, 1::2] = B
     return C
 
+
 def split_matrices(C: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Split an N x 2N matrix into two N x N matrices with alternating columns.
-    
+
     Args:
         C (np.ndarray): An N x 2N matrix where columns alternate from A and B.
-        
+
     Returns:
         tuple: Two N x N matrices (A, B) extracted from C.
     """
     if C.ndim != 2 or C.shape[1] % 2 != 0:
         raise ValueError("Input must be a 2D matrix with an even number of columns.")
-    
+
     A = C[:, ::2]
     B = C[:, 1::2]
     return A, B

@@ -24,7 +24,7 @@ def cost_entropy(mps: MatrixProductState) -> float:
 def cost_entropy_dict(num_orbitals: int) -> dict:
     s = {}
     for i in range(num_orbitals):
-        s[f"S1_{i+1}"] = 1.0
+        s[f"S1_{i + 1}"] = 1.0
     return s
 
 
@@ -39,11 +39,11 @@ def cost_total_mutual_information(mps: MatrixProductState) -> float:
 def cost_total_mutual_information_dict(num_orbitals: int) -> dict:
     s = {}
     for i in range(num_orbitals):
-        s[f"S1_{i+1}"] = s.get(f"S1_{i+1}", 0) + 1.0
+        s[f"S1_{i + 1}"] = s.get(f"S1_{i + 1}", 0) + 1.0
         for j in range(i + 1, num_orbitals):
-            s[f"S1_{i+1}"] = s.get(f"S1_{i+1}", 0) + 1.0
-            s[f"S1_{j+1}"] = s.get(f"S1_{j+1}", 0) + 1.0
-            s[f"S2_{i+1}_{j+1}"] = s.get(f"S2_{i+1}_{j+1}", 0) - 1.0
+            s[f"S1_{i + 1}"] = s.get(f"S1_{i + 1}", 0) + 1.0
+            s[f"S1_{j + 1}"] = s.get(f"S1_{j + 1}", 0) + 1.0
+            s[f"S2_{i + 1}_{j + 1}"] = s.get(f"S2_{i + 1}_{j + 1}", 0) - 1.0
     return s
 
 
@@ -67,9 +67,11 @@ def cost_mutual_info_decay_dict(num_orbitals: int, decay_power: float = 2.0) -> 
     for i in range(num_orbitals):
         for j in range(i + 1, num_orbitals):
             distance = abs(i - j)
-            s[f"S1_{i+1}"] = s.get(f"S1_{i+1}", 0) + (distance**decay_power)
-            s[f"S1_{j+1}"] = s.get(f"S1_{j+1}", 0) + (distance**decay_power)
-            s[f"S2_{i+1}_{j+1}"] = s.get(f"S2_{i+1}_{j+1}", 0) - (distance**decay_power)
+            s[f"S1_{i + 1}"] = s.get(f"S1_{i + 1}", 0) + (distance**decay_power)
+            s[f"S1_{j + 1}"] = s.get(f"S1_{j + 1}", 0) + (distance**decay_power)
+            s[f"S2_{i + 1}_{j + 1}"] = s.get(f"S2_{i + 1}_{j + 1}", 0) - (
+                distance**decay_power
+            )
     return s
 
 

@@ -361,9 +361,9 @@ class ApproximateDiagonalisationMPO:
         self.ansatz_dag.dagger()
         for t in self.ansatz.tensors:
             t.labels.append("variational")
-            t.labels.append(f"variational_site_{self.ansatz.tensors.index(t)+1}")
+            t.labels.append(f"variational_site_{self.ansatz.tensors.index(t) + 1}")
         for t in self.ansatz_dag.tensors:
-            t.labels.append(f"variational_site_{self.ansatz_dag.tensors.index(t)+1}")
+            t.labels.append(f"variational_site_{self.ansatz_dag.tensors.index(t) + 1}")
         reference.set_default_indices(
             internal_prefix="A", input_prefix="T", output_prefix="V"
         )
