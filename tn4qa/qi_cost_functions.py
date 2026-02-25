@@ -6,6 +6,7 @@ from numpy import ndarray
 from .mpo import MatrixProductOperator
 from .mps import MatrixProductState
 from .qi_metrics import (
+    get_mutual_information,
     get_all_mutual_information,
     get_one_orbital_entropy,
     get_one_orbital_rdm,
@@ -46,6 +47,30 @@ def cost_total_mutual_information_dict(num_orbitals: int) -> dict:
             s[f"S2_{i+1}_{j+1}"] = s.get(f"S2_{i+1}_{j+1}", 0) - 1.0
     return s
 
+def cost_mutual_info_active_inactive(mps: MatrixProductState, active_orbs: list[int]) -> float:
+    """
+    Calculates the mutual information between the active and inactive regions
+    """
+    n_orbs = mps.num_sites // 2  # Number of orbitals
+    active_set = set(active_orbs)
+    inactive_orbs = [i for i in range(n_orbs) if i not in active_set] # Not sure whether to do it like this or to give inactive orbs as an arg
+    mi = 0
+    for i in active_orbs:
+        for j in inactive_orbs:
+            mi += get_mutual_information(mps, i, j)
+    return mi
+
+def cost_mutual_info_active_inactive_dict(num_orbs: int, active_orbs: list[int]) -> dict:
+    active_set = set(active_orbs)
+    inactive_orbs = [i for i in range(num_orbs) if i not in active_set] # similar comment as above
+    s = {}
+    for i in active_orbs:
+        for j in inactive_orbs:
+            s[f"S1_{i+1}"] = s.get(f"S1_{i+1}", 0) + 1.0
+            s[f"S1_{j+1}"] = s.get(f"S1_{j+1}", 0) + 1.0
+            s[f"S2_{i+1}_{j+1}"] = s.get(f"S2_{i+1}_{j+1}", 0) - 1.0
+    return s
+                
 
 def cost_mutual_info_decay(mps: MatrixProductState, decay_power: float = 2.0) -> float:
     """
@@ -132,6 +157,13 @@ def cost_function_to_dict(cost_function: Callable, **kwargs) -> dict[str, float]
             decay_power = function_params["decay_power"]
             return cost_mutual_info_decay_dict(
                 num_orbitals=num_orbitals, decay_power=decay_power
+            )
+        case "cost_mutual_info_active_inactive":
+            num_orbitals = function_params["num_orbitals"]
+            num_active = function_params.get("num_active_orbitals")
+            active_orbs = list(range(num_active))
+            return cost_mutual_info_active_inactive_dict(
+                num_orbs=num_orbitals, active_orbs=active_orbs
             )
         case _:
             raise ValueError
