@@ -1520,16 +1520,61 @@ class MatrixProductOperator(TensorNetwork):
     def purity_mpo(
         cls, num_sites: int, target_sites: list[int]
     ) -> "MatrixProductOperator":
-        """Build an MPO that calculates the purity of a RDM for an MPS
+        """Build an MPO that calculates the purity of a RDM for an MPS.
+
+        Constructs the MPO by directly applying SWAP gates between specified sites.
 
         Args:
             num_sites: The number of sites for the target MPS
-            target_sites: The sites corresponding to the RDM whose purity we want to calculate
+            target_sites: The sites corresponding to the RDM whose purity we want to calculate (1-indexed)
+
+        Returns:
+            An MPO representing the purity measurement circuit
         """
-        qc = QuantumCircuit(2 * num_sites)
+        # Start with identity MPO on 2*num_sites qubits
+        N = 2 * num_sites
+        mpo = cls.identity_mpo(N)
+        
+        # Create site_mapping to track logical positions of qubits
+        # Maps physical qubit index -> current logical position
+        site_mapping = {str(i): str(i) for i in range(1, N + 1)}
+        
+        # Create SWAP gate matrix
+        swap_matrix = np.array(
+            [[1, 0, 0, 0],
+             [0, 0, 1, 0],
+             [0, 1, 0, 0],
+             [0, 0, 0, 1]],
+            dtype=complex
+        )
+        swap_sparse = sparse.COO.from_numpy(swap_matrix)
+        
+        # Apply SWAP gates between target sites and their copies
         for idx in target_sites:
-            qc.swap(idx - 1, num_sites + idx - 1)
-        mpo = cls.from_qiskit_circuit(qc)
+            # idx is 1-indexed site in the original system
+            # We want to swap qubit at position idx with qubit at position num_sites + idx
+            site_original_phys = idx
+            site_copy_phys = num_sites + idx
+            
+            # Look up their current logical positions in the MPO
+            site_original_log = int(site_mapping[str(site_original_phys)])
+            site_copy_log = int(site_mapping[str(site_copy_phys)])
+            
+            # Apply the SWAP gate
+            mpo.apply_two_qubit_gate(
+                swap_sparse,
+                [site_original_log, site_copy_log],
+                site_mapping,
+            )
+        
+        # Reorder sites back to standard order (1, 2, 3, ..., N)
+        reversed_mapping = {v: k for k, v in site_mapping.items()}
+        target_site_ordering = [
+            int(reversed_mapping[str(site)]) for site in range(1, N + 1)
+        ]
+        mpo.reorder_sites(target_site_ordering)
+        mpo.update_bond_information()
+        
         return mpo
 
     @classmethod

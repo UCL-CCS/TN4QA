@@ -21,6 +21,7 @@ class QDriftSimulation(QuantumAlgorithm):
         duration: float,
         error: float | None = None,
         backend: QuantumBackend | None = None,
+        seed: int | None = None,
     ) -> "QDriftSimulation":
         """
         Constructor for qDRIFT simulation class.
@@ -28,12 +29,14 @@ class QDriftSimulation(QuantumAlgorithm):
         Args:
             hamiltonian: The qubit Hamiltonian
             duration: The time to simulate evolution for
-            num_steps: The number of Trotter steps, defaults to a sensible value
-            error: The desired error
+            error (optional): The desired error
+            backend (optional): The quantum backend to use for execution
+            seed (optional): Random seed for reproducibility
         """
         self.hamiltonian = hamiltonian
         self.norm = np.sum([np.abs(x) for x in hamiltonian.values()])
         self.duration = duration
+        self.seed = seed
 
         if error is None:
             self.error = 1e-3
@@ -44,7 +47,7 @@ class QDriftSimulation(QuantumAlgorithm):
         )
 
         self._circuit = self.build_circuit(
-            self.hamiltonian, self.norm, self.num_terms, self.duration
+            self.hamiltonian, self.norm, self.num_terms, self.duration, self.seed
         )
         self.set_backend(backend)
 
@@ -53,7 +56,7 @@ class QDriftSimulation(QuantumAlgorithm):
         return self._circuit
 
     def build_circuit(
-        self, ham: dict[str, float], norm: float, num_terms: int, duration: float
+        self, ham: dict[str, float], norm: float, num_terms: int, duration: float, seed: int | None = None
     ) -> QuantumCircuit:
         pauli_strings = list(ham.keys())
 
@@ -62,8 +65,9 @@ class QDriftSimulation(QuantumAlgorithm):
 
         term_idxs = list(range(len(list(ham.keys()))))
         probs = [np.abs(weight) / norm for weight in ham.values()]
+        rng = np.random.default_rng(seed)
         for _ in range(num_terms):
-            sample = np.random.choice(term_idxs, p=probs)
+            sample = rng.choice(term_idxs, p=probs)
             p = list(ham.keys())[sample]
             sign = 1 if ham[p] >= 0.0 else -1
             temp_qc = exp_pauli_string_to_circ(p, norm * duration * sign / num_terms)

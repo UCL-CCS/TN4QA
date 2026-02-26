@@ -425,3 +425,13 @@ def test_contract_sub_mpo():
     expected_mpo = MatrixProductOperator.from_pauli_string("XYZX")
 
     assert np.allclose(contracted_mpo.to_dense_array(), expected_mpo.to_dense_array())
+
+def test_purity_mpo():
+    num_sites = 4
+    target_sites = [1, 3]
+    qc = QuantumCircuit(2 * num_sites)
+    for idx in target_sites:
+        qc.swap(idx-1, num_sites + idx - 1)
+    qiskit_mpo = MatrixProductOperator.from_qiskit_circuit(qc)
+    test_purity_mpo = MatrixProductOperator.purity_mpo(num_sites, target_sites)
+    assert np.allclose(qiskit_mpo.to_dense_array(), test_purity_mpo.to_dense_array())
