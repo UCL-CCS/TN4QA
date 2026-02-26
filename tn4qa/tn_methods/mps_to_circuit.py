@@ -310,18 +310,11 @@ class MPSAnalyticDecomposition:
                     [data.indices[0], data.indices[2], data.indices[1]]
                 )
                 matrix = data.data.todense().reshape((4, 2))
-                # data.tensor_to_matrix(
-                #     [tensor.indices[1]], [tensor.indices[0], tensor.indices[2]]
-                # )
             else:
                 data.reorder_indices(
                     [data.indices[2], data.indices[1], data.indices[0]]
                 )
                 matrix = data.data.todense().reshape((4, 2))
-                # data.tensor_to_matrix(
-                #     [tensor.indices[0]], [tensor.indices[2], tensor.indices[1]]
-                # )
-            # matrix = data.data.todense()
 
         shape = matrix.shape
 
@@ -474,11 +467,11 @@ class MPSAnalyticDecomposition:
         Gates are applied from the middle and move outwards"""
         mps = bond_dim_2_mps
         n = mps.num_sites
-
-        if n % 2 == 0:
-            mps.move_orthogonality_centre(int(n // 2))
+        # Define middle site for even and odd n
+        if n % 2 == 0: 
+            mps.move_orthogonality_centre(int(n // 2))          # even
         else:
-            mps.move_orthogonality_centre(int(n // 2 + 1))
+            mps.move_orthogonality_centre(int(n // 2 + 1))      # odd
 
         # identify cuts where bond-dim == 1 (so we split the MPS into pieces)
         mps_dims = [mps.tensors[idx].dimensions[0] for idx in range(1, mps.num_sites)]
@@ -534,7 +527,7 @@ class MPSAnalyticDecomposition:
 
             separate_mps.append(MatrixProductState.from_arrays(reshaped_arrays))
 
-        # For each piece, build a circuit with meet-in-the-middle gates
+        # For each piece, build a circuit with middle-out gates
         qcs = []
         qidxs = []
         for sub_mps in separate_mps:
@@ -558,7 +551,6 @@ class MPSAnalyticDecomposition:
                 else:
                     qidxs.append([qidxs[-1][-1] + 1])
                 continue
-            # ------------------------------------------------------------------------------------------------------------------------------
             # build the "unitaries" list
             sub_n = int(sub_mps.num_sites)
             unitaries_left = []
@@ -642,7 +634,6 @@ class MPSAnalyticDecomposition:
                     qc.append(gate, [mid_right - 1 + uni_idx])
 
             qcs.append(qc)
-        # ------------------------------------------------------------------------------------------------------------------------------
         # bring together all of the little circuits into the final big circuit
         final_qc = QuantumCircuit(mps.num_sites)
         for qc_idx in range(len(qcs)):

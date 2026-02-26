@@ -254,6 +254,43 @@ def test_contract_index():
 
     return
 
+def test_contract_indices():
+    array_1 = np.random.rand(1, 1, 1)
+    array_2 = np.random.rand(1, 1, 1)
+    t1 = Tensor(array_1, ["A", "B", "C"], ["TN_T1"])
+    t2 = Tensor(array_2, ["B", "C", "D"], ["TN_T2"])
+
+    tn = TensorNetwork([t1, t2], "TEST_TN")
+    tn.contract_indices(["B", "C"])
+
+    all_labels = tn.get_all_labels()
+    all_indices = tn.get_all_indices()
+
+    # Test TN structure after contraction
+    assert len(all_labels) == 1, "Should only be 1 tensor after contraction."
+    assert (
+        "TN_T1" not in all_labels and "TN_T2" not in all_labels
+    ), "Old labels should be removed."
+    assert "TN_T3" in all_labels, "New label generated incorrectly."
+    assert len(all_indices) == 2, "Should only be 2 indices after contraction."
+    assert "B" not in all_indices and "C" not in all_indices, "Old indices should be removed."
+    assert (
+        "A" in all_indices and "D" in all_indices
+    ), "Uncontracted indices should persist."
+
+    tensor = tn.get_tensors_from_label("TN_T3")[0]
+
+    # Test contraction manipulates data correctly
+    expected_array = np.asmatrix(array_1) @ np.asmatrix(array_2)
+    assert np.allclose(
+        tensor.data.todense(), expected_array
+    ), "Contracted tensor data incorrect."
+    assert (
+        "A" in tensor.indices and "D" in tensor.indices
+    ), "Contracted tensor has the wrong indices."
+
+    return
+
 
 def test_compress_index():
     t1 = Tensor(TEST_ARRAY_1, ["A", "B"], [])
