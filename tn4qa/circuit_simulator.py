@@ -5,16 +5,14 @@ import sparse
 from numpy.linalg import svd
 from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitInstruction
-from qiskit.circuit.library import SwapGate, UnitaryGate
+from qiskit.circuit.library import UnitaryGate
 from qiskit.quantum_info import Operator
-from qiskit.transpiler import CouplingMap, Layout, PassManager
-from qiskit.transpiler.passes import ApplyLayout, SetLayout
-from qiskit.transpiler.passes.routing import BasicSwap
-from scipy.sparse.linalg import svds
 from sparse import COO
 
 from tn4qa.mpo import MatrixProductOperator
 from tn4qa.mps import MatrixProductState
+from tn4qa.tensor import Tensor
+from tn4qa.tn import TensorNetwork
 
 
 class CircuitSimulator:
@@ -31,49 +29,12 @@ class CircuitSimulator:
         Args:
             circuit: The Qiskit QuantumCircuit object
         """
-        self.circuit = self.linearise_circuit(circuit)
+        self.circuit = circuit
         self.num_qubits = circuit.num_qubits
         self.set_input_state(input_state)
         self.current_state = copy.deepcopy(self.input_state)
         self.output_state = None
-        self.site_mapping = {
-            str(idx): str(idx) for idx in range(1, self.num_qubits + 1)
-        }  # {physical_site:logical_site}
         self.mpo = MatrixProductOperator.identity_mpo(self.num_qubits)
-
-    def linearise_circuit(self, qc: QuantumCircuit) -> QuantumCircuit:
-        """
-        Linearise input circuit
-        """
-        cm = CouplingMap.from_line(qc.num_qubits)
-
-        # Force trivial layout: logical qubit i → physical qubit i
-        trivial_layout = Layout({q: i for i, q in enumerate(qc.qubits)})
-
-        pm = PassManager(
-            [
-                SetLayout(trivial_layout),
-                ApplyLayout(),
-                BasicSwap(coupling_map=cm),
-            ]
-        )
-
-        routed = pm.run(qc)
-
-        final_layout = routed.layout.final_index_layout()
-        for qidx in range(qc.num_qubits):
-            original_pos = final_layout.index(qidx)
-            where_is_q = final_layout[qidx]
-            start = min(where_is_q, qidx)
-            stop = max(where_is_q, qidx)
-            for i in range(start, stop):
-                routed.append(SwapGate(), [i, i + 1])
-            for i in list(range(start, stop - 1))[::-1]:
-                routed.append(SwapGate(), [i, i + 1])
-            final_layout[qidx] = qidx
-            final_layout[original_pos] = where_is_q
-
-        return routed
 
     def set_input_state(self, input_state: MatrixProductState | None) -> None:
         """
@@ -96,50 +57,88 @@ class CircuitSimulator:
             data: The one-qubit matrix
             site: Where to apply the gate to
         """
-        site_loc = int(self.site_mapping[str(site)])
-        tensor = self.current_state.tensors[site_loc - 1]
-        if site_loc == 1 or site_loc == self.num_qubits:
+        tensor = self.current_state.tensors[site - 1]
+        if site == 1 or site == self.num_qubits:
             contraction = "ij,kj->ik"
         else:
             contraction = "ijk,lk->ijl"
-        self.current_state.tensors[site_loc - 1].data = sparse.einsum(
+        self.current_state.tensors[site - 1].data = sparse.einsum(
             contraction, tensor.data, data
         )
         return
 
-    def move_site_to_location(self, site_source: int, site_destination: int) -> None:
+    def from_qiskit_gate(self, inst: CircuitInstruction) -> MatrixProductOperator:  # type: ignore
         """
-        Move a site to a different location
+        Create an MPO from a single Qiskit gate
 
         Args:
-            site_source: The starting location
-            site_destination: The final location
-        """
-        if site_source < site_destination:
-            for site in range(site_source, site_destination):
-                self.current_state.swap_neighbouring_sites(site)
-                reverse_mapping = {v: k for k, v in self.site_mapping.items()}
-                (
-                    self.site_mapping[reverse_mapping[str(site)]],
-                    self.site_mapping[reverse_mapping[str(site + 1)]],
-                ) = (
-                    str(site + 1),
-                    str(site),
-                )
-        else:
-            for site in range(site_source, site_destination, -1):
-                self.current_state.swap_neighbouring_sites(site - 1)
-                reverse_mapping = {v: k for k, v in self.site_mapping.items()}
-                (
-                    self.site_mapping[reverse_mapping[str(site - 1)]],
-                    self.site_mapping[reverse_mapping[str(site)]],
-                ) = (
-                    str(site),
-                    str(site - 1),
-                )
-        return
+            inst: The Qiskit CircuitInstruction
 
-    def apply_two_qubit_gate(
+        Returns:
+            An MPO
+        """
+        qidxs = [inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)]
+        indices = [f"out{qidxs[i]}" for i in range(inst.operation.num_qubits)] + [
+            f"in{qidxs[i]}" for i in range(inst.operation.num_qubits)
+        ]
+        if len(qidxs) == 1:
+            arrays = [Operator(inst.operation).reverse_qargs().data]
+        elif len(qidxs) == 2:
+            tensor = Tensor.from_qiskit_gate(inst, indices=indices)
+            tn = TensorNetwork([tensor])
+            tn.svd(
+                tn.tensors[0],
+                input_indices=[indices[0], indices[2]],
+                output_indices=[indices[1], indices[3]],
+                new_index_name=f"C{qidxs[0]}",
+            )
+            tn.tensors[0].reorder_indices(
+                [f"C{qidxs[0]}", f"out{qidxs[0]}", f"in{qidxs[0]}"]
+            )
+            tn.tensors[1].reorder_indices(
+                [f"C{qidxs[0]}", f"out{qidxs[1]}", f"in{qidxs[1]}"]
+            )
+            arrays = [tn.tensors[i].data for i in range(2)]
+        else:
+            tensor = Tensor.from_qiskit_gate(inst, indices=indices)
+            tn = TensorNetwork([tensor])
+            for idx in range(len(qidxs) - 1):
+                t = tn.tensors[idx]
+                input_inds = [indices[idx], indices[len(qidxs) + idx]]
+                output_inds = (
+                    indices[idx + 1 : len(qidxs)] + indices[len(qidxs) + idx + 1 :]
+                )
+                if idx != 0:
+                    input_inds.insert(0, f"C{idx}")
+                tn.svd(
+                    t,
+                    input_indices=input_inds,
+                    output_indices=output_inds,
+                    new_index_name=f"C{idx+1}",
+                    new_labels=[[f"T{idx+1}"], [f"T{idx+2}"]],
+                )
+                if idx == 0:
+                    new_idx_order1 = [
+                        f"C{idx+1}",
+                        f"out{qidxs[idx]}",
+                        f"in{qidxs[idx]}",
+                    ]
+                    new_idx_order2 = [f"C{idx+1}"] + output_inds
+                else:
+                    new_idx_order1 = [
+                        f"C{idx}",
+                        f"C{idx+1}",
+                        f"out{qidxs[idx]}",
+                        f"in{qidxs[idx]}",
+                    ]
+                new_idx_order2 = [f"C{idx+1}"] + output_inds
+                tn.tensors[idx].reorder_indices(new_idx_order1)
+                tn.tensors[idx + 1].reorder_indices(new_idx_order2)
+            arrays = [tn.tensors[i].data for i in range(len(qidxs))]
+        mpo = MatrixProductOperator.from_arrays(arrays)
+        return mpo
+
+    def apply_local_two_qubit_gate(
         self,
         data: COO,
         sites: list[int],
@@ -147,68 +146,107 @@ class CircuitSimulator:
         tol: float = 1e-12,
     ) -> None:
         """
-        Apply a two qubit gate in place
+        Apply a two qubit gate to neighbouring qubits
 
         Args:
             data: The two-qubit matrix
             sites: The sites to apply it to
             max_bond: The maximum allowed bond dimension
         """
-        sites_locs = [int(self.site_mapping[str(site)]) for site in sites]
-        site0, site1 = sites_locs[0], sites_locs[1]
-        data = sparse.reshape(data, (2, 2, 2, 2))
+        site0, site1 = sites[0], sites[1]
 
-        if self.num_qubits == 2:
-            data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
+        if self.current_state.num_sites == 2:
+            data = sparse.reshape(data, (2, 2, 2, 2))
             if site1 < site0:
                 data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
             data = sparse.reshape(data, (4, 4))
             gate = UnitaryGate(data.todense())
             qc = QuantumCircuit(2)
             qc.append(gate, [site0 - 1, site1 - 1])
-            gate_mpo = MatrixProductOperator.from_qiskit_gate(qc.data[0])
-            self.current_state = self.current_state.apply_mpo(gate_mpo)
+            gate_mpo = self.from_qiskit_gate(qc.data[0])
+            self.current_state = self.current_state.apply_sub_mpo(
+                gate_mpo, [site0, site1], max_bond=max_bond
+            )
             return
 
+        data = sparse.reshape(data, (2, 2, 2, 2))
         if site1 < site0:
             data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
-            if site1 == site0 - 1:
-                pass
-            else:
-                self.move_site_to_location(site1, site0 - 1)
+            assert site1 == site0 - 1
             tensor0 = self.current_state.tensors[site0 - 2]
             tensor1 = self.current_state.tensors[site0 - 1]
             if site0 - 1 == 1:
-                contraction = "ij,ikl,mnjl->knm"
-                output_shape = (tensor1.dimensions[1], 2, 2)
-                mat_shape = (2 * tensor1.dimensions[1], 2)
-            elif site0 == self.num_qubits:
-                contraction = "hij,ik,lmjk->mhl"
-                output_shape = (2, tensor0.dimensions[0], 2)
-                mat_shape = (2, tensor0.dimensions[0] * 2)
+                contraction = "hi,hkl,noil->kon"
+                output_shape = (
+                    tensor1.dimensions[1],
+                    2,
+                    2,
+                )
+                mat_shape = (
+                    2 * tensor1.dimensions[1],
+                    2,
+                )
+            elif site0 == self.current_state.num_sites:
+                contraction = "hij,il,nojl->ohn"
+                output_shape = (
+                    2,
+                    tensor0.dimensions[0],
+                    2,
+                )
+                mat_shape = (
+                    2,
+                    tensor0.dimensions[0] * 2,
+                )
             else:
-                contraction = "hij,ikl,mnjl->knhm"
-                output_shape = (tensor1.dimensions[1], 2, tensor0.dimensions[0], 2)
-                mat_shape = (tensor1.dimensions[1] * 2, tensor0.dimensions[0] * 2)
+                contraction = "hij,ilm,opjm->lpho"
+                output_shape = (
+                    tensor1.dimensions[1],
+                    2,
+                    tensor0.dimensions[0],
+                    2,
+                )
+                mat_shape = (
+                    tensor1.dimensions[1] * 2,
+                    tensor0.dimensions[0] * 2,
+                )
         else:
-            if site1 == site0 + 1:
-                pass
-            else:
-                self.move_site_to_location(site1, site0 + 1)
+            assert site1 == site0 + 1
             tensor0 = self.current_state.tensors[site0 - 1]
             tensor1 = self.current_state.tensors[site0]
             if site0 == 1:
-                contraction = "ij,ikl,mnjl->knm"
-                output_shape = (tensor1.dimensions[1], 2, 2)
-                mat_shape = (2 * tensor1.dimensions[1], 2)
-            elif site0 + 1 == self.num_qubits:
-                contraction = "hij,ik,lmjk->mhl"
-                output_shape = (2, tensor0.dimensions[0], 2)
-                mat_shape = (2, tensor0.dimensions[0] * 2)
+                contraction = "hi,hkl,noil->kon"
+                output_shape = (
+                    tensor1.dimensions[1],
+                    2,
+                    2,
+                )
+                mat_shape = (
+                    2 * tensor1.dimensions[1],
+                    2,
+                )
+            elif site0 + 1 == self.current_state.num_sites:
+                contraction = "hij,il,nojl->ohn"
+                output_shape = (
+                    2,
+                    tensor0.dimensions[0],
+                    2,
+                )
+                mat_shape = (
+                    2,
+                    tensor0.dimensions[0] * 2,
+                )
             else:
-                contraction = "hij,ikl,mnjl->knhm"
-                output_shape = (tensor1.dimensions[1], 2, tensor0.dimensions[0], 2)
-                mat_shape = (tensor1.dimensions[1] * 2, tensor0.dimensions[0] * 2)
+                contraction = "hij,ilm,opjm->lpho"
+                output_shape = (
+                    tensor1.dimensions[1],
+                    2,
+                    tensor0.dimensions[0],
+                    2,
+                )
+                mat_shape = (
+                    tensor1.dimensions[1] * 2,
+                    tensor0.dimensions[0] * 2,
+                )
 
         output_data = sparse.einsum(contraction, tensor0.data, tensor1.data, data)
         output_data = np.reshape(output_data, mat_shape)
@@ -218,12 +256,8 @@ class CircuitSimulator:
         else:
             bond_dim = min([mat_shape[0], mat_shape[1]])
 
-        if bond_dim >= min([mat_shape[0], mat_shape[1]]) - 1:
-            u, s, vh = svd(output_data.todense(), full_matrices=False)
-        else:
-            u, s, vh = svds(output_data, k=bond_dim)
-
-        s = s[s > 1e-14]
+        u, s, vh = svd(output_data.todense(), full_matrices=False)
+        s = s[s > 1e-16]
         sq = s**2
         cumulative = np.cumsum(sq[::-1])[::-1]
         keep_dim = len(s)
@@ -233,19 +267,25 @@ class CircuitSimulator:
                 break
         keep_dim = min(keep_dim, bond_dim)
 
-        new_data0 = sparse.COO.from_numpy(vh[:keep_dim, :])
-        new_data1 = sparse.COO.from_numpy(u[:, :keep_dim] * s[:keep_dim])
+        threshold = 1e-14
+        data0 = vh[:keep_dim, :]
+        data0[np.abs(data0) < threshold] = 0.0
+        data1 = u[:, :keep_dim] * s[:keep_dim]
+        data1[np.abs(data1) < threshold] = 0.0
+
+        new_data0 = sparse.COO.from_numpy(data0)
+        new_data1 = sparse.COO.from_numpy(data1)
 
         if site1 < site0:
             if site0 - 1 == 1:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + (output_shape[2],))
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-1:])
                 new_data1 = sparse.reshape(new_data1, output_shape[:2] + (keep_dim,))
                 new_data1 = sparse.moveaxis(new_data1, [2], [0])
-            elif site0 == self.num_qubits:
+            elif site0 == self.current_state.num_sites:
                 new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-2:])
                 new_data0 = sparse.moveaxis(new_data0, [0], [1])
-                new_data1 = sparse.reshape(new_data1, (output_shape[0],) + (keep_dim,))
-                new_data1 = sparse.moveaxis(new_data1, [0], [1])
+                new_data1 = sparse.reshape(new_data1, output_shape[:1] + (keep_dim,))
+                new_data1 = sparse.moveaxis(new_data1, [1], [0])
             else:
                 new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-2:])
                 new_data0 = sparse.moveaxis(new_data0, [0], [1])
@@ -259,20 +299,18 @@ class CircuitSimulator:
             self.current_state.tensors[
                 site0 - 1
             ].dimensions = self.current_state.tensors[site0 - 1].data.shape
-            self.current_state.bond_dims = [
-                t.dimensions[0] for t in self.current_state.tensors[1:]
-            ]
-            self.current_state.bond_dimension = max(self.current_state.bond_dims)
+            self.bond_dims = [t.dimensions[0] for t in self.current_state.tensors[1:]]
+            self.bond_dimension = max(self.bond_dims)
         else:
             if site0 == 1:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + (output_shape[2],))
+                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-1:])
                 new_data1 = sparse.reshape(new_data1, output_shape[:2] + (keep_dim,))
                 new_data1 = sparse.moveaxis(new_data1, [2], [0])
-            elif site0 + 1 == self.num_qubits:
+            elif site0 + 1 == self.current_state.num_sites:
                 new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-2:])
                 new_data0 = sparse.moveaxis(new_data0, [0], [1])
-                new_data1 = sparse.reshape(new_data1, (output_shape[0],) + (keep_dim,))
-                new_data1 = sparse.moveaxis(new_data1, [0], [1])
+                new_data1 = sparse.reshape(new_data1, output_shape[:1] + (keep_dim,))
+                new_data1 = sparse.moveaxis(new_data1, [1], [0])
             else:
                 new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-2:])
                 new_data0 = sparse.moveaxis(new_data0, [0], [1])
@@ -286,41 +324,94 @@ class CircuitSimulator:
             self.current_state.tensors[site0].dimensions = self.current_state.tensors[
                 site0
             ].data.shape
-            self.current_state.bond_dims = [
-                t.dimensions[0] for t in self.current_state.tensors[1:]
-            ]
-            self.current_state.bond_dimension = max(self.current_state.bond_dims)
-        return
+            self.bond_dims = [t.dimensions[0] for t in self.current_state.tensors[1:]]
+            self.bond_dimension = max(self.bond_dims)
+        return self
 
-    def apply_general_gate(
+    def apply_nonlocal_two_qubit_gate(
         self,
-        inst: CircuitInstruction,  # type: ignore
+        data: COO,
+        sites: list[int],
         max_bond: int | None = None,
-    ) -> None:  # type: ignore
+    ) -> None:
         """
-        Apply a gate with no better option
+        Apply a two qubit gate on distant qubits
 
         Args:
-            inst: The circuit instruction
+            data: The two-qubit matrix
+            sites: The sites to apply it to
+            max_bond: The maximum allowed bond dimension
         """
-        qidxs = [inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)]
-        qidxs = [int(self.site_mapping[str(qidx)]) for qidx in qidxs]
-        mpo = MatrixProductOperator.from_qiskit_gate(inst)
-        self.current_state = self.current_state.apply_sub_mpo(mpo, qidxs, max_bond)
-        return
+        site0, site1 = sites[0], sites[1]
+        if site0 == site1 - 1 or site1 == site0 - 1:
+            return self.apply_local_two_qubit_gate(data, sites, max_bond)
 
-    def restore_ordering(self) -> None:
-        """
-        Restore correct site ordering
-        """
-        reversed_mapping = {v: k for k, v in self.site_mapping.items()}
-        target_site_ordering = [
-            int(reversed_mapping[str(site)]) for site in range(1, self.num_qubits + 1)
-        ]
-        self.current_state.reorder_sites(target_site_ordering)
-        self.site_mapping = {
-            str(idx): str(idx) for idx in range(1, self.num_qubits + 1)
-        }
+        data = sparse.reshape(data, (2, 2, 2, 2))
+        data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
+        if site1 < site0:
+            data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
+        data = sparse.reshape(data, (4, 4))
+        gate = UnitaryGate(data.todense())
+        qc = QuantumCircuit(2)
+        qc.append(gate, [0, 1])
+        gate_mpo = self.from_qiskit_gate(qc.data[0])
+        gate_mpo_bond = gate_mpo.tensors[0].dimensions[0]
+
+        first_array = gate_mpo.tensors[0].data
+        last_array = gate_mpo.tensors[1].data
+        q0 = min(site0, site1)
+        q1 = max(site0, site1)
+        num_intermediate_sites = q1 - q0 - 1
+        middle_array = np.array([[np.zeros((2, 2))] * gate_mpo_bond] * gate_mpo_bond)
+        for x in range(gate_mpo_bond):
+            middle_array[x, x, :, :] = np.eye(2)
+        middle_arrays = [middle_array for _ in range(num_intermediate_sites)]
+        arrays = [first_array] + middle_arrays + [last_array]
+        nonlocal_mpo = MatrixProductOperator.from_arrays(arrays)
+        if q0 == 1:
+            arrays = [
+                nonlocal_mpo.tensors[x].data for x in range(nonlocal_mpo.num_sites)
+            ]
+            if q1 == self.current_state.num_sites:
+                pass
+            else:
+                shape = arrays[-1].shape
+                arrays[-1] = arrays[-1].reshape((shape[0], 1, shape[1], shape[2]))
+                post_arrays = [np.eye(2).reshape(1, 1, 2, 2)] * (
+                    self.current_state.num_sites - q1 - 1
+                ) + [np.eye(2).reshape(1, 2, 2)]
+                nonlocal_mpo = MatrixProductOperator.from_arrays(arrays + post_arrays)
+        else:
+            prior_arrays = [np.eye(2).reshape(1, 2, 2)] + [
+                np.eye(2).reshape(1, 1, 2, 2)
+            ] * (q0 - 2)
+            shape = nonlocal_mpo.tensors[0].data.shape
+            first_nonlocal_array = nonlocal_mpo.tensors[0].data.reshape(
+                (1, shape[0], shape[1], shape[2])
+            )
+            remaining_arrays = [
+                nonlocal_mpo.tensors[x].data for x in range(1, nonlocal_mpo.num_sites)
+            ]
+            if q1 == self.current_state.num_sites:
+                nonlocal_mpo = MatrixProductOperator.from_arrays(
+                    prior_arrays + [first_nonlocal_array] + remaining_arrays
+                )
+            else:
+                shape = remaining_arrays[-1].shape
+                remaining_arrays[-1] = remaining_arrays[-1].reshape(
+                    (shape[0], 1, shape[1], shape[2])
+                )
+                post_arrays = [np.eye(2).reshape(1, 1, 2, 2)] * (
+                    self.current_state.num_sites - q1 - 1
+                ) + [np.eye(2).reshape(1, 2, 2)]
+                nonlocal_mpo = MatrixProductOperator.from_arrays(
+                    prior_arrays
+                    + [first_nonlocal_array]
+                    + remaining_arrays
+                    + post_arrays
+                )
+
+        self.current_state = self.current_state.apply_mpo(nonlocal_mpo, max_bond)
         return
 
     def run(
@@ -341,10 +432,8 @@ class CircuitSimulator:
             if len(qidxs) == 1:
                 self.apply_one_qubit_gate(data, qidxs[0])
             elif len(qidxs) == 2:
-                self.apply_two_qubit_gate(data, qidxs, max_bond_dimension)
-            else:
-                self.apply_general_gate(inst, max_bond_dimension)
-        self.restore_ordering()
+                self.apply_nonlocal_two_qubit_gate(data, qidxs, max_bond_dimension)
+                self.current_state.normalise()
         self.output_state = self.current_state
         self.output_state.normalise()
 
