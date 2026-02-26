@@ -48,6 +48,8 @@ class TrotterSimulation(QuantumAlgorithm):
 
         for _ in range(self.num_steps):
             for p in pauli_strings:
+                if hamiltonian[p] == 0.0:
+                    continue
                 temp_qc = exp_pauli_string_to_circ(p, self.delta_t * hamiltonian[p])
                 qc.compose(temp_qc, inplace=True)
 
