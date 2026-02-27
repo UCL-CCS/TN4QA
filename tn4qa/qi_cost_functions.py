@@ -186,6 +186,11 @@ def calculate_purity(density_matrix: ndarray) -> float:
     return purity
 
 
+def calculate_pseudo_entropy(density_matrix: ndarray) -> float:
+    p = calculate_purity(density_matrix)
+    return 1 - p
+
+
 def cost_function_dict_to_callable(
     cost_function_dict: dict[str, float],
     entropy_function: Callable[[ndarray], float],
