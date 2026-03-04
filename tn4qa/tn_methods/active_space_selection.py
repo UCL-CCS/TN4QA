@@ -101,7 +101,7 @@ class ActiveSpaceSelection:
         print("Start optimisation")
         theta_init = np.zeros((N**2,), dtype=float)  # Initial guess for theta
         opt_max_bond = function_args.get("rotation_mpo_max_bond", 16)
-        opt_lr = function_args.get("optimisation_learning_rate", 0.05)
+        opt_lr = function_args.get("optimisation_learning_rate", 0.01)
         opt_max_iter = function_args.get("optimisation_maxiter", 100)
         opt_grad_tol = function_args.get("optimisation_grad_tolerance", 1e-16)
         opt_cost_tol = function_args.get("optimisation_cost_tolerance", 1e-12)
