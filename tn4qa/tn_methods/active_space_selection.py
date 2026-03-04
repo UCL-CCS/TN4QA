@@ -304,7 +304,7 @@ class ActiveSpaceSelection:
             if coeff == 0.0:
                 continue
             temp_mpo = MatrixProductOperator.from_pauli_exponential(pauli_string, coeff)
-            rotated_state = mps.apply_mpo(temp_mpo, max_bond=max_bond)
+            rotated_state = rotated_state.apply_mpo(temp_mpo, max_bond=max_bond)
 
         # And its inverse
         rotated_state_dag = copy.deepcopy(rotated_state)
@@ -441,7 +441,7 @@ class ActiveSpaceSelection:
             if coeff == 0.0:
                 continue
             temp_mpo = MatrixProductOperator.from_pauli_exponential(pauli_string, coeff)
-            rotated_state = mps.apply_mpo(temp_mpo, max_bond=max_bond)
+            rotated_state = rotated_state.apply_mpo(temp_mpo, max_bond=max_bond)
 
         # Calculate cost
         rotated_state_doubled = rotated_state.to_two_copy_mps()
@@ -499,7 +499,7 @@ class ActiveSpaceSelection:
                     print(f"Converged at iteration {iter}, cost_diff={cost_diff:.3e}")
                     break
 
-            theta += lr * grad
+            theta -= lr * grad
             # if iter % 5 == 0 or iter == max_iters - 1:
             print(
                 f"Iteration number: {iter:3d} grad_norm={grad_norm:.3e} cost={self.all_costs[-1]}"
