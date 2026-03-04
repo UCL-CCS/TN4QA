@@ -375,7 +375,7 @@ class ActiveSpaceSelection:
                 for ps, x in p_dict.items():
                     temp_mpo = MatrixProductOperator.from_pauli_exponential(ps, x)
                     current_rotated_state.apply_mpo(temp_mpo, max_bond)
-                    current_rotated_state.normalise()
+                    # current_rotated_state.normalise()
                 if l == k:
                     current_rotated_state.apply_mpo(grad_mpo)
 
