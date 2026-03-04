@@ -11,11 +11,9 @@ from tn4qa.qi_cost_functions import (
     cost_function_to_dict,
 )
 
-from ..circuit_simulator import CircuitSimulator
 from ..dmrg import DMRG
 from ..mpo import MatrixProductOperator
 from ..mps import MatrixProductState
-from ..quantum_algorithms.hamiltonian_simulation.trotterisation import TrotterSimulation
 from ..tn import TensorNetwork
 
 
@@ -71,7 +69,7 @@ class ActiveSpaceSelection:
 
         # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
         print("Start DMRG")
-        max_mps_bond = function_args.get("dmrg_max_mps_bond", 4)
+        max_mps_bond = function_args.get("dmrg_max_mps_bond", 2)
         method = function_args.get("dmrg_method", "two-site")
         convergence_threshold = function_args.get("dmrg_convergence_threshold", 1e-9)
         initial_state = function_args.get("dmrg_initial_state", None)
@@ -102,7 +100,7 @@ class ActiveSpaceSelection:
         # Run gradient descent optimisation to find optimal theta
         print("Start optimisation")
         theta_init = np.zeros((N**2,), dtype=float)  # Initial guess for theta
-        opt_max_bond = function_args.get("rotation_mpo_max_bond", 64)
+        opt_max_bond = function_args.get("rotation_mpo_max_bond", 16)
         opt_lr = function_args.get("optimisation_learning_rate", 0.1)
         opt_max_iter = function_args.get("optimisation_maxiter", 100)
         opt_grad_tol = function_args.get("optimisation_grad_tolerance", 1e-16)
@@ -298,15 +296,19 @@ class ActiveSpaceSelection:
         ##########
 
         # Create exp(Σ_{pq} K_{pq} a†_p a_q) |mps>
-        trotter_circ = TrotterSimulation(pauli_ham_dict, 1.0, num_steps=1)
-        sim = CircuitSimulator(trotter_circ.circuit, input_state=mps)
-        rotated_state = sim.run(max_bond_dimension=max_bond)
-        rotated_state.set_default_indices("A", "B")
+        # trotter_circ = TrotterSimulation(pauli_ham_dict, 1.0, num_steps=1)
+        # sim = CircuitSimulator(trotter_circ.circuit, input_state=mps)
+        # rotated_state = sim.run(max_bond_dimension=max_bond)
+        rotated_state = mps
+        for pauli_string, coeff in pauli_ham_dict.items():
+            if coeff == 0.0:
+                continue
+            temp_mpo = MatrixProductOperator.from_pauli_exponential(pauli_string, coeff)
+            rotated_state = mps.apply_mpo(temp_mpo, max_bond=max_bond)
 
         # And its inverse
         rotated_state_dag = copy.deepcopy(rotated_state)
         rotated_state_dag.dagger()
-        rotated_state_dag.set_default_indices("C", "D")
 
         # Create and contract a TN
         mpo.set_default_indices("E", "D", "B")
@@ -348,18 +350,18 @@ class ActiveSpaceSelection:
         last_pauli_dict = pauli_lookup[last_k]
         last_ham = {key: complex(0.5j * val) for key, val in last_pauli_dict.items()}
         grad_mpo = MatrixProductOperator.from_hamiltonian(last_ham)
-        grad_mpo.set_default_indices("E", "D", "B")
-        tn = TensorNetwork(rotated_state.tensors + grad_mpo.tensors + left_mps.tensors)
-        res = tn.contract_entire_network()
+        last_rotated_state = rotated_state.apply_mpo(grad_mpo, max_bond)
+        res = last_rotated_state.compute_inner_product(left_mps)
+        # tn = TensorNetwork(rotated_state.tensors + grad_mpo.tensors + left_mps.tensors)
+        # res = tn.contract_entire_network()
         gradients[last_k] = 4 * res.real
-        unravelling_dict = {
-            key: float(-0.5 * val * theta[last_k])
-            for key, val in last_pauli_dict.items()
-        }
-        print(last_k, res, 4 * res.real)
+        # unravelling_dict = {
+        #     key: float(-0.5 * val * theta[last_k])
+        #     for key, val in last_pauli_dict.items()
+        # }
 
         # Loop through the rest
-        for k, pauli_dict in reversed(list(pauli_lookup.items())):
+        for k, pauli_dict in reversed(pauli_lookup.items()):
             if k == last_k:
                 continue
 
@@ -375,25 +377,35 @@ class ActiveSpaceSelection:
             ham = {key: complex(0.5j * val) for key, val in pauli_dict.items()}
             grad_mpo = MatrixProductOperator.from_hamiltonian(ham)
 
-            # Evolve it for the right parameter
-            ev_qc = TrotterSimulation(unravelling_dict, 1.0, num_steps=1)
-            grad_mpo = grad_mpo.evolve_by_quantum_circuit(ev_qc.circuit, max_bond)
+            # Compute the rotated state
+            current_rotated_state = mps
+            for l, p_dict in pauli_lookup.items():
+                for ps, x in p_dict.items():
+                    temp_mpo = MatrixProductOperator.from_pauli_exponential(ps, x)
+                    current_rotated_state.apply_mpo(temp_mpo, max_bond)
+                if l == k:
+                    current_rotated_state.apply_mpo(grad_mpo)
 
-            # Update unravelling dict
-            previous_dict = copy.deepcopy(unravelling_dict)
-            unravelling_dict = {
-                key: float(-0.5 * val * theta[k]) for key, val in pauli_dict.items()
-            }
-            unravelling_dict.update(previous_dict)
+            # # Evolve it for the right parameter
+            # ev_qc = TrotterSimulation(unravelling_dict, 1.0, num_steps=1)
+            # grad_mpo = grad_mpo.evolve_by_quantum_circuit(ev_qc.circuit, max_bond)
+
+            # # Update unravelling dict
+            # previous_dict = copy.deepcopy(unravelling_dict)
+            # unravelling_dict = {
+            #     key: float(-0.5 * val * theta[k]) for key, val in pauli_dict.items()
+            # }
+            # unravelling_dict.update(previous_dict)
 
             # Create and contract TN
-            grad_mpo.set_default_indices("E", "D", "B")
-            tn = TensorNetwork(
-                rotated_state.tensors + grad_mpo.tensors + left_mps.tensors
-            )
-            res = tn.contract_entire_network()
+            # grad_mpo.set_default_indices("E", "D", "B")
+            # tn = TensorNetwork(
+            #     rotated_state.tensors + grad_mpo.tensors + left_mps.tensors
+            # )
+            # res = tn.contract_entire_network()
+            res = current_rotated_state.compute_inner_product(left_mps)
             gradients[k] = 4 * res.real
-            print(k, res, 4 * res.real)
+            # print(k, res, 4 * res.real)
 
         return gradients
 
@@ -421,9 +433,15 @@ class ActiveSpaceSelection:
             pauli_ham_dict.update(d)
 
         # Create exp(Σ_{pq} K_{pq} a†_p a_q) |mps>
-        trotter_circ = TrotterSimulation(pauli_ham_dict, 1.0, num_steps=1)
-        sim = CircuitSimulator(trotter_circ.circuit, input_state=mps)
-        rotated_state = sim.run(max_bond_dimension=max_bond)
+        # trotter_circ = TrotterSimulation(pauli_ham_dict, 1.0, num_steps=1)
+        # sim = CircuitSimulator(trotter_circ.circuit, input_state=mps)
+        # rotated_state = sim.run(max_bond_dimension=max_bond)
+        rotated_state = mps
+        for pauli_string, coeff in pauli_ham_dict.items():
+            if coeff == 0.0:
+                continue
+            temp_mpo = MatrixProductOperator.from_pauli_exponential(pauli_string, coeff)
+            rotated_state = mps.apply_mpo(temp_mpo, max_bond=max_bond)
 
         # Calculate cost
         rotated_state_doubled = rotated_state.to_two_copy_mps()
@@ -481,11 +499,11 @@ class ActiveSpaceSelection:
                     print(f"Converged at iteration {iter}, cost_diff={cost_diff:.3e}")
                     break
 
-            theta -= lr * grad
-            if iter % 5 == 0 or iter == max_iters - 1:
-                print(
-                    f"Iteration number: {iter:3d} grad_norm={grad_norm:.3e} cost={self.all_costs[-1]}"
-                )
+            theta += lr * grad
+            # if iter % 5 == 0 or iter == max_iters - 1:
+            print(
+                f"Iteration number: {iter:3d} grad_norm={grad_norm:.3e} cost={self.all_costs[-1]}"
+            )
 
         return theta
 

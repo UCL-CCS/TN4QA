@@ -772,7 +772,7 @@ class MatrixProductState(TensorNetwork):
             other: The other MPS.
 
         Returns
-            The inner product <self | other>.
+            The inner product <other | self>.
         """
         mps1 = copy.deepcopy(self)
         mps2 = copy.deepcopy(other)
