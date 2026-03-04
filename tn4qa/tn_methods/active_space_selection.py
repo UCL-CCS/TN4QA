@@ -101,7 +101,7 @@ class ActiveSpaceSelection:
         print("Start optimisation")
         theta_init = np.zeros((N**2,), dtype=float)  # Initial guess for theta
         opt_max_bond = function_args.get("rotation_mpo_max_bond", 16)
-        opt_lr = function_args.get("optimisation_learning_rate", 0.1)
+        opt_lr = function_args.get("optimisation_learning_rate", 0.05)
         opt_max_iter = function_args.get("optimisation_maxiter", 100)
         opt_grad_tol = function_args.get("optimisation_grad_tolerance", 1e-16)
         opt_cost_tol = function_args.get("optimisation_cost_tolerance", 1e-12)
@@ -296,9 +296,6 @@ class ActiveSpaceSelection:
         ##########
 
         # Create exp(Σ_{pq} K_{pq} a†_p a_q) |mps>
-        # trotter_circ = TrotterSimulation(pauli_ham_dict, 1.0, num_steps=1)
-        # sim = CircuitSimulator(trotter_circ.circuit, input_state=mps)
-        # rotated_state = sim.run(max_bond_dimension=max_bond)
         rotated_state = mps
         for pauli_string, coeff in pauli_ham_dict.items():
             if coeff == 0.0:
@@ -352,13 +349,7 @@ class ActiveSpaceSelection:
         grad_mpo = MatrixProductOperator.from_hamiltonian(last_ham)
         last_rotated_state = rotated_state.apply_mpo(grad_mpo, max_bond)
         res = last_rotated_state.compute_inner_product(left_mps)
-        # tn = TensorNetwork(rotated_state.tensors + grad_mpo.tensors + left_mps.tensors)
-        # res = tn.contract_entire_network()
         gradients[last_k] = 4 * res.real
-        # unravelling_dict = {
-        #     key: float(-0.5 * val * theta[last_k])
-        #     for key, val in last_pauli_dict.items()
-        # }
 
         # Loop through the rest
         for k, pauli_dict in reversed(pauli_lookup.items()):
@@ -386,26 +377,9 @@ class ActiveSpaceSelection:
                 if l == k:
                     current_rotated_state.apply_mpo(grad_mpo)
 
-            # # Evolve it for the right parameter
-            # ev_qc = TrotterSimulation(unravelling_dict, 1.0, num_steps=1)
-            # grad_mpo = grad_mpo.evolve_by_quantum_circuit(ev_qc.circuit, max_bond)
-
-            # # Update unravelling dict
-            # previous_dict = copy.deepcopy(unravelling_dict)
-            # unravelling_dict = {
-            #     key: float(-0.5 * val * theta[k]) for key, val in pauli_dict.items()
-            # }
-            # unravelling_dict.update(previous_dict)
-
             # Create and contract TN
-            # grad_mpo.set_default_indices("E", "D", "B")
-            # tn = TensorNetwork(
-            #     rotated_state.tensors + grad_mpo.tensors + left_mps.tensors
-            # )
-            # res = tn.contract_entire_network()
             res = current_rotated_state.compute_inner_product(left_mps)
             gradients[k] = 4 * res.real
-            # print(k, res, 4 * res.real)
 
         return gradients
 
@@ -433,9 +407,6 @@ class ActiveSpaceSelection:
             pauli_ham_dict.update(d)
 
         # Create exp(Σ_{pq} K_{pq} a†_p a_q) |mps>
-        # trotter_circ = TrotterSimulation(pauli_ham_dict, 1.0, num_steps=1)
-        # sim = CircuitSimulator(trotter_circ.circuit, input_state=mps)
-        # rotated_state = sim.run(max_bond_dimension=max_bond)
         rotated_state = mps
         for pauli_string, coeff in pauli_ham_dict.items():
             if coeff == 0.0:
