@@ -302,6 +302,7 @@ class ActiveSpaceSelection:
                 continue
             temp_mpo = MatrixProductOperator.from_pauli_exponential(pauli_string, coeff)
             rotated_state = rotated_state.apply_mpo(temp_mpo, max_bond=max_bond)
+            rotated_state.normalise()
 
         # And its inverse
         rotated_state_dag = copy.deepcopy(rotated_state)
@@ -374,6 +375,7 @@ class ActiveSpaceSelection:
                 for ps, x in p_dict.items():
                     temp_mpo = MatrixProductOperator.from_pauli_exponential(ps, x)
                     current_rotated_state.apply_mpo(temp_mpo, max_bond)
+                    current_rotated_state.normalise()
                 if l == k:
                     current_rotated_state.apply_mpo(grad_mpo)
 
@@ -413,6 +415,7 @@ class ActiveSpaceSelection:
                 continue
             temp_mpo = MatrixProductOperator.from_pauli_exponential(pauli_string, coeff)
             rotated_state = rotated_state.apply_mpo(temp_mpo, max_bond=max_bond)
+            rotated_state.normalise()
 
         # Calculate cost
         rotated_state_doubled = rotated_state.to_two_copy_mps()
