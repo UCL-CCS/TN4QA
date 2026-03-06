@@ -7,6 +7,7 @@ import sparse
 from numpy import ndarray
 
 from tn4qa.qi_cost_functions import (
+    cost_function_dict_to_callable,
     cost_function_dict_to_purity_mpo,
     cost_function_to_dict,
 )
@@ -18,21 +19,32 @@ from ..tn import TensorNetwork
 
 
 class ActiveSpaceSelection:
-    def __init__(self, hamiltonian: dict[str, complex], coeff_matrix: ndarray):
+    def __init__(
+        self,
+        hamiltonian: dict[str, complex],
+        coeff_matrix: ndarray,
+        restricted: bool = True,
+    ):
         """Constructor
 
         Args:
             hamiltonian: System Hamiltonian
-            coeff_matrix: HF coefficient matrix of shape (N, N)
+            coeff_matrix: HF coefficient matrix of shape (N, 2N)
         """
         self.hamiltonian = hamiltonian
-        self.num_spin_orbitals = coeff_matrix.shape[1]
+        self.num_spin_orbitals = int(coeff_matrix.shape[1])
         self.num_orbitals = int(self.num_spin_orbitals / 2)
         self.coeff_matrix = coeff_matrix
         self.all_costs = []
+        self.cost_function_callable = None
+        self.restricted = restricted
+        self.energy_minimisation = False
 
     def run(
-        self, num_active_orbitals: int, cost_function: Callable, **kwargs
+        self,
+        num_active_orbitals: int,
+        cost_function: Callable | dict[str, complex],
+        **kwargs,
     ) -> ndarray:
         """
         Perform active space selection by optimising a unitary transformation of the orbital coefficients.
@@ -48,6 +60,7 @@ class ActiveSpaceSelection:
                 dmrg_maxiter: maximum number of sweeps to perform in DMRG, default 10
                 cost_function_decay_power [float]: Required parameter for cost_mutual_info_decay, default 2.0
                 cost_function_max_bond [int]: Maximum bond dimension for cost function MPO
+                optimisation_method [str]: Optimisation method, either "gradient_descent" or "quasi_newton"
                 optimisation_max_bond [int]: Maximum bond dimension for optimisation
                 optimisation_learning_rate [float]: LR for gradient descent optimisation
                 optimisation_maxiter [int]: Maximum iterations for gradient descent optimisation
@@ -62,10 +75,10 @@ class ActiveSpaceSelection:
         N = self.num_spin_orbitals
         assert (
             self.coeff_matrix.shape[1] == N
-        ), "Number of columns must be twice the number of rows"
+        ), "Number of columns must be the number of rows"
         assert (
-            self.coeff_matrix.shape[0] == N / 2
-        ), "Number of columns must be twice the number of rows"
+            self.coeff_matrix.shape[0] == N
+        ), "Number of rows must be the number of spin orbitals"
 
         # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
         print("Start DMRG")
@@ -90,32 +103,52 @@ class ActiveSpaceSelection:
         print("Start building cost MPO")
         decay_power = function_args.get("cost_function_decay_power", 2.0)
         cost_max_bond = function_args.get("cost_function_max_bond", None)
-        cost_mpo = self.build_cost_function_mpo(
-            cost_function=cost_function,
-            decay_power=decay_power,
-            max_bond=cost_max_bond,
-            num_active_orbitals=num_active_orbitals,
-        )
+        active_orbs = function_args.get("cost_active_orbs", None)
+        if isinstance(cost_function, dict):
+            cost_mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian)
+            self.energy_minimisation = True
+        else:
+            cost_mpo = self.build_cost_function_mpo(
+                cost_function=cost_function,
+                decay_power=decay_power,
+                max_bond=cost_max_bond,
+                num_active_orbitals=num_active_orbitals,
+                active_orbs=active_orbs,
+            )
 
         # Run gradient descent optimisation to find optimal theta
         print("Start optimisation")
         theta_init = np.zeros((N**2,), dtype=float)  # Initial guess for theta
         opt_max_bond = function_args.get("rotation_mpo_max_bond", 8)
-        opt_lr = function_args.get("optimisation_learning_rate", 0.1)
+        opt_lr = function_args.get("optimisation_learning_rate", 5e-5)
         opt_max_iter = function_args.get("optimisation_maxiter", 100)
-        opt_grad_tol = function_args.get("optimisation_grad_tolerance", 1e-16)
+        opt_grad_tol = function_args.get("optimisation_grad_tolerance", 1e-8)
         opt_cost_tol = function_args.get("optimisation_cost_tolerance", 1e-12)
-        self.theta_opt = self.gradient_descent(
-            theta_init,
-            self.param_to_pauli_dict,
-            psi_C,
-            cost_mpo,
-            opt_max_bond,
-            opt_lr,
-            opt_max_iter,
-            opt_grad_tol,
-            opt_cost_tol,
-        )
+        opt_method = function_args.get("optimisation_method", "gradient_descent")
+        if opt_method == "gradient_descent":
+            self.theta_opt = self.gradient_descent(
+                theta_init,
+                self.param_to_pauli_dict,
+                psi_C,
+                cost_mpo,
+                opt_max_bond,
+                opt_lr,
+                opt_max_iter,
+                opt_grad_tol,
+                opt_cost_tol,
+            )
+        else:
+            self.theta_opt = self.quasi_newton(
+                theta_init,
+                self.param_to_pauli_dict,
+                psi_C,
+                cost_mpo,
+                opt_max_bond,
+                opt_max_iter,
+                opt_grad_tol,
+                opt_cost_tol,
+                energy_minimisation=self.energy_minimisation,
+            )
 
         # Exponentiate K to get a unitary U = exp(K)
         K_opt = self.vector_to_antihermitian(self.theta_opt)
@@ -152,6 +185,7 @@ class ActiveSpaceSelection:
         decay_power: float,
         max_bond: int | None = None,
         num_active_orbitals: int | None = None,
+        active_orbs: list[int] | None = None,
     ) -> MatrixProductOperator:
         """Build the cost function as an MPO"""
         d = cost_function_to_dict(
@@ -159,7 +193,13 @@ class ActiveSpaceSelection:
             num_orbitals=self.num_orbitals,
             decay_power=decay_power,
             num_active_orbitals=num_active_orbitals,
+            active_orbs=active_orbs,
         )
+
+        def entropy_func(rdm):
+            return 1 - np.trace(rdm @ rdm)
+
+        self.cost_function_callable = cost_function_dict_to_callable(d, entropy_func)
         mpo = cost_function_dict_to_purity_mpo(self.num_spin_orbitals, d, max_bond)
         return mpo
 
@@ -270,6 +310,106 @@ class ActiveSpaceSelection:
 
         return lookup
 
+    def calculate_energy_gradients(
+        self,
+        theta: np.ndarray,
+        pauli_lookup: dict,
+        mpo: MatrixProductOperator,
+        mps: MatrixProductState,
+        max_bond: int | None,
+        only_real_params: bool = True,
+    ) -> dict[int, float]:
+        mpo = copy.deepcopy(mpo)
+        mps = copy.deepcopy(mps)
+        gradients = {k: 0.0 for k in range(len(theta))}
+
+        pauli_ham_dict = {}
+        for idx, d in pauli_lookup.items():
+            d = {key: val * theta[idx] for key, val in d.items()}
+            pauli_ham_dict.update(d)
+
+        num_params = len(list(pauli_lookup.keys()))
+        num_spinorbs = int(np.sqrt(num_params))
+
+        # Create exp(Σ_{pq} K_{pq} a†_p a_q) |mps>
+        rotated_state = copy.deepcopy(mps)
+        for pauli_string, coeff in pauli_ham_dict.items():
+            if coeff == 0.0:
+                continue
+            temp_mpo = MatrixProductOperator.from_pauli_exponential(pauli_string, coeff)
+            rotated_state = rotated_state.apply_mpo(temp_mpo, max_bond=max_bond)
+            rotated_state.normalise()
+
+        # And its inverse
+        rotated_state_dag = copy.deepcopy(rotated_state)
+        rotated_state_dag.dagger()
+
+        ##########
+        # Loop through each parameter and calculate gradient
+        ##########
+
+        # Loop through
+        for k, pauli_dict in reversed(pauli_lookup.items()):
+            # Don't let alpha and beta spin orbitals mix!
+            p, q, _ = self.param_to_indices(self.num_spin_orbitals, k)[0]
+            if (p % 2) != (q % 2):
+                gradients[k] = 0.0
+                continue
+
+            # Keep the rotation orthogonal
+            if only_real_params:
+                if k < num_spinorbs:
+                    gradients[k] = 0.0
+                    continue
+                elif k % 2 == 1:
+                    gradients[k] = 0.0
+                    continue
+
+            # Create the Pauli string MPO
+            ham = {key: complex(0.5j * val) for key, val in pauli_dict.items()}
+            grad_mpo = MatrixProductOperator.from_hamiltonian(ham)
+
+            # Compute the rotated state
+            current_rotated_state = copy.deepcopy(mps)
+            for l, p_dict in pauli_lookup.items():
+                for ps, x in p_dict.items():
+                    temp_mpo = MatrixProductOperator.from_pauli_exponential(ps, x)
+                    current_rotated_state.apply_mpo(temp_mpo, max_bond)
+                    # current_rotated_state.normalise()
+                if l == k:
+                    current_rotated_state.apply_mpo(grad_mpo)
+
+            # Create and contract TN
+            mpo_dag = copy.deepcopy(mpo)
+            mpo_dag.dagger()
+            right_mps = rotated_state_dag.apply_mpo(mpo)
+            right_mps.dagger()
+            res = current_rotated_state.compute_inner_product(right_mps)
+            gradients[k] = 4 * res.real
+
+        # Enforce symmetry in the restricted ccase
+
+        pq_to_k = {}
+        for k in range(num_params):
+            p, q, _ = self.param_to_indices(self.num_spin_orbitals, k)[0]
+            pq_to_k[(p, q)] = k
+
+        for k in range(num_params):
+            p, q, _ = self.param_to_indices(self.num_spin_orbitals, k)[0]
+
+            # only handle alpha-alpha rotations
+            if p % 2 == 0 and q % 2 == 0:
+                p_beta = p + 1
+                q_beta = q + 1
+
+                k_beta = pq_to_k.get((p_beta, q_beta))
+
+                avg = 0.5 * (gradients[k] + gradients[k_beta])
+                gradients[k] = avg
+                gradients[k_beta] = avg
+
+        return gradients
+
     def calculate_gradients(
         self,
         theta: np.ndarray,
@@ -281,7 +421,7 @@ class ActiveSpaceSelection:
     ) -> dict[int, float]:
         mpo = copy.deepcopy(mpo)
         mps = copy.deepcopy(mps)
-        gradients = {}
+        gradients = {k: 0.0 for k in range(len(theta))}
 
         pauli_ham_dict = {}
         for idx, d in pauli_lookup.items():
@@ -296,7 +436,7 @@ class ActiveSpaceSelection:
         ##########
 
         # Create exp(Σ_{pq} K_{pq} a†_p a_q) |mps>
-        rotated_state = mps
+        rotated_state = copy.deepcopy(mps)
         for pauli_string, coeff in pauli_ham_dict.items():
             if coeff == 0.0:
                 continue
@@ -332,31 +472,27 @@ class ActiveSpaceSelection:
         new_mpo.set_default_indices("E", "D", "F")
 
         ##########
-        # Contract left half of gradient TN
+        # Contract right half of gradient TN
         ##########
 
         # Create and contract TN
-        left_mps = rotated_state_dag.apply_mpo(new_mpo, max_bond)
-        left_mps.set_default_indices("C", "D")
+        new_mpo.dagger()
+        right_mps = rotated_state_dag.apply_mpo(new_mpo, max_bond)
+        # right_mps.set_default_indices("C", "B")
 
         ##########
         # Loop through each parameter and calculate gradient
         ##########
 
-        # Do the last parameter
-        last_k = num_params - 2 if only_real_params else num_params - 1
-        last_pauli_dict = pauli_lookup[last_k]
-        last_ham = {key: complex(0.5j * val) for key, val in last_pauli_dict.items()}
-        grad_mpo = MatrixProductOperator.from_hamiltonian(last_ham)
-        last_rotated_state = rotated_state.apply_mpo(grad_mpo, max_bond)
-        res = last_rotated_state.compute_inner_product(left_mps)
-        gradients[last_k] = 4 * res.real
-
-        # Loop through the rest
+        # Loop through
         for k, pauli_dict in reversed(pauli_lookup.items()):
-            if k == last_k:
+            # Don't let alpha and beta spin orbitals mix!
+            p, q, _ = self.param_to_indices(self.num_spin_orbitals, k)[0]
+            if (p % 2) != (q % 2):
+                gradients[k] = 0.0
                 continue
 
+            # Keep the rotation orthogonal
             if only_real_params:
                 if k < num_spinorbs:
                     gradients[k] = 0.0
@@ -370,7 +506,7 @@ class ActiveSpaceSelection:
             grad_mpo = MatrixProductOperator.from_hamiltonian(ham)
 
             # Compute the rotated state
-            current_rotated_state = mps
+            current_rotated_state = copy.deepcopy(mps)
             for l, p_dict in pauli_lookup.items():
                 for ps, x in p_dict.items():
                     temp_mpo = MatrixProductOperator.from_pauli_exponential(ps, x)
@@ -380,10 +516,58 @@ class ActiveSpaceSelection:
                     current_rotated_state.apply_mpo(grad_mpo)
 
             # Create and contract TN
-            res = current_rotated_state.compute_inner_product(left_mps)
+            right_mps.dagger()
+            res = current_rotated_state.compute_inner_product(right_mps)
             gradients[k] = 4 * res.real
 
+        # Enforce symmetry in the restricted ccase
+
+        pq_to_k = {}
+        for k in range(num_params):
+            p, q, _ = self.param_to_indices(self.num_spin_orbitals, k)[0]
+            pq_to_k[(p, q)] = k
+
+        for k in range(num_params):
+            p, q, _ = self.param_to_indices(self.num_spin_orbitals, k)[0]
+
+            # only handle alpha-alpha rotations
+            if p % 2 == 0 and q % 2 == 0:
+                p_beta = p + 1
+                q_beta = q + 1
+
+                k_beta = pq_to_k.get((p_beta, q_beta))
+
+                avg = 0.5 * (gradients[k] + gradients[k_beta])
+                gradients[k] = avg
+                gradients[k_beta] = avg
+
         return gradients
+
+    def calculate_energy(
+        self,
+        theta: ndarray,
+        pauli_lookup: dict,
+        mpo: MatrixProductOperator,
+        mps: MatrixProductState,
+        max_bond: int | None,
+    ) -> float:
+        pauli_ham_dict = {}
+        for idx, d in pauli_lookup.items():
+            d = {key: val * theta[idx] for key, val in d.items()}
+            pauli_ham_dict.update(d)
+
+        # Create exp(Σ_{pq} K_{pq} a†_p a_q) |mps>
+        rotated_state = copy.deepcopy(mps)
+        for pauli_string, coeff in pauli_ham_dict.items():
+            if coeff == 0.0:
+                continue
+            temp_mpo = MatrixProductOperator.from_pauli_exponential(pauli_string, coeff)
+            rotated_state = rotated_state.apply_mpo(temp_mpo, max_bond=max_bond)
+            rotated_state.normalise()
+
+        # Calculate energy
+        cost = rotated_state.compute_expectation_value(mpo)
+        return cost.real
 
     def calculate_cost(
         self,
@@ -409,7 +593,7 @@ class ActiveSpaceSelection:
             pauli_ham_dict.update(d)
 
         # Create exp(Σ_{pq} K_{pq} a†_p a_q) |mps>
-        rotated_state = mps
+        rotated_state = copy.deepcopy(mps)
         for pauli_string, coeff in pauli_ham_dict.items():
             if coeff == 0.0:
                 continue
@@ -418,8 +602,9 @@ class ActiveSpaceSelection:
             rotated_state.normalise()
 
         # Calculate cost
-        rotated_state_doubled = rotated_state.to_two_copy_mps()
-        cost = rotated_state_doubled.compute_expectation_value(mpo)
+        # rotated_state_doubled = rotated_state.to_two_copy_mps()
+        # cost = rotated_state_doubled.compute_expectation_value(mpo)
+        cost = self.cost_function_callable(rotated_state)
         return cost.real
 
     # ----- Gradient Descent Loop -----
@@ -468,7 +653,7 @@ class ActiveSpaceSelection:
 
             if iter >= 1:
                 cost_diff = np.abs(self.all_costs[-1] - self.all_costs[-2])
-            if iter > 100:
+            if iter > 10:
                 if cost_diff < cost_tol:
                     print(f"Converged at iteration {iter}, cost_diff={cost_diff:.3e}")
                     break
@@ -480,6 +665,131 @@ class ActiveSpaceSelection:
             )
 
         return theta
+
+    def quasi_newton(
+        self,
+        theta_init: np.ndarray,
+        pauli_lookup: dict,
+        mps: MatrixProductState,
+        mpo: MatrixProductOperator,
+        max_bond: int | None,
+        max_iters: int,
+        grad_tol: float,
+        cost_tol: float,
+        only_real_params: bool = True,
+        energy_minimisation: bool = False,
+    ) -> np.ndarray:
+        """
+        Quasi-Newton descent loop.
+        Arguments:
+        theta_init : initial array of thetas
+        pauli_lookup : map from theta index to Pauli strings
+        mps : state for optimisation
+        mpo : Cost function MPO
+        max_bond : Maximum bond dimension
+        lr         : learning rate
+        max_iters  : maximum iterations
+        tol        : convergence threshold tolerance
+        Returns:
+        theta      : optimised parameters
+        """
+        theta = theta_init.copy()
+        allowed = np.array([True] * len(theta), dtype=bool)
+        for k in range(len(theta)):
+            if k < self.num_spin_orbitals or k % 2 == 1:
+                allowed[k] = False
+
+        theta_opt = theta[allowed]
+        theta_opt += 1e-6 * np.random.randn(len(theta_opt))
+
+        def expand_theta(t):
+            full = np.zeros_like(theta_init)
+            full[allowed] = t
+            return full
+
+        # last = {"cost": None, "grad": None}
+
+        def cost(t):
+            full_theta = expand_theta(t)
+            if energy_minimisation:
+                cost = self.calculate_energy(
+                    full_theta, pauli_lookup, mpo, mps, max_bond
+                )
+            else:
+                cost = self.calculate_cost(full_theta, pauli_lookup, mpo, mps, max_bond)
+            # last["cost"] = cost
+            return cost
+
+        # self.all_costs.append(cost(theta_opt))
+
+        def grad(t):
+            full_theta = expand_theta(t)
+            if energy_minimisation:
+                grad = self.calculate_energy_gradients(
+                    full_theta, pauli_lookup, mpo, mps, max_bond, only_real_params
+                )
+            else:
+                grad = self.calculate_gradients(
+                    full_theta, pauli_lookup, mpo, mps, max_bond, only_real_params
+                )
+            grad = np.array(list(grad.values()))[allowed]
+            # last["grad"] = grad
+            return grad
+
+        iteration = 0
+
+        def callback(xk):
+            nonlocal iteration
+            full_theta = expand_theta(xk)
+            if energy_minimisation:
+                c = self.calculate_energy(full_theta, pauli_lookup, mpo, mps, max_bond)
+                g = self.calculate_energy_gradients(
+                    full_theta, pauli_lookup, mpo, mps, max_bond, only_real_params
+                )
+            else:
+                c = self.calculate_cost(full_theta, pauli_lookup, mpo, mps, max_bond)
+                g = self.calculate_gradients(
+                    full_theta, pauli_lookup, mpo, mps, max_bond, only_real_params
+                )
+            g = np.array(list(g.values()))[allowed]
+            grad_norm = np.linalg.norm(g)
+            print(f"iter={iteration:3d} cost={c:.12f} |grad|={grad_norm:.6e}")
+            iteration += 1
+
+        num_active = np.sum(allowed)
+        print("Active parameters:", num_active)
+        assert num_active > 0, "No parameters left to optimize!"
+
+        grad0 = grad(theta_opt)
+        print("Initial gradient norm:", np.linalg.norm(grad0))
+
+        bounds = [(-0.5, 0.5)] * len(theta_opt)
+        opt = scipy.optimize.minimize(
+            cost,
+            theta_opt,
+            method="L-BFGS-B",
+            jac=grad,
+            callback=callback,
+            bounds=bounds,
+            options={
+                "maxiter": max_iters,
+                "ftol": cost_tol,
+                "gtol": grad_tol,
+                "maxcor": 20,
+                "maxls": 40,
+            },
+        )
+
+        print(opt.success)
+        print(opt.message)
+        print(opt.nit)
+        print(opt.nfev)
+        print(opt.fun)
+        print(np.linalg.norm(opt.jac))
+
+        final_theta = expand_theta(opt.x)
+
+        return final_theta
 
     def exponentiate_K(self, K: ndarray) -> ndarray:
         """
@@ -495,4 +805,5 @@ class ActiveSpaceSelection:
         assert np.allclose(K + K.conj().T, 0), "K must be anti-Hermitian"
 
         U = scipy.linalg.expm(-1.0 * K)
+        assert np.allclose(U.conj().T @ U, np.eye(U.shape[0]))
         return U

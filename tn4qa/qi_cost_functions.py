@@ -170,8 +170,8 @@ def cost_function_to_dict(cost_function: Callable, **kwargs) -> dict[str, float]
             )
         case "cost_mutual_info_active_inactive":
             num_orbitals = function_params["num_orbitals"]
-            num_active = function_params.get("num_active_orbitals")
-            active_orbs = list(range(num_active))
+            active_orbs = function_params["active_orbs"]
+            # active_orbs = list(range(num_active))
             return cost_mutual_info_active_inactive_dict(
                 num_orbs=num_orbitals, active_orbs=active_orbs
             )
