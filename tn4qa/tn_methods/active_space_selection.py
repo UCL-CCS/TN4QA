@@ -146,7 +146,7 @@ class ActiveSpaceSelection:
 
         theta_init = np.zeros((num_params,), dtype=float)  # Initial guess for theta
         opt_max_bond = function_args.get("rotation_mpo_max_bond", 8)
-        opt_lr = function_args.get("optimisation_learning_rate", 1e-4)
+        opt_lr = function_args.get("optimisation_learning_rate", 1e-2)
         opt_max_iter = function_args.get("optimisation_maxiter", 100)
         opt_grad_tol = function_args.get("optimisation_grad_tolerance", 1e-8)
         opt_cost_tol = function_args.get("optimisation_cost_tolerance", 1e-12)
@@ -679,7 +679,6 @@ class ActiveSpaceSelection:
         # cost = self.cost_function_callable(rotated_state)
         return cost.real
 
-    # ----- Gradient Descent Loop -----
     def gradient_descent(
         self,
         theta_init: np.ndarray,
@@ -687,47 +686,38 @@ class ActiveSpaceSelection:
         mps: MatrixProductState,
         mpo: MatrixProductOperator,
         max_bond: int | None,
-        lr: float,
-        max_iters: int,
-        grad_tol: float,
-        cost_tol: float,
+        lr: float = 0.01,
+        max_iters: int = 200,
+        grad_tol: float = 1e-6,
+        cost_tol: float = 1e-12,
         only_real_params: bool = True,
         energy_minimisation: bool = False,
     ) -> np.ndarray:
         """
-        Simple gradient descent loop.
-        Arguments:
-        theta_init : initial array of thetas
-        pauli_lookup : map from theta index to Pauli strings
-        mps : state for optimisation
-        mpo : Cost function MPO
-        max_bond : Maximum bond dimension
-        lr         : learning rate
-        max_iters  : maximum iterations
-        tol        : convergence threshold tolerance
-        Returns:
-        theta      : optimised parameters
+        Gradient descent loop with adaptive step size, momentum, and relative cost convergence.
         """
+
         theta = theta_init.copy()
-        allowed = np.array([True] * len(theta), dtype=bool)
-        for k in range(len(theta)):
+        num_params = len(theta)
+
+        # ----- Compute allowed parameter mask once -----
+        allowed = np.ones(num_params, dtype=bool)
+        N = self.num_orbitals if self.restricted else self.num_spin_orbitals
+
+        for k in range(num_params):
             if only_real_params:
-                N = self.num_orbitals if self.restricted else self.num_spin_orbitals
                 if k < N:
                     allowed[k] = False
                 elif N % 2 == 0 and k % 2 == 1:
                     allowed[k] = False
                 elif N % 2 == 1 and k % 2 == 0:
                     allowed[k] = False
-        # No mixing of alpha-beta spins!
-        for k in range(len(theta)):
-            N = self.num_orbitals if self.restricted else self.num_spin_orbitals
+
             p, q, _ = self.param_to_indices(N, k)[0]
             if (p % 2) != (q % 2):
                 allowed[k] = False
 
-        theta_opt = theta[allowed]
-
+        # Functions to expand/reduce theta arrays
         def expand_theta(t):
             full = np.zeros_like(theta_init)
             full[allowed] = t
@@ -736,56 +726,78 @@ class ActiveSpaceSelection:
         def cost(t):
             full_theta = expand_theta(t)
             if energy_minimisation:
-                cost = self.calculate_energy(
+                return self.calculate_energy(
                     full_theta, pauli_lookup, mpo, mps, max_bond
                 )
             else:
-                cost = self.calculate_cost(full_theta, pauli_lookup, mps, mpo, max_bond)
-            return cost
+                return self.calculate_cost(full_theta, pauli_lookup, mps, mpo, max_bond)
 
         def grad(t):
             full_theta = expand_theta(t)
             if energy_minimisation:
-                grad = self.calculate_energy_gradients(
+                grad_dict = self.calculate_energy_gradients(
                     full_theta, pauli_lookup, mpo, mps, max_bond, only_real_params
                 )
             else:
-                grad = self.calculate_gradients(
+                grad_dict = self.calculate_gradients(
                     full_theta, pauli_lookup, mpo, mps, max_bond, only_real_params
                 )
-            grad_array = np.zeros(len(theta_init))
-            for k, v in grad.items():
+            grad_array = np.zeros(num_params)
+            for k, v in grad_dict.items():
                 grad_array[k] = v
+            return grad_array[allowed]
 
-            grad = grad_array[allowed]
-            return grad
-
+        # ----- Initialize theta and momentum -----
         theta_opt = theta[allowed]
-        for iter in range(max_iters):
-            self.all_costs.append(cost(theta_opt))
-            grad_dict = grad(theta_opt)
-            gradients = np.array(
-                [grad_dict[i] for i in range(len(theta_opt))], dtype=float
-            )
 
-            grad_norm = np.linalg.norm(gradients)
+        self.all_costs = []
+        prev_cost = cost(theta_opt)
+        self.all_costs.append(prev_cost)
+
+        lr_current = lr
+
+        for iter in range(max_iters):
+            g = grad(theta_opt)
+            grad_norm = np.linalg.norm(g)
             self.grad_norms.append(grad_norm)
+
             if grad_norm < grad_tol:
-                print(f"Converged at iteration {iter}, grad_norm={grad_norm:.3e}")
+                print(f"[Converged] Iter {iter}, grad_norm={grad_norm:.3e}")
                 break
 
-            if iter >= 1:
-                cost_diff = np.abs(self.all_costs[-1] - self.all_costs[-2])
-            if iter > 10:
-                if cost_diff < cost_tol:
-                    print(f"Converged at iteration {iter}, cost_diff={cost_diff:.3e}")
-                    break
+            theta_trial = theta_opt - lr_current * g
+            cost_old = prev_cost
+            cost_new = cost(theta_trial)
 
-            theta_opt -= lr * gradients
+            if iter > 1:
+                if cost_new < cost_old:
+                    # Accept step
+                    theta_opt = theta_trial
+                    prev_cost = cost_new
+                    lr_current *= 1.05  # grow slightly
+                else:
+                    # Reject step
+                    lr_current *= 0.5  # shrink
+                    continue
+            else:
+                # Always accept first step
+                theta_opt = theta_trial
+                prev_cost = cost_new
+
+            self.all_costs.append(prev_cost)
+
+            cost_diff = abs(cost_old - cost_new)
+
             print(
-                f"Iteration number: {iter:3d} grad_norm={grad_norm:.3e} cost={self.all_costs[-1]}"
+                f"Iter {iter:3d} | grad_norm={grad_norm:.3e} | cost={cost_new:.6e} "
+                f"| lr={lr_current:.3e}"
             )
 
+            if cost_diff < cost_tol and iter > 5:
+                print(f"[Converged] Iter {iter}, relative cost change={cost_diff:.3e}")
+                break
+
+        # Expand back to full theta array
         new_theta = expand_theta(theta_opt)
         return new_theta
 
