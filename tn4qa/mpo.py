@@ -1610,6 +1610,23 @@ class MatrixProductOperator(TensorNetwork):
         mpo = cls.from_qiskit_circuit(qc, max_bond=max_bond)
         return mpo
 
+    @classmethod
+    def from_pauli_exponential(
+        cls, pauli_string: str, x: float
+    ) -> "MatrixProductOperator":
+        """Construct the MPO for exp(ixP) = cos(x)*I + i*sin(x)*P
+
+        Args:
+            pauli_string: The Pauli string P
+            x: The rotation coefficient x
+        """
+        mpo_p = cls.from_pauli_string(pauli_string)
+        mpo_p.multiply_by_constant(1j * np.sin(x))
+        mpo_id = cls.identity_mpo(len(pauli_string))
+        mpo_id.multiply_by_constant(np.cos(x))
+        mpo = mpo_p + mpo_id
+        return mpo
+
     def to_sparse_array(self, optimisation_method: str = "greedy") -> SparseArray:
         """
         Converts MPO to a sparse matrix.
