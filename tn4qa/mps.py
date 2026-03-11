@@ -772,7 +772,7 @@ class MatrixProductState(TensorNetwork):
             other: The other MPS.
 
         Returns
-            The inner product <self | other>.
+            The inner product <other | self>.
         """
         mps1 = copy.deepcopy(self)
         mps2 = copy.deepcopy(other)
@@ -937,12 +937,12 @@ class MatrixProductState(TensorNetwork):
         mpdo = mps.form_density_operator()
         return mpdo.partial_trace(sites, matrix, True)
 
-    def normalise(self) -> None:
+    def normalise(self, value: float = 1.0) -> None:
         """
         Normalise the MPS.
         """
         norm = self.compute_inner_product(self).real
-        self.multiply_by_constant(np.sqrt(1 / norm))
+        self.multiply_by_constant(np.sqrt(value / norm))
         return
 
     def expand_bond_dimension(self, diff: int, bond_idx: int) -> "MatrixProductState":

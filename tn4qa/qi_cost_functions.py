@@ -170,8 +170,8 @@ def cost_function_to_dict(cost_function: Callable, **kwargs) -> dict[str, float]
             )
         case "cost_mutual_info_active_inactive":
             num_orbitals = function_params["num_orbitals"]
-            num_active = function_params.get("num_active_orbitals")
-            active_orbs = list(range(num_active))
+            active_orbs = function_params["active_orbs"]
+            # active_orbs = list(range(num_active))
             return cost_mutual_info_active_inactive_dict(
                 num_orbs=num_orbitals, active_orbs=active_orbs
             )
@@ -227,6 +227,7 @@ def cost_function_dict_to_purity_mpo(
             id_mpo = MatrixProductOperator.identity_mpo(2 * num_sites)
             temp_mpo = MatrixProductOperator.purity_mpo(num_sites, spin_orbitals)
             diff = id_mpo - temp_mpo
+            diff.multiply_by_constant(weight)
             mpos.append(diff)
         else:
             orbital_idx1 = int(s_split[1])
@@ -240,6 +241,7 @@ def cost_function_dict_to_purity_mpo(
             id_mpo = MatrixProductOperator.identity_mpo(2 * num_sites)
             temp_mpo = MatrixProductOperator.purity_mpo(num_sites, spin_orbitals)
             diff = id_mpo - temp_mpo
+            diff.multiply_by_constant(weight)
             mpos.append(diff)
 
     mpo = mpos[0]
