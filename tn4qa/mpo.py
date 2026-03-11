@@ -1574,7 +1574,7 @@ class MatrixProductOperator(TensorNetwork):
             swap_sparse = sparse.COO.from_numpy(swap_matrix)
 
             # Apply the SWAP gate
-            mpo.apply_nonlocal_two_qubit_gate(
+            mpo = mpo.apply_nonlocal_two_qubit_gate(
                 swap_sparse,
                 [idx, num_sites + idx],
             )
