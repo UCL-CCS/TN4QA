@@ -224,6 +224,16 @@ class ActiveSpaceSelection:
         active_orbs: list[int] | None = None,
     ) -> MatrixProductOperator:
         """Build the cost function as an MPO"""
+        # Ensure we always pass an explicit list of active orbitals when the cost
+        # function expects it (e.g. cost_mutual_info_active_inactive).
+        if active_orbs is None:
+            if num_active_orbitals is None:
+                raise ValueError(
+                    "Either active_orbs or num_active_orbitals must be provided "
+                    "to build the cost function MPO."
+                )
+            active_orbs = list(range(num_active_orbitals))
+
         d = cost_function_to_dict(
             cost_function,
             num_orbitals=self.num_orbitals,
