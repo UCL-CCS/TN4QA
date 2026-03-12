@@ -43,3 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Various bug fixes and optimisations
+
+## [0.0.5] - 2026-03-12
+
+### Added
+- Entanglement feature construction
+- MPS to circuit mapping methods
+
+### Changed
+- Improved contraction/compression methods for MPO/MPS
+- ActiveSpaceSelection renamed to MolecularOrbitalOptimisation
+
+### Fixed
+- Rewrote circuit to MPO/MPS constructions, no change to functionality
