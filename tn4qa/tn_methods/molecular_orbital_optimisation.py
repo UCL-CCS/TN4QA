@@ -18,7 +18,7 @@ from ..mps import MatrixProductState
 from ..tn import TensorNetwork
 
 
-class ActiveSpaceSelection:
+class MolecularOrbitalOptimisation:
     def __init__(
         self,
         hamiltonian: dict[str, complex],
