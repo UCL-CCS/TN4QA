@@ -419,6 +419,24 @@ class MPSAnalyticDecomposition:
                     qidxs.append([qidxs[-1][-1] + 1])
                 continue
 
+            if sub_mps.num_sites == 2:
+                vec = sub_mps.to_dense_array()
+                u = np.zeros((4, 4), dtype=np.complex128)
+                u[:, 0] = vec
+                u[:, 1:] = np.random.randn(4, 3) + 1j * np.random.randn(4, 3)
+                Q, _ = np.linalg.qr(u)
+                phase = np.vdot(vec, Q[:, 0])
+                Q[:, 0] *= phase / abs(phase)
+                gate = UnitaryGate(unitary)
+                qc = QuantumCircuit(2)
+                qc.append(gate, [1, 0])
+                qcs.append(qc)
+                if len(qidxs) == 0:
+                    qidxs.append([0, 1])
+                else:
+                    qidxs.append([qidxs[-1][-1] + 1, qidxs[-1][-1] + 2])
+                continue
+
             unitaries = []
             first_uni = self.extend_to_unitary(sub_mps.tensors[0], "first")
             unitaries.append(first_uni)
@@ -468,10 +486,10 @@ class MPSAnalyticDecomposition:
         mps = bond_dim_2_mps
         n = mps.num_sites
         # Define middle site for even and odd n
-        if n % 2 == 0: 
-            mps.move_orthogonality_centre(int(n // 2))          # even
+        if n % 2 == 0:
+            mps.move_orthogonality_centre(int(n // 2))  # even
         else:
-            mps.move_orthogonality_centre(int(n // 2 + 1))      # odd
+            mps.move_orthogonality_centre(int(n // 2 + 1))  # odd
 
         # identify cuts where bond-dim == 1 (so we split the MPS into pieces)
         mps_dims = [mps.tensors[idx].dimensions[0] for idx in range(1, mps.num_sites)]
