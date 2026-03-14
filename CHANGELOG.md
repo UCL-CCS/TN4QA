@@ -56,3 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Rewrote circuit to MPO/MPS constructions, no change to functionality
+
+## [0.0.6] - 2026-03-14
+
+### Fixed
+- Necessary bug fix to mps to circuit middle out method
