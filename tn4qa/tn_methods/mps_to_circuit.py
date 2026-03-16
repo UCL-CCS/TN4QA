@@ -569,23 +569,17 @@ class MPSAnalyticDecomposition:
                 else:
                     qidxs.append([qidxs[-1][-1] + 1])
                 continue
-            if sub_mps.num_sites == 2:
-                vec = sub_mps.to_dense_array()
-                u = np.zeros((4, 4), dtype=np.complex128)
-                u[:, 0] = vec
-                u[:, 1:] = np.random.randn(4, 3) + 1j * np.random.randn(4, 3)
-                Q, _ = np.linalg.qr(u)
-                phase = np.vdot(vec, Q[:, 0])
-                Q[:, 0] *= phase / abs(phase)
-                gate = UnitaryGate(Q)
-                qc = QuantumCircuit(2)
-                qc.append(gate, [1, 0])
+            elif sub_mps.num_sites < 5:
+                qc = self.bond_dim_2_to_qc_exact(sub_mps)
                 qcs.append(qc)
                 if len(qidxs) == 0:
-                    qidxs.append([0, 1])
+                    qidxs.append(list(range(sub_mps.num_sites)))
                 else:
-                    qidxs.append([qidxs[-1][-1] + 1, qidxs[-1][-1] + 2])
+                    qidxs.append(
+                        [qidxs[-1][-1] + x + 1 for x in range(sub_mps.num_sites)]
+                    )
                 continue
+
             # build the "unitaries" list
             sub_n = int(sub_mps.num_sites)
             unitaries_left = []
