@@ -673,7 +673,7 @@ class MPSAnalyticDecomposition:
     def bond_dim_2_to_qc_via_ttn(
         self, bond_dim_2_mps: MatrixProductState
     ) -> QuantumCircuit:
-        """MPS to TTN to circuit. Currently only for num_sites = power of 2."""
+        """MPS to TTN to circuit."""
         mps = copy.deepcopy(bond_dim_2_mps)
         mps.set_default_indices()
 
