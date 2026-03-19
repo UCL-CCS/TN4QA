@@ -19,18 +19,18 @@ def test_constructor():
 
     # Test all properties have been assigned correctly
     assert tn.name == "TEST_TN", "TN name does not match input."
-    assert len(tn.tensors) == 2, (
-        "The number of tensors in the TN should match the number of input arrays."
-    )
+    assert (
+        len(tn.tensors) == 2
+    ), "The number of tensors in the TN should match the number of input arrays."
     assert np.allclose(tn.tensors[0].data.todense(), TEST_ARRAY_1) and np.allclose(
         tn.tensors[1].data.todense(), TEST_ARRAY_2
     ), "The tensors in the TN should appear in input order."
-    assert len(tn.indices) == 3, (
-        "The total number of indices should match the input arrays."
-    )
-    assert "A" in tn.indices and "B" in tn.indices and "C" in tn.indices, (
-        "The TN indices should match the input values."
-    )
+    assert (
+        len(tn.indices) == 3
+    ), "The total number of indices should match the input arrays."
+    assert (
+        "A" in tn.indices and "B" in tn.indices and "C" in tn.indices
+    ), "The TN indices should match the input values."
 
     return
 
@@ -46,9 +46,9 @@ def test_get_index_to_tensor_dict():
     assert (
         len(tn_dict["A"]) == 1 and len(tn_dict["B"]) == 2 and len(tn_dict["C"]) == 1
     ), "Indices do not map to the right number of tensors."
-    assert tn_dict["A"][0].labels[0] == "T1" and tn_dict["C"][0].labels[0] == "T2", (
-        "Indices do not map to the correct tensors."
-    )
+    assert (
+        tn_dict["A"][0].labels[0] == "T1" and tn_dict["C"][0].labels[0] == "T2"
+    ), "Indices do not map to the correct tensors."
 
     return
 
@@ -101,9 +101,9 @@ def test_get_internal_indices():
     assert (
         "B" in internal_indices and "C" in internal_indices and "D" in internal_indices
     ), "Did not find all internal indices."
-    assert "A" not in internal_indices and "E" not in internal_indices, (
-        "Found the wrong internal indices."
-    )
+    assert (
+        "A" not in internal_indices and "E" not in internal_indices
+    ), "Found the wrong internal indices."
 
     return
 
@@ -122,9 +122,9 @@ def test_get_external_indices():
         and "C" not in external_indices
         and "D" not in external_indices
     ), "Found the wrong external indices."
-    assert "A" in external_indices and "E" in external_indices, (
-        "Did not find all external indices."
-    )
+    assert (
+        "A" in external_indices and "E" in external_indices
+    ), "Did not find all external indices."
 
     return
 
@@ -138,9 +138,9 @@ def test_get_all_indices():
     tn = TensorNetwork([t1, t2, t3, t4], "TEST_TN")
     all_indices = tn.get_all_indices()
 
-    assert "B" in all_indices and "C" in all_indices and "D" in all_indices, (
-        "Did not find all indices."
-    )
+    assert (
+        "B" in all_indices and "C" in all_indices and "D" in all_indices
+    ), "Did not find all indices."
     assert "A" in all_indices and "E" in all_indices, "Did not find all indices."
 
     return
@@ -188,12 +188,12 @@ def test_get_tensors_from_index_name():
     tensors = tn.get_tensors_from_index_name("B")
 
     assert len(tensors) == 2, "Did not find all tensors."
-    assert np.allclose(tensors[0].data.todense(), TEST_ARRAY_1), (
-        "Did not find the correct first tensor."
-    )
-    assert np.allclose(tensors[1].data.todense(), TEST_ARRAY_2), (
-        "Did not find the correct second tensor."
-    )
+    assert np.allclose(
+        tensors[0].data.todense(), TEST_ARRAY_1
+    ), "Did not find the correct first tensor."
+    assert np.allclose(
+        tensors[1].data.todense(), TEST_ARRAY_2
+    ), "Did not find the correct second tensor."
     assert "TN_T1" in tensors[0].labels, "Tensors should be found in order."
     assert "TN_T2" in tensors[1].labels, "Tensors should be found in order."
 
@@ -210,9 +210,9 @@ def test_get_tensors_from_label():
     tensors = tn.get_tensors_from_label("TEST")
 
     assert len(tensors) == 3, "Did not find all tensors."
-    assert np.allclose(tensors[1].data.todense(), TEST_ARRAY_1), (
-        "Did not find correct tensors."
-    )
+    assert np.allclose(
+        tensors[1].data.todense(), TEST_ARRAY_1
+    ), "Did not find correct tensors."
     assert "E" in tensors[2].indices, "Tensors should be found in order."
 
     return
@@ -232,25 +232,65 @@ def test_contract_index():
 
     # Test TN structure after contraction
     assert len(all_labels) == 3, "Should only be 3 tensors after contraction."
-    assert "TN_T1" not in all_labels and "TN_T2" not in all_labels, (
-        "Old labels should be removed."
-    )
+    assert (
+        "TN_T1" not in all_labels and "TN_T2" not in all_labels
+    ), "Old labels should be removed."
     assert "TN_T5" in all_labels, "New label generated incorrectly."
     assert len(all_indices) == 4, "Should only be 4 indices after contraction."
     assert "B" not in all_indices, "Old index should be removed."
-    assert "A" in all_indices and "C" in all_indices, (
-        "Uncontracted indices should persist."
-    )
+    assert (
+        "A" in all_indices and "C" in all_indices
+    ), "Uncontracted indices should persist."
 
     tensor = tn.get_tensors_from_label("TN_T5")[0]
 
     # Test contraction manipulates data correctly
-    assert np.allclose(tensor.data.todense(), TEST_ARRAY_3), (
-        "Contracted tensor data incorrect."
-    )
-    assert "A" in tensor.indices and "C" in tensor.indices, (
-        "Contracted tensor has the wrong indices."
-    )
+    assert np.allclose(
+        tensor.data.todense(), TEST_ARRAY_3
+    ), "Contracted tensor data incorrect."
+    assert (
+        "A" in tensor.indices and "C" in tensor.indices
+    ), "Contracted tensor has the wrong indices."
+
+    return
+
+
+def test_contract_indices():
+    array_1 = np.random.rand(1, 1, 1)
+    array_2 = np.random.rand(1, 1, 1)
+    t1 = Tensor(array_1, ["A", "B", "C"], ["TN_T1"])
+    t2 = Tensor(array_2, ["B", "C", "D"], ["TN_T2"])
+
+    tn = TensorNetwork([t1, t2], "TEST_TN")
+    tn.contract_indices(["B", "C"])
+
+    all_labels = tn.get_all_labels()
+    all_indices = tn.get_all_indices()
+
+    # Test TN structure after contraction
+    assert len(all_labels) == 1, "Should only be 1 tensor after contraction."
+    assert (
+        "TN_T1" not in all_labels and "TN_T2" not in all_labels
+    ), "Old labels should be removed."
+    assert "TN_T3" in all_labels, "New label generated incorrectly."
+    assert len(all_indices) == 2, "Should only be 2 indices after contraction."
+    assert (
+        "B" not in all_indices and "C" not in all_indices
+    ), "Old indices should be removed."
+    assert (
+        "A" in all_indices and "D" in all_indices
+    ), "Uncontracted indices should persist."
+
+    tensor = tn.get_tensors_from_label("TN_T3")[0]
+
+    # Test contraction manipulates data correctly
+    expected_array = np.asmatrix(array_1) @ np.asmatrix(array_2)
+    assert np.allclose(
+        tensor.data.todense(), expected_array
+    ), "Contracted tensor data incorrect."
+    assert (
+        "A" in tensor.indices and "D" in tensor.indices
+    ), "Contracted tensor has the wrong indices."
 
     return
 
@@ -266,9 +306,9 @@ def test_compress_index():
     bond_size_B = tn.get_dimension_of_index("B")
     bond_size_C = tn.get_dimension_of_index("C")
 
-    assert bond_size_A == 2 and bond_size_B == 1 and bond_size_C == 2, (
-        "Bond dimensions incorrect after compression."
-    )
+    assert (
+        bond_size_A == 2 and bond_size_B == 1 and bond_size_C == 2
+    ), "Bond dimensions incorrect after compression."
 
     return
 
@@ -283,9 +323,9 @@ def test_pop_tensors_by_label():
     popped_tensor = tn.pop_tensors_by_label(["TEST_LABEL"])
 
     assert len(popped_tensor) == 1, "Did not find tensor."
-    assert np.allclose(popped_tensor[0].data.todense(), TEST_ARRAY_1), (
-        "Found incorrect tensor."
-    )
+    assert np.allclose(
+        popped_tensor[0].data.todense(), TEST_ARRAY_1
+    ), "Found incorrect tensor."
     assert len(tn.tensors) == 3, "TN should only contain 3 tensors after pop."
 
     return
@@ -317,12 +357,12 @@ def test_contract_entire_network():
     print(tn)
     t = tn.contract_entire_network()
 
-    assert np.allclose(t.data.todense(), TEST_ARRAY_3), (
-        "Contraction manipulates data incorrectly."
-    )
-    assert "A" in t.indices and "E" in t.indices, (
-        "Uncontracted indices should appear in the output."
-    )
+    assert np.allclose(
+        t.data.todense(), TEST_ARRAY_3
+    ), "Contraction manipulates data incorrectly."
+    assert (
+        "A" in t.indices and "E" in t.indices
+    ), "Uncontracted indices should appear in the output."
 
     return
 
@@ -336,12 +376,12 @@ def test_compute_environment_tensor_by_label():
     tn = TensorNetwork([t1, t2, t3, t4], "TEST_TN")
     env = tn.compute_environment_tensor_by_label(["TEST_LABEL"])
 
-    assert np.allclose(env.data.todense(), TEST_ARRAY_1), (
-        "Environment tensor calculated incorrectly."
-    )
-    assert "C" in env.indices and "D" in env.indices, (
-        "Uncontracted indices should appear in the output."
-    )
+    assert np.allclose(
+        env.data.todense(), TEST_ARRAY_1
+    ), "Environment tensor calculated incorrectly."
+    assert (
+        "C" in env.indices and "D" in env.indices
+    ), "Uncontracted indices should appear in the output."
 
     return
 
@@ -367,15 +407,15 @@ def test_combine_indices():
     tn = TensorNetwork([t1, t2], "TEST_TN")
     tn.combine_indices(["B", "C"], new_index_name="TEST")
 
-    assert "TEST" in tn.indices and "B" not in tn.indices and "C" not in tn.indices, (
-        "Index naming not handled correctly."
-    )
-    assert np.allclose(tn.tensors[0].data.todense(), TEST_ARRAY_1), (
-        "Data manipulation incorrect."
-    )
-    assert np.allclose(tn.tensors[1].data.todense(), TEST_ARRAY_1), (
-        "Data manipulation incorrect."
-    )
+    assert (
+        "TEST" in tn.indices and "B" not in tn.indices and "C" not in tn.indices
+    ), "Index naming not handled correctly."
+    assert np.allclose(
+        tn.tensors[0].data.todense(), TEST_ARRAY_1
+    ), "Data manipulation incorrect."
+    assert np.allclose(
+        tn.tensors[1].data.todense(), TEST_ARRAY_1
+    ), "Data manipulation incorrect."
     assert tn.tensors[0].data.todense().shape == (2, 2), "New shape incorrect."
     assert tn.tensors[1].data.todense().shape == (2, 2), "New shape incorrect."
 
@@ -401,9 +441,9 @@ def test_svd():
     new_output = tn.contract_entire_network().data.todense()
 
     # Test data manipulation
-    assert np.allclose(original_output, new_output), (
-        "Data manipulation incorrect after SVD."
-    )
+    assert np.allclose(
+        original_output, new_output
+    ), "Data manipulation incorrect after SVD."
 
     return
 
@@ -420,8 +460,8 @@ def test_compress():
 
     new_output = tn.contract_entire_network()
 
-    assert np.isclose(original_output, new_output, atol=0.1), (
-        "TN compression does not match input."
-    )
+    assert np.isclose(
+        original_output, new_output, atol=0.1
+    ), "TN compression does not match input."
 
     return

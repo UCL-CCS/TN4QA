@@ -227,7 +227,7 @@ class MatrixProductState(TensorNetwork):
         Returns:
             An MPS.
         """
-        if symmer == None:
+        if symmer is None:
             raise ImportError("To use symmer integration install tn4qa[symmer].")
         state_dict = quantum_state.to_dictionary
         mps = cls.from_bitstring_dict(state_dict, max_bond)
@@ -782,7 +782,7 @@ class MatrixProductState(TensorNetwork):
             other: The other MPS.
 
         Returns
-            The inner product <self | other>.
+            The inner product <other | self>.
         """
         mps1 = copy.deepcopy(self)
         mps2 = copy.deepcopy(other)
@@ -947,12 +947,12 @@ class MatrixProductState(TensorNetwork):
         mpdo = mps.form_density_operator()
         return mpdo.partial_trace(sites, matrix, True)
 
-    def normalise(self) -> None:
+    def normalise(self, value: float = 1.0) -> None:
         """
         Normalise the MPS.
         """
         norm = self.compute_inner_product(self).real
-        self.multiply_by_constant(np.sqrt(1 / norm))
+        self.multiply_by_constant(np.sqrt(value / norm))
         return
 
     def expand_bond_dimension(self, diff: int, bond_idx: int) -> "MatrixProductState":
@@ -1372,9 +1372,9 @@ class MatrixProductState(TensorNetwork):
         Returns:
             MatrixProductOperator representing the unitary V
         """
-        assert self.num_sites == other.num_sites, (
-            "psi_C and psi_D must have the same number of sites"
-        )
+        assert (
+            self.num_sites == other.num_sites
+        ), "psi_C and psi_D must have the same number of sites"
         psi_C = copy.deepcopy(self)
         psi_D = copy.deepcopy(other)
 

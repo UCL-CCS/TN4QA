@@ -59,9 +59,9 @@ def test_identity_mpo():
     for n in range(2, 10):
         mpo = MatrixProductOperator.identity_mpo(n)
         dense_matrix = mpo.to_dense_array()
-        assert dense_matrix.all() == np.identity(n).all(), (
-            f"Does not return Identity Matrix for size {n}"
-        )
+        assert (
+            dense_matrix.all() == np.identity(n).all()
+        ), f"Does not return Identity Matrix for size {n}"
         return
 
 
@@ -150,9 +150,9 @@ def test_from_qiskit_circuit():
     expected_op = Operator.from_circuit(qc).reverse_qargs().data
     mpo = MatrixProductOperator.from_qiskit_circuit(qc)
     mpo_dense = mpo.to_dense_array()
-    assert np.allclose(mpo_dense, expected_op, atol=0.1), (
-        "Qiskit Circuit MPO output mismatch"
-    )
+    assert np.allclose(
+        mpo_dense, expected_op, atol=0.1
+    ), "Qiskit Circuit MPO output mismatch"
     return
 
 
@@ -187,9 +187,9 @@ def test_projector_from_samples():
         expected[bs_int][bs_int] = 1
     mpo = MatrixProductOperator.projector_from_samples(list_bs, 8)
     mpo_dense = mpo.to_dense_array()
-    assert np.allclose(mpo_dense, expected), (
-        "Projector MPO does not match the expected result"
-    )
+    assert np.allclose(
+        mpo_dense, expected
+    ), "Projector MPO does not match the expected result"
     return
 
 
@@ -226,9 +226,9 @@ def sparse_and_dense_equivalence():
     dense_matrix = mpo.to_dense_array()
 
     # Assert: Check equivalence between sparse and dense representations
-    assert np.allclose(sparse_matrix.todense(), dense_matrix), (
-        "Sparse and dense matrix representations are not equivalent"
-    )
+    assert np.allclose(
+        sparse_matrix.todense(), dense_matrix
+    ), "Sparse and dense matrix representations are not equivalent"
 
 
 def test_add():
@@ -242,9 +242,9 @@ def test_add():
     out = mpo1 + mpo2
     expected = MatrixProductOperator.from_hamiltonian(total_ham, 8)
 
-    assert np.allclose(out.to_dense_array(), expected.to_dense_array()), (
-        "MPO addition result is incorrect"
-    )
+    assert np.allclose(
+        out.to_dense_array(), expected.to_dense_array()
+    ), "MPO addition result is incorrect"
     return
 
 
@@ -259,9 +259,9 @@ def test_subtract():
     out = mpo2 - mpo1
     expected = MatrixProductOperator.from_hamiltonian(ham2, 8)
 
-    assert np.allclose(out.to_dense_array(), expected.to_dense_array()), (
-        "MPO subtraction result is incorrect"
-    )
+    assert np.allclose(
+        out.to_dense_array(), expected.to_dense_array()
+    ), "MPO subtraction result is incorrect"
     return
 
 
@@ -272,9 +272,9 @@ def test_multiply():
     out = mpo1 * mpo2
     expected = MatrixProductOperator.from_pauli_string("XIIZYX")
 
-    assert np.allclose(out.to_dense_array(), expected.to_dense_array()), (
-        "MPO multiplication result is incorrect"
-    )
+    assert np.allclose(
+        out.to_dense_array(), expected.to_dense_array()
+    ), "MPO multiplication result is incorrect"
     return
 
 
@@ -308,42 +308,42 @@ def test_move_orthogonality_centre():
     t_mat = t.data.todense()
     if t.dimensions[0] >= t.dimensions[1]:
         id_mat = np.eye(t.dimensions[1])
-        assert np.allclose(id_mat, t_mat.conj().T @ t_mat), (
-            "Tensor 0 is not left-orthogonal after moving orthogonality centre"
-        )
+        assert np.allclose(
+            id_mat, t_mat.conj().T @ t_mat
+        ), "Tensor 0 is not left-orthogonal after moving orthogonality centre"
     else:
         id_mat = np.eye(t.dimensions[0])
-        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), (
-            "Tensor 0 is not right-orthogonal after moving orthogonality centre"
-        )
+        assert np.allclose(
+            id_mat, t_mat @ t_mat.conj().T
+        ), "Tensor 0 is not right-orthogonal after moving orthogonality centre"
 
     t = mpo.tensors[2]
     t.tensor_to_matrix([t.indices[1], t.indices[2], t.indices[3]], [t.indices[0]])
     t_mat = t.data.todense()
     if t.dimensions[0] >= t.dimensions[1]:
         id_mat = np.eye(t.dimensions[1])
-        assert np.allclose(id_mat, t_mat.conj().T @ t_mat), (
-            "Tensor 2 is not left-orthogonal after moving orthogonality centre"
-        )
+        assert np.allclose(
+            id_mat, t_mat.conj().T @ t_mat
+        ), "Tensor 2 is not left-orthogonal after moving orthogonality centre"
     else:
         id_mat = np.eye(t.dimensions[0])
-        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), (
-            "Tensor 2 is not right-orthogonal after moving orthogonality centre"
-        )
+        assert np.allclose(
+            id_mat, t_mat @ t_mat.conj().T
+        ), "Tensor 2 is not right-orthogonal after moving orthogonality centre"
 
     t = mpo.tensors[3]
     t.tensor_to_matrix([t.indices[1], t.indices[2]], [t.indices[0]])
     t_mat = t.data.todense()
     if t.dimensions[0] >= t.dimensions[1]:
         id_mat = np.eye(t.dimensions[1])
-        assert np.allclose(id_mat, t_mat.conj().T @ t_mat), (
-            "Tensor 3 is not left-orthogonal after moving orthogonality centre"
-        )
+        assert np.allclose(
+            id_mat, t_mat.conj().T @ t_mat
+        ), "Tensor 3 is not left-orthogonal after moving orthogonality centre"
     else:
         id_mat = np.eye(t.dimensions[0])
-        assert np.allclose(id_mat, t_mat @ t_mat.conj().T), (
-            "Tensor 3 is not right-orthogonal after moving orthogonality centre"
-        )
+        assert np.allclose(
+            id_mat, t_mat @ t_mat.conj().T
+        ), "Tensor 3 is not right-orthogonal after moving orthogonality centre"
 
     return
 
@@ -377,9 +377,9 @@ def test_project_to_subspace():
 
     print(expected - mpo_dense)
 
-    assert np.allclose(expected, mpo_dense), (
-        "Projected MPO does not match the expected dense matrix"
-    )
+    assert np.allclose(
+        expected, mpo_dense
+    ), "Projected MPO does not match the expected dense matrix"
     return
 
 
@@ -425,3 +425,14 @@ def test_contract_sub_mpo():
     expected_mpo = MatrixProductOperator.from_pauli_string("XYZX")
 
     assert np.allclose(contracted_mpo.to_dense_array(), expected_mpo.to_dense_array())
+
+
+def test_purity_mpo():
+    num_sites = 4
+    target_sites = [1, 3]
+    qc = QuantumCircuit(2 * num_sites)
+    for idx in target_sites:
+        qc.swap(idx - 1, num_sites + idx - 1)
+    qiskit_mpo = MatrixProductOperator.from_qiskit_circuit(qc)
+    test_purity_mpo = MatrixProductOperator.purity_mpo(num_sites, target_sites)
+    assert np.allclose(qiskit_mpo.to_dense_array(), test_purity_mpo.to_dense_array())
