@@ -56,7 +56,12 @@ class QDriftSimulation(QuantumAlgorithm):
         return self._circuit
 
     def build_circuit(
-        self, ham: dict[str, float], norm: float, num_terms: int, duration: float, seed: int | None = None
+        self,
+        ham: dict[str, float],
+        norm: float,
+        num_terms: int,
+        duration: float,
+        seed: int | None = None,
     ) -> QuantumCircuit:
         pauli_strings = list(ham.keys())
 

@@ -188,13 +188,13 @@ class DMRG:
             )
         )
         zero_tensor_top = Tensor(zero_array, ["P1"], ["ZERO"])
-        zero_tensor_bottom = Tensor(zero_array, [f"P{self.num_sites+2}"], ["ZERO"])
+        zero_tensor_bottom = Tensor(zero_array, [f"P{self.num_sites + 2}"], ["ZERO"])
         self.mps.add_tensor(zero_tensor_top)
         self.mps.add_tensor(zero_tensor_bottom)
         self.mps.contract_index("P1")
-        self.mps.contract_index(f"P{self.num_sites+2}")
+        self.mps.contract_index(f"P{self.num_sites + 2}")
         self.mps.contract_index("B1")
-        self.mps.contract_index(f"B{self.num_sites+1}")
+        self.mps.contract_index(f"B{self.num_sites + 1}")
         arrays = []
         for idx in range(2, self.num_sites + 2):
             arrays.append(self.mps.get_tensors_from_index_name(f"P{idx}")[0].data)
@@ -216,20 +216,22 @@ class DMRG:
         )
         zero_tensor_top_right = Tensor(zero_array, ["R1"], ["ZERO"])
         zero_tensor_bottom_right = Tensor(
-            zero_array, [f"R{self.num_sites+2}"], ["ZERO"]
+            zero_array, [f"R{self.num_sites + 2}"], ["ZERO"]
         )
         zero_tensor_top_left = Tensor(zero_array, ["L1"], ["ZERO"])
-        zero_tensor_bottom_left = Tensor(zero_array, [f"L{self.num_sites+2}"], ["ZERO"])
+        zero_tensor_bottom_left = Tensor(
+            zero_array, [f"L{self.num_sites + 2}"], ["ZERO"]
+        )
         self.mpo.add_tensor(zero_tensor_top_right)
         self.mpo.add_tensor(zero_tensor_bottom_right)
         self.mpo.add_tensor(zero_tensor_top_left)
         self.mpo.add_tensor(zero_tensor_bottom_left)
         self.mpo.contract_index("R1")
-        self.mpo.contract_index(f"R{self.num_sites+2}")
+        self.mpo.contract_index(f"R{self.num_sites + 2}")
         self.mpo.contract_index("L1")
-        self.mpo.contract_index(f"L{self.num_sites+2}")
+        self.mpo.contract_index(f"L{self.num_sites + 2}")
         self.mpo.contract_index("B1")
-        self.mpo.contract_index(f"B{self.num_sites+1}")
+        self.mpo.contract_index(f"B{self.num_sites + 1}")
         arrays = []
         for idx in range(2, self.num_sites + 2):
             arrays.append(self.mpo.get_tensors_from_index_name(f"R{idx}")[0].data)
@@ -290,7 +292,7 @@ class DMRG:
             tn = TensorNetwork([temp_right_block, dag_tensor, ham_tensor, mps_tensor])
             right_block = tn.contract_entire_network()
             right_block.reorder_indices(["Rdag", "Rham", "Rmps"])
-            right_block.labels.append(f"RIGHT_OF_SITE_{i-1}")
+            right_block.labels.append(f"RIGHT_OF_SITE_{i - 1}")
             self.right_block_cache.append(right_block)
 
         left_block = self.initialise_left_block()
@@ -323,7 +325,7 @@ class DMRG:
         tn = TensorNetwork([left_block, mps_tensor, ham_tensor, dag_tensor])
         self.left_block = tn.contract_entire_network()
         self.left_block.reorder_indices(["Ldag", "Lham", "Lmps"])
-        self.left_block.labels.append(f"LEFT_OF_SITE_{current_site+1}")
+        self.left_block.labels.append(f"LEFT_OF_SITE_{current_site + 1}")
 
         self.right_block = copy.deepcopy(self.right_block_cache[-1])
         self.right_block_cache.pop()
@@ -351,7 +353,7 @@ class DMRG:
         tn = TensorNetwork([right_block, mps_tensor, ham_tensor, dag_tensor])
         self.right_block = tn.contract_entire_network()
         self.right_block.reorder_indices(["Rdag", "Rham", "Rmps"])
-        self.right_block.labels.append(f"RIGHT_OF_SITE_{current_site-1}")
+        self.right_block.labels.append(f"RIGHT_OF_SITE_{current_site - 1}")
 
         self.left_block = copy.deepcopy(self.left_block_cache[-1])
         self.left_block_cache.pop()
@@ -369,9 +371,9 @@ class DMRG:
 
         tn = TensorNetwork([ham1, ham2])
         combined = tn.contract_entire_network()
-        combined.combine_indices([f"R{current_site+1}", f"R{current_site+2}"], "R")
-        combined.combine_indices([f"L{current_site+1}", f"L{current_site+2}"], "L")
-        combined.reorder_indices([f"B{current_site}", f"B{current_site+2}", "R", "L"])
+        combined.combine_indices([f"R{current_site + 1}", f"R{current_site + 2}"], "R")
+        combined.combine_indices([f"L{current_site + 1}", f"L{current_site + 2}"], "L")
+        combined.reorder_indices([f"B{current_site}", f"B{current_site + 2}", "R", "L"])
 
         return combined.data
 

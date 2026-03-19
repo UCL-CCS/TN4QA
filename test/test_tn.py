@@ -254,6 +254,7 @@ def test_contract_index():
 
     return
 
+
 def test_contract_indices():
     array_1 = np.random.rand(1, 1, 1)
     array_2 = np.random.rand(1, 1, 1)
@@ -273,7 +274,9 @@ def test_contract_indices():
     ), "Old labels should be removed."
     assert "TN_T3" in all_labels, "New label generated incorrectly."
     assert len(all_indices) == 2, "Should only be 2 indices after contraction."
-    assert "B" not in all_indices and "C" not in all_indices, "Old indices should be removed."
+    assert (
+        "B" not in all_indices and "C" not in all_indices
+    ), "Old indices should be removed."
     assert (
         "A" in all_indices and "D" in all_indices
     ), "Uncontracted indices should persist."
