@@ -11,12 +11,6 @@ from numpy import ndarray
 from qiskit import QuantumCircuit
 from sparse import SparseArray
 
-try:
-    from symmer import QuantumState
-except ImportError:
-    # symmer is now in the optional dependency group tn4qa[symmer]
-    symmer = None
-
 from .mpo import MatrixProductOperator
 from .tensor import Tensor
 from .tn import TensorNetwork
@@ -212,25 +206,6 @@ class MatrixProductState(TensorNetwork):
             if max_bond:
                 if mps.bond_dimension > max_bond:
                     mps.compress(max_bond)
-        return mps
-
-    @classmethod
-    def from_symmer_quantumstate(
-        cls, quantum_state: QuantumState, max_bond: int | None = None
-    ):
-        """
-        Create an MPS from a Symmer QuantumState object.
-
-        Args:
-            quantum_state: The quantum state.
-
-        Returns:
-            An MPS.
-        """
-        if symmer is None:
-            raise ImportError("To use symmer integration install tn4qa[symmer].")
-        state_dict = quantum_state.to_dictionary
-        mps = cls.from_bitstring_dict(state_dict, max_bond)
         return mps
 
     @classmethod
