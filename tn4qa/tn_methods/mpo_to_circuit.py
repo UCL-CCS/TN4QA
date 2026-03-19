@@ -5,7 +5,7 @@ import numpy as np
 from numpy import ndarray
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import UnitaryGate
-from scipy.linalg import svd
+from scipy.linalg import polar, svd
 
 from ..fidelity_metrics import hilbert_schmidt_fidelity
 from ..mps import MatrixProductOperator
@@ -310,97 +310,11 @@ class MPOAnalyticDecomposition:
     def bond_dim_2_to_qc_via_ttn(
         self, bond_dim_2_mpo: MatrixProductOperator
     ) -> QuantumCircuit:
-        """MPO to TTN to circuit."""
-        mpo = copy.deepcopy(bond_dim_2_mpo)
-        mpo.set_default_indices()
-        n = mpo.num_sites
+        """MPS to TTN to circuit. Currently only for num_sites = power of 2."""
 
-        all_unitaries = []
-        current_layer_n = n
-        current_layer_tensors = mpo.tensors
-        while current_layer_n > 2:
-            unitaries = []
-            next_layer_tensors = []
-            i = 0
-            while i < current_layer_n:
-                if i + 1 == current_layer_n:
-                    next_layer_tensors.append(current_layer_tensors[i])
-                    i += 1
-                else:
-                    tensor0, tensor1 = (
-                        current_layer_tensors[i],
-                        current_layer_tensors[i + 1],
-                    )
-                    if len(tensor0.indices) == 2:
-                        contraction = "ab,acd->bdc"
-                        new_t_inds = ["down", f"p{i+1}"]
-                        boundary = True
-                    elif len(tensor1.indices) == 2:
-                        contraction = "abc,bd->cda"
-                        new_t_inds = ["up", f"p{i+1}"]
-                        boundary = True
-                    else:
-                        contraction = "abc,bde->cead"
-                        new_t_inds = ["up", "down", f"p{i+1}"]
-                        boundary = False
-                    combined_tensor_data = np.einsum(
-                        contraction, tensor0.data.todense(), tensor1.data.todense()
-                    )
-                    shape = combined_tensor_data.shape
-                    if boundary:
-                        matrix = np.reshape(
-                            combined_tensor_data, (shape[0] * shape[1], shape[2])
-                        )
-                    else:
-                        matrix = np.reshape(
-                            combined_tensor_data,
-                            (shape[0] * shape[1], shape[2] * shape[3]),
-                        )
-
-                    isometry, s, vh = svd(matrix, full_matrices=False)
-                    isometry = isometry[:, :2]
-                    s = s[:2]
-                    vh = vh[:2, :]
-                    Q, _ = np.linalg.qr(
-                        np.random.randn(4, 2) + 1j * np.random.randn(4, 2)
-                    )
-                    Q = Q - isometry @ (isometry.conj().T @ Q)
-                    Q, _ = np.linalg.qr(Q)
-                    unitary = np.hstack([isometry, Q])
-                    unitaries.append(unitary)
-                    next_data = s[:, None] * vh
-                    if boundary:
-                        next_data = np.moveaxis(next_data, 0, -1)
-                    else:
-                        next_data = np.reshape(next_data, (2, 2, 2))
-                        next_data = np.moveaxis(next_data, 0, -1)
-                    next_tensor = Tensor(next_data, new_t_inds, ["TEMP"])
-                    next_layer_tensors.append(next_tensor)
-                    i += 2
-            current_layer_n = len(next_layer_tensors)
-            current_layer_tensors = next_layer_tensors
-            all_unitaries.append(unitaries)
-
-        unitaries = []
-        last_contraction = "ab,ac->bc"
-        last_data = np.einsum(
-            last_contraction,
-            next_layer_tensors[0].data.todense(),
-            next_layer_tensors[1].data.todense(),
-        )
-        vec = np.reshape(last_data, (4,))
-        vec = vec / np.linalg.norm(vec)
-        X = np.random.randn(4, 3) + 1j * np.random.randn(4, 3)
-        X = X - vec[:, None] * (vec.conj() @ X)
-        Q2, _ = np.linalg.qr(X)
-        Q = np.column_stack([vec, Q2])
-        unitaries.append(Q)
-        all_unitaries.append(unitaries)
-
-        all_unitaries = all_unitaries[::-1]
-
-        # Create circuit
-
+        # Initialise circuit structure
+        n = bond_dim_2_mpo.num_sites
+        num_layers = int(np.ceil(np.log2(n)))
         qc = QuantumCircuit(n)
         qubit_lists = []
 
@@ -420,7 +334,7 @@ class MPOAnalyticDecomposition:
         qubit_lists.append(last_layer)
 
         carry_over_counter = 1
-        for _ in range(len(all_unitaries) - 1):
+        for _ in range(num_layers - 1):
             previous_layer = qubit_lists[-1]
             qidxs = []
             if current_layer_n % 2 == 0:
@@ -451,6 +365,106 @@ class MPOAnalyticDecomposition:
             qubit_lists.append(qidxs)
 
         qubit_lists = qubit_lists[::-1]
+
+        # Find unitaries
+        mpo = copy.deepcopy(bond_dim_2_mpo)
+        mpo.set_default_indices()
+        oc = qubit_lists[0][0][1]
+        mpo.move_orthogonality_centre(oc + 1)
+        n = mpo.num_sites
+
+        all_unitaries = []
+        current_layer_n = n
+        current_layer_tensors = mpo.tensors
+        while current_layer_n > 2:
+            unitaries = []
+            next_layer_tensors = []
+            i = 0
+            while i < current_layer_n:
+                if i + 1 == current_layer_n:
+                    next_layer_tensors.append(current_layer_tensors[i])
+                    i += 1
+                else:
+                    tensor0, tensor1 = (
+                        current_layer_tensors[i],
+                        current_layer_tensors[i + 1],
+                    )
+                    if len(tensor0.indices) == 3:
+                        contraction = "abc,adef->cbedf"
+                        new_t_inds = ["down", "right", "left"]
+                        boundary = True
+                    elif len(tensor1.indices) == 3:
+                        contraction = "abcd,bef->dceaf"
+                        new_t_inds = ["up", "right", "left"]
+                        boundary = True
+                    else:
+                        contraction = "abcd,befg->dcfaeg"
+                        new_t_inds = ["up", "down", "right", "left"]
+                        boundary = False
+
+                    combined_tensor_data = np.einsum(
+                        contraction, tensor0.data.todense(), tensor1.data.todense()
+                    )
+                    shape = combined_tensor_data.shape
+                    if boundary:
+                        matrix = np.reshape(
+                            combined_tensor_data,
+                            (shape[0] * shape[1] * shape[2], shape[3] * shape[4]),
+                        )
+                    else:
+                        matrix = np.reshape(
+                            combined_tensor_data,
+                            (
+                                shape[0] * shape[1] * shape[2],
+                                shape[3] * shape[4] * shape[5],
+                            ),
+                        )
+
+                    isometry, s, vh = svd(matrix, full_matrices=False)
+                    isometry = isometry[:, :2]
+                    s = s[:2]
+                    vh = vh[:2, :]
+
+                    isometry = np.reshape(isometry, (2, 2, 2, 2))
+                    isometry = np.moveaxis(isometry, 0, 2)
+                    # isometry = np.moveaxis(isometry, [0,1,2,3], [1,0,3,2])
+                    matrix = np.reshape(isometry, (4, 4))
+                    tempu, _, tempvh = svd(matrix, full_matrices=True)
+                    unitary = tempu @ tempvh
+                    unitary, _ = polar(matrix)
+                    unitaries.append(unitary)
+
+                    next_data = s[:, None] * vh
+                    if boundary:
+                        next_data = np.reshape(next_data, (2, 2, 2))
+                        next_data = np.moveaxis(next_data, 0, 1)
+                    else:
+                        next_data = np.reshape(next_data, (2, 2, 2, 2))
+                        next_data = np.moveaxis(next_data, 0, 2)
+                    next_tensor = Tensor(next_data, new_t_inds, ["TEMP"])
+                    next_layer_tensors.append(next_tensor)
+                    i += 2
+
+            current_layer_n = len(next_layer_tensors)
+            current_layer_tensors = next_layer_tensors
+            all_unitaries.append(unitaries)
+
+        unitaries = []
+        last_contraction = "abc,ade->bdce"
+        last_data = np.einsum(
+            last_contraction,
+            next_layer_tensors[0].data.todense(),
+            next_layer_tensors[1].data.todense(),
+        )
+        # matrix = np.moveaxis(last_data, [0,1,2,3], [1,0,3,2])
+        matrix = np.reshape(last_data, (4, 4))
+        u, _, vh = svd(matrix, full_matrices=True)
+        last_uni = u @ vh
+        last_uni, _ = polar(matrix)
+        unitaries.append(last_uni)
+        all_unitaries.append(unitaries)
+
+        all_unitaries = all_unitaries[::-1]
 
         for layer in range(len(qubit_lists)):
             unitaries = all_unitaries[layer]
