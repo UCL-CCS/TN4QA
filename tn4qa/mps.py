@@ -9,6 +9,7 @@ from numpy import ndarray
 
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
+from scipy.linalg import svd
 from sparse import SparseArray
 from symmer import QuantumState
 
@@ -392,6 +393,64 @@ class MatrixProductState(TensorNetwork):
         if max_bond:
             if mps.bond_dimension > max_bond:
                 mps.compress(max_bond)
+        return mps
+
+    @classmethod
+    def from_mpo(cls, mpo: MatrixProductOperator) -> "MatrixProductState":
+        """Convert MPO to MPS with twice the number of sites"""
+        mpo_tensors = mpo.tensors
+        mps_arrays = []
+
+        first_t = mpo_tensors[0]
+        data = first_t.data.todense()
+        data_reshaped = np.moveaxis(data, [0, 1, 2], [0, 2, 1])
+        shape = data_reshaped.shape
+        data_mat = np.reshape(data_reshaped, (shape[0] * shape[1], shape[2]))
+        u, s, vh = svd(data_mat, full_matrices=False)
+        new_index_dim = vh.shape[0]
+        us = u @ np.diag(s)
+        us = np.reshape(us, (shape[0], shape[1], new_index_dim))
+        us = np.moveaxis(us, 2, 0)
+        vh = np.reshape(vh, (new_index_dim, shape[2]))
+
+        mps_arrays.append(vh)
+        mps_arrays.append(us)
+
+        for t in mpo_tensors[1:-1]:
+            t_data = t.data.todense()
+            t_data_reshaped = np.moveaxis(t_data, [0, 1, 2, 3], [2, 0, 1, 3])
+            shape = t_data_reshaped.shape
+            t_mat = np.reshape(
+                t_data_reshaped, (shape[0] * shape[1], shape[2] * shape[3])
+            )
+            u, s, vh = svd(t_mat, full_matrices=True)
+            new_index_dim = vh.shape[0]
+            us = u @ np.diag(s)
+            us = np.reshape(us, (shape[0], shape[1], new_index_dim))
+            us = np.moveaxis(us, 2, 0)
+            vh = np.reshape(vh, (new_index_dim, shape[2], shape[3]))
+            vh = np.moveaxis(vh, 0, 1)
+
+            mps_arrays.append(vh)
+            mps_arrays.append(us)
+
+        last_t = mpo_tensors[-1]
+        data = last_t.data.todense()
+        data_reshaped = np.moveaxis(data, [0, 1, 2], [1, 2, 0])
+        shape = data_reshaped.shape
+        data_mat = np.reshape(data_reshaped, (shape[0], shape[1] * shape[2]))
+        u, s, vh = svd(data_mat, full_matrices=False)
+        new_index_dim = vh.shape[0]
+        us = u @ np.diag(s)
+        us = np.reshape(us, (shape[0], new_index_dim))
+        us = np.moveaxis(us, 0, 1)
+        vh = np.reshape(vh, (new_index_dim, shape[1], shape[2]))
+        vh = np.moveaxis(vh, 0, 1)
+
+        mps_arrays.append(vh)
+        mps_arrays.append(us)
+
+        mps = cls.from_arrays(mps_arrays)
         return mps
 
     def __add__(self, other: "MatrixProductState") -> "MatrixProductState":
