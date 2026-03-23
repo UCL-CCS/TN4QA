@@ -670,350 +670,27 @@ class MPSAnalyticDecomposition:
 
         return final_qc
 
-    def bond_dim_2_to_qc_via_ttn(
-        self, bond_dim_2_mps: MatrixProductState
-    ) -> QuantumCircuit:
-        """MPS to TTN to circuit."""
-
-        # Initialise circuit structure
-        n = bond_dim_2_mps.num_sites
-        num_layers = int(np.ceil(np.log2(n)))
-        qc = QuantumCircuit(n)
-        qubit_lists = []
-
-        current_layer_n = n
-        if n % 2 == 0:
-            last_layer = [
-                [2 * idx, 2 * idx + 1] for idx in range(int(current_layer_n / 2))
-            ]
-            carry_over_qubit = None
-            current_layer_n = int(current_layer_n / 2)
-        else:
-            last_layer = [
-                [2 * idx, 2 * idx + 1] for idx in range(int((current_layer_n - 1) / 2))
-            ]
-            carry_over_qubit = current_layer_n - 1
-            current_layer_n = int((current_layer_n - 1) / 2) + 1
-        qubit_lists.append(last_layer)
-
-        carry_over_counter = 1
-        for _ in range(num_layers - 1):
-            previous_layer = qubit_lists[-1]
-            qidxs = []
-            if current_layer_n % 2 == 0:
-                if carry_over_qubit:
-                    qidxs += [
-                        [previous_layer[2 * idx][1], previous_layer[2 * idx + 1][1]]
-                        for idx in range(int((current_layer_n - 1) / 2))
-                    ]
-                    qidxs.append([previous_layer[-1][1], carry_over_qubit])
-                else:
-                    qidxs += [
-                        [previous_layer[2 * idx][1], previous_layer[2 * idx + 1][1]]
-                        for idx in range(int((current_layer_n) / 2))
-                    ]
-                carry_over_qubit = None
-                current_layer_n = int(current_layer_n / 2)
-            else:
-                qidxs += [
-                    [previous_layer[2 * idx][1], previous_layer[2 * idx + 1][1]]
-                    for idx in range(int((current_layer_n - 1) / 2))
-                ]
-                if carry_over_qubit:
-                    carry_over_qubit = carry_over_qubit
-                    carry_over_counter += 1
-                else:
-                    carry_over_qubit = qubit_lists[-carry_over_counter][-1][1]
-                current_layer_n = int((current_layer_n - 1) / 2) + 1
-            qubit_lists.append(qidxs)
-
-        qubit_lists = qubit_lists[::-1]
-
-        # Find unitaries
-        mps = copy.deepcopy(bond_dim_2_mps)
-        mps.set_default_indices()
-        oc = qubit_lists[0][0][1]
-        mps.move_orthogonality_centre(oc)
-
-        for idx in range(1, mps.num_sites):
-            bond_dim = mps.tensors[idx].dimensions[0]
-            if bond_dim < 2:
-                mps = mps.expand_bond_dimension(2 - bond_dim, idx)
-        n = mps.num_sites
-
-        if n < 4:
-            return self.bond_dim_2_to_qc_exact(bond_dim_2_mps)
-
-        all_unitaries = []
-        current_layer_n = n
-        current_layer_tensors = mps.tensors
-        while current_layer_n > 2:
-            unitaries = []
-            next_layer_tensors = []
-            i = 0
-            while i < current_layer_n:
-                if i + 1 == current_layer_n:
-                    next_layer_tensors.append(current_layer_tensors[i])
-                    i += 1
-                else:
-                    tensor0, tensor1 = (
-                        current_layer_tensors[i],
-                        current_layer_tensors[i + 1],
-                    )
-                    if len(tensor0.indices) == 2:
-                        contraction = "ab,acd->bdc"
-                        new_t_inds = ["down", f"p{i+1}"]
-                        boundary = True
-                    elif len(tensor1.indices) == 2:
-                        contraction = "abc,bd->cda"
-                        new_t_inds = ["up", f"p{i+1}"]
-                        boundary = True
-                    else:
-                        contraction = "abc,bde->cead"
-                        new_t_inds = ["up", "down", f"p{i+1}"]
-                        boundary = False
-                    combined_tensor_data = np.einsum(
-                        contraction, tensor0.data.todense(), tensor1.data.todense()
-                    )
-                    shape = combined_tensor_data.shape
-                    if boundary:
-                        matrix = np.reshape(
-                            combined_tensor_data, (shape[0] * shape[1], shape[2])
-                        )
-                    else:
-                        matrix = np.reshape(
-                            combined_tensor_data,
-                            (shape[0] * shape[1], shape[2] * shape[3]),
-                        )
-
-                    isometry, s, vh = svd(matrix, full_matrices=False)
-                    isometry = isometry[:, :2]
-                    s = s[:2]
-                    # discarded_weight = np.sum(s[2:] ** 2)
-                    # print(discarded_weight)
-                    vh = vh[:2, :]
-                    Q, _ = np.linalg.qr(
-                        np.random.randn(4, 2) + 1j * np.random.randn(4, 2)
-                    )
-                    Q = Q - isometry @ (isometry.conj().T @ Q)
-                    Q, _ = np.linalg.qr(Q)
-                    unitary = np.hstack([isometry, Q])
-                    unitaries.append(unitary)
-                    next_data = s[:, None] * vh
-                    if boundary:
-                        next_data = np.moveaxis(next_data, 0, -1)
-                    else:
-                        next_data = np.reshape(next_data, (2, 2, 2))
-                        next_data = np.moveaxis(next_data, 0, -1)
-                    next_tensor = Tensor(next_data, new_t_inds, ["TEMP"])
-                    next_layer_tensors.append(next_tensor)
-                    i += 2
-            current_layer_n = len(next_layer_tensors)
-            current_layer_tensors = next_layer_tensors
-            all_unitaries.append(unitaries)
-
-        unitaries = []
-        last_contraction = "ab,ac->bc"
-        last_data = np.einsum(
-            last_contraction,
-            next_layer_tensors[0].data.todense(),
-            next_layer_tensors[1].data.todense(),
+    def mps_to_qc_via_ttn(self, mps: MatrixProductState, max_dim: int | None):
+        circuit_description = circuit_structure_for_mps(
+            mps.num_sites, mps.bond_dimension, max_dim
         )
-        vec = np.reshape(last_data, (4,))
-        vec = vec / np.linalg.norm(vec)
-        X = np.random.randn(4, 3) + 1j * np.random.randn(4, 3)
-        X = X - vec[:, None] * (vec.conj() @ X)
-        Q2, _ = np.linalg.qr(X)
-        Q = np.column_stack([vec, Q2])
-        unitaries.append(Q)
-        all_unitaries.append(unitaries)
+        unitaries_list = build_unitaries(mps, max_dim)
+        qc = QuantumCircuit(mps.num_sites)
 
-        all_unitaries = all_unitaries[::-1]
+        padded_N = 1
+        while padded_N < mps.num_sites:
+            padded_N = 2 * padded_N
+        num_layers = int(np.log2(padded_N))
+        layers = list(range(1, num_layers + 1))[::-1]
 
-        for layer in range(len(qubit_lists)):
-            unitaries = all_unitaries[layer]
-            qidxs = qubit_lists[layer]
-            for idx in range(len(qidxs)):
-                u = unitaries[idx]
-                qubits = qidxs[idx]
-                gate = UnitaryGate(u)
-                qc.append(gate, qubits[::-1])
-
-        return qc
-
-    def mps_to_qc_via_ttn(self, mps: MatrixProductState) -> QuantumCircuit:
-        """MPS to TTN to circuit."""
-
-        # Initialise circuit structure
-        mps = copy.deepcopy(mps)
-        n = mps.num_sites
-        num_layers = int(np.ceil(np.log2(n)))
-
-        mps.set_default_indices()
-
-        max_bond_dim = mps.bond_dimension
-        padded_bond_dim = 2
-        while padded_bond_dim < max_bond_dim:
-            padded_bond_dim = 2 * padded_bond_dim
-
-        for idx in range(1, mps.num_sites):
-            bond_dim = mps.tensors[idx].dimensions[0]
-            if bond_dim < padded_bond_dim:
-                mps = mps.expand_bond_dimension(padded_bond_dim - bond_dim, idx)
-
-        if n < 4:
-            return self.bond_dim_2_to_qc_exact(mps)
-
-        # size_of_gates =
-
-        qc = QuantumCircuit(n)
-        qubit_lists = []
-
-        current_layer_n = n
-        if n % 2 == 0:
-            last_layer = [
-                [2 * idx, 2 * idx + 1] for idx in range(int(current_layer_n / 2))
-            ]
-            carry_over_qubit = None
-            current_layer_n = int(current_layer_n / 2)
-        else:
-            last_layer = [
-                [2 * idx, 2 * idx + 1] for idx in range(int((current_layer_n - 1) / 2))
-            ]
-            carry_over_qubit = current_layer_n - 1
-            current_layer_n = int((current_layer_n - 1) / 2) + 1
-        qubit_lists.append(last_layer)
-
-        carry_over_counter = 1
-        for _ in range(num_layers - 1):
-            previous_layer = qubit_lists[-1]
-            qidxs = []
-            if current_layer_n % 2 == 0:
-                if carry_over_qubit:
-                    qidxs += [
-                        [previous_layer[2 * idx][1], previous_layer[2 * idx + 1][1]]
-                        for idx in range(int((current_layer_n - 1) / 2))
-                    ]
-                    qidxs.append([previous_layer[-1][1], carry_over_qubit])
-                else:
-                    qidxs += [
-                        [previous_layer[2 * idx][1], previous_layer[2 * idx + 1][1]]
-                        for idx in range(int((current_layer_n) / 2))
-                    ]
-                carry_over_qubit = None
-                current_layer_n = int(current_layer_n / 2)
-            else:
-                qidxs += [
-                    [previous_layer[2 * idx][1], previous_layer[2 * idx + 1][1]]
-                    for idx in range(int((current_layer_n - 1) / 2))
-                ]
-                if carry_over_qubit:
-                    carry_over_qubit = carry_over_qubit
-                    carry_over_counter += 1
-                else:
-                    carry_over_qubit = qubit_lists[-carry_over_counter][-1][1]
-                current_layer_n = int((current_layer_n - 1) / 2) + 1
-            qubit_lists.append(qidxs)
-
-        qubit_lists = qubit_lists[::-1]
-        oc = qubit_lists[0][0][1]
-        mps.move_orthogonality_centre(oc)
-
-        # Find unitaries
-
-        all_unitaries = []
-        current_layer_n = n
-        current_layer_tensors = mps.tensors
-        while current_layer_n > 2:
-            unitaries = []
-            next_layer_tensors = []
-            i = 0
-            while i < current_layer_n:
-                if i + 1 == current_layer_n:
-                    next_layer_tensors.append(current_layer_tensors[i])
-                    i += 1
-                else:
-                    tensor0, tensor1 = (
-                        current_layer_tensors[i],
-                        current_layer_tensors[i + 1],
-                    )
-                    if len(tensor0.indices) == 2:
-                        contraction = "ab,acd->bdc"
-                        new_t_inds = ["down", f"p{i+1}"]
-                        boundary = True
-                    elif len(tensor1.indices) == 2:
-                        contraction = "abc,bd->cda"
-                        new_t_inds = ["up", f"p{i+1}"]
-                        boundary = True
-                    else:
-                        contraction = "abc,bde->cead"
-                        new_t_inds = ["up", "down", f"p{i+1}"]
-                        boundary = False
-                    combined_tensor_data = np.einsum(
-                        contraction, tensor0.data.todense(), tensor1.data.todense()
-                    )
-                    shape = combined_tensor_data.shape
-                    if boundary:
-                        matrix = np.reshape(
-                            combined_tensor_data, (shape[0] * shape[1], shape[2])
-                        )
-                    else:
-                        matrix = np.reshape(
-                            combined_tensor_data,
-                            (shape[0] * shape[1], shape[2] * shape[3]),
-                        )
-
-                    isometry, s, vh = svd(matrix, full_matrices=False)
-                    isometry = isometry[:, :2]
-                    s = s[:2]
-                    vh = vh[:2, :]
-                    Q, _ = np.linalg.qr(
-                        np.random.randn(4, 2) + 1j * np.random.randn(4, 2)
-                    )
-                    Q = Q - isometry @ (isometry.conj().T @ Q)
-                    Q, _ = np.linalg.qr(Q)
-                    unitary = np.hstack([isometry, Q])
-                    unitaries.append(unitary)
-                    next_data = s[:, None] * vh
-                    if boundary:
-                        next_data = np.moveaxis(next_data, 0, -1)
-                    else:
-                        next_data = np.reshape(next_data, (2, 2, 2))
-                        next_data = np.moveaxis(next_data, 0, -1)
-                    next_tensor = Tensor(next_data, new_t_inds, ["TEMP"])
-                    next_layer_tensors.append(next_tensor)
-                    i += 2
-            current_layer_n = len(next_layer_tensors)
-            current_layer_tensors = next_layer_tensors
-            all_unitaries.append(unitaries)
-
-        unitaries = []
-        last_contraction = "ab,ac->bc"
-        last_data = np.einsum(
-            last_contraction,
-            next_layer_tensors[0].data.todense(),
-            next_layer_tensors[1].data.todense(),
-        )
-        vec = np.reshape(last_data, (4,))
-        vec = vec / np.linalg.norm(vec)
-        X = np.random.randn(4, 3) + 1j * np.random.randn(4, 3)
-        X = X - vec[:, None] * (vec.conj() @ X)
-        Q2, _ = np.linalg.qr(X)
-        Q = np.column_stack([vec, Q2])
-        unitaries.append(Q)
-        all_unitaries.append(unitaries)
-
-        all_unitaries = all_unitaries[::-1]
-
-        for layer in range(len(qubit_lists)):
-            unitaries = all_unitaries[layer]
-            qidxs = qubit_lists[layer]
-            for idx in range(len(qidxs)):
-                u = unitaries[idx]
-                qubits = qidxs[idx]
-                gate = UnitaryGate(u)
-                qc.append(gate, qubits[::-1])
-
+        for k in layers:
+            ngates_in_layer, _ = num_gates_layer_k(k, mps.num_sites)
+            gates = list(range(1, ngates_in_layer + 1))
+            for pos in gates:
+                u = unitaries_list[(k, pos)]
+                u_gate = UnitaryGate(u)
+                qubits = circuit_description[(k, pos)]
+                qc.append(u_gate, qubits[::-1])
         return qc
 
     def disentangle_mps(
@@ -1094,3 +771,378 @@ class MPStoCircuit:
             self.num_layers += 1
         # self.qc = MPSOptimiser(self.qc, self.mps).run(num_optimiser_sweeps)
         return self.qc
+
+
+def num_gates_layer_k(k: int, N: int) -> tuple[int, bool]:
+    # Check k valid
+    padded_N = 1
+    while padded_N < N:
+        padded_N = 2 * padded_N
+    if k > int(np.log2(padded_N)):
+        raise ValueError(f"layer {k} does not exist")
+    if k == int(np.log2(padded_N)):
+        return 1, False
+
+    if k == 1:
+        if N % 2 == 0:
+            rounded_N = N
+            carry_bit = False
+        else:
+            rounded_N = N - 1
+            carry_bit = True
+        return int(rounded_N / 2), carry_bit
+    gates_in_previous_layer, carry_bit = num_gates_layer_k(k - 1, N)
+    if carry_bit:
+        nsites = gates_in_previous_layer + 1
+    else:
+        nsites = gates_in_previous_layer
+
+    if nsites % 2 == 0:
+        rounded_nsites = nsites
+        new_carry_bit = False
+    else:
+        rounded_nsites = nsites - 1
+        new_carry_bit = True
+
+    return int(rounded_nsites / 2), new_carry_bit
+
+
+def gate_to_children(k: int, N: int, pos: int):
+    if k == 1:
+        return None, None
+
+    ngates_in_layer, carry_bit = num_gates_layer_k(k, N)
+    if pos < ngates_in_layer and not carry_bit:
+        return (k - 1, 2 * pos - 1), (k - 1, 2 * pos)
+    if pos <= ngates_in_layer and carry_bit:
+        return (k - 1, 2 * pos - 1), (k - 1, 2 * pos)
+
+    _, carry_bit = num_gates_layer_k(k - 1, N)
+    if not carry_bit:
+        return (k - 1, 2 * pos - 1), (k - 1, 2 * pos)
+
+    second_child_layer = k - 1
+    while carry_bit and second_child_layer > 0:
+        second_child_pos, carry_bit = num_gates_layer_k(second_child_layer, N)
+        second_child_layer -= 1
+
+    if second_child_layer == 0 and carry_bit:
+        return (k - 1, 2 * pos - 1), None
+    else:
+        return (k - 1, 2 * pos - 1), (second_child_layer + 1, second_child_pos)
+
+
+def max_svd_dim(k: int, N: int, chi: int, pos: int, max_dim: int | None = None):
+    ngates_in_layer, carry_bit = num_gates_layer_k(k, N)
+    if k == 1:
+        if pos == 1:
+            r = min(4, chi)
+            if max_dim:
+                return min(r, max_dim)
+            else:
+                return r
+        if not carry_bit and pos == ngates_in_layer:
+            r = min(4, chi)
+            if max_dim:
+                return min(r, max_dim)
+            else:
+                return r
+        else:
+            r = min(4, chi**2)
+            if max_dim:
+                return min(r, max_dim)
+            else:
+                return r
+
+    if k == 2:
+        if pos == 1:
+            r = min(16, chi)
+            if max_dim:
+                return min(r, max_dim)
+            else:
+                return r
+        if not carry_bit and pos == ngates_in_layer:
+            r = min(16, chi)
+            if max_dim:
+                return min(r, max_dim)
+            else:
+                return r
+        else:
+            r = min(4, chi)
+            s = min(r**2, chi**2)
+            if max_dim:
+                return min(s, max_dim)
+            else:
+                return s
+
+    child1, child2 = gate_to_children(k, N, pos)
+    if child2 is None:
+        child_dim2 = 2
+    else:
+        child_dim2 = max_svd_dim(child2[0], N, chi, child2[1], max_dim)
+    child_dim1 = max_svd_dim(child1[0], N, chi, child1[1], max_dim)
+    mat_dim1 = child_dim1 * child_dim2
+
+    if pos == 1:
+        mat_dim2 = chi
+    elif not carry_bit and pos == ngates_in_layer:
+        mat_dim2 = chi
+    else:
+        mat_dim2 = chi**2
+
+    if max_dim:
+        return min(mat_dim1, mat_dim2, max_dim)
+    else:
+        return min(mat_dim1, mat_dim2)
+
+
+def output_dim_separated(
+    k: int, N: int, chi: int, pos: int, max_dim: int | None = None
+):
+    if k == 1:
+        return 2, 2
+    child1, child2 = gate_to_children(k, N, pos)
+    if child2 is None:
+        dim2 = 2
+    else:
+        dim2 = max_svd_dim(child2[0], N, chi, child2[1], max_dim)
+    dim1 = max_svd_dim(child1[0], N, chi, child1[1], max_dim)
+    return dim1, dim2
+
+
+def output_dim(k: int, N: int, chi: int, pos: int, max_dim: int | None = None):
+    dim1, dim2 = output_dim_separated(k, N, chi, pos, max_dim)
+    return dim1 * dim2
+
+
+def nqubits_for_gate(k: int, N: int, chi: int, pos: int, max_dim: int | None = None):
+    dim = output_dim(k, N, chi, pos, max_dim)
+    nqubits = int(np.log2(dim))
+    return nqubits
+
+
+def parent_to_children_map(N: int):
+    padded_N = 1
+    while padded_N < N:
+        padded_N = 2 * padded_N
+    num_layers = int(np.log2(padded_N))
+
+    map = {}
+
+    layers = list(range(1, num_layers + 1))
+    for k in layers:
+        ngates_in_layer, _ = num_gates_layer_k(k, N)
+        gates = list(range(1, ngates_in_layer + 1))
+        for g in gates:
+            child1, child2 = gate_to_children(k, N, g)
+            map[(k, g)] = [child1, child2]
+
+    return map
+
+
+def child_to_parent_map(N: int):
+    parent_to_child = parent_to_children_map(N)
+    map = {}
+    for parent, children in parent_to_child.items():
+        child1, child2 = children
+        if child1:
+            map[child1] = parent
+        if child2:
+            map[child2] = parent
+
+    padded_N = 1
+    while padded_N < N:
+        padded_N = 2 * padded_N
+    num_layers = int(np.log2(padded_N))
+
+    map[(num_layers, 1)] = None
+    return map
+
+
+def num_extra_inputs(k: int, N: int, chi: int, pos: int, max_dim: int | None = None):
+    nqubits = nqubits_for_gate(k, N, chi, pos, max_dim)
+    c2p = child_to_parent_map(N)
+    p2c = parent_to_children_map(N)
+    parent = c2p[(k, pos)]
+    child1, _ = p2c[parent]
+    child_idx = 0 if (k, pos) == child1 else 1
+    dim1, dim2 = output_dim_separated(parent[0], N, chi, parent[1], max_dim)
+    incoming_dim = dim1 if child_idx == 0 else dim2
+    incoming_qubits = int(np.log2(incoming_dim))
+    return nqubits - incoming_qubits
+
+
+def gate_to_qubits(k: int, N: int, chi: int, pos: int, max_dim: int | None = None):
+    if k == 1:
+        return [2 * pos - 1, 2 * pos]
+
+    p2c = parent_to_children_map(N)
+
+    child1, child2 = p2c[(k, pos)]
+    child1_qubits = gate_to_qubits(child1[0], N, chi, child1[1], max_dim)
+    child1_extra_qubits = num_extra_inputs(child1[0], N, chi, child1[1], max_dim)
+    if child2 is None:
+        pass
+    else:
+        child2_qubits = gate_to_qubits(child2[0], N, chi, child2[1], max_dim)
+        child2_extra_qubits = num_extra_inputs(child2[0], N, chi, child2[1], max_dim)
+
+    if child2 is None:
+        qubits = child1_qubits[child1_extra_qubits:] + [N]
+    else:
+        qubits = (
+            child1_qubits[child1_extra_qubits:] + child2_qubits[child2_extra_qubits:]
+        )
+    return qubits
+
+
+def circuit_structure_for_mps(N: int, chi: int, max_dim: int | None = None):
+    padded_N = 1
+    while padded_N < N:
+        padded_N = 2 * padded_N
+    num_layers = int(np.log2(padded_N))
+
+    circuit_description = {}
+    layers = list(range(1, num_layers + 1))
+    for k in layers:
+        ngates_in_layer, _ = num_gates_layer_k(k, N)
+        gates = list(range(1, ngates_in_layer + 1))
+        for g in gates:
+            qubits = gate_to_qubits(k, N, chi, g, max_dim)
+            qubits = [q - 1 for q in qubits]
+            circuit_description[(k, g)] = qubits
+    return circuit_description
+
+
+def max_gate_size(N: int, chi: int, max_dim: int | None = None):
+    circuit_description = circuit_structure_for_mps(N, chi, max_dim)
+    gate_sizes = [len(qubits) for qubits in circuit_description.values()]
+    return max(gate_sizes)
+
+
+def pad_bond_dim(mps: MatrixProductState):
+    bond_dim = mps.bond_dimension
+    padded_bond_dim = 1
+    while padded_bond_dim < bond_dim:
+        padded_bond_dim = 2 * padded_bond_dim
+
+    for idx in range(1, mps.num_sites):
+        bond_dim = mps.tensors[idx].dimensions[0]
+        if bond_dim < padded_bond_dim:
+            mps = mps.expand_bond_dimension(padded_bond_dim - bond_dim, idx)
+
+    return mps
+
+
+def find_best_orthogonality_centre(mps: MatrixProductState, max_dim: int | None = None):
+    mps = pad_bond_dim(mps)
+
+    padded_N = 1
+    while padded_N < mps.num_sites:
+        padded_N = 2 * padded_N
+    num_layers = int(np.log2(padded_N))
+
+    circuit_description = circuit_structure_for_mps(
+        mps.num_sites, mps.bond_dimension, max_dim
+    )
+    last_gate_qubits = circuit_description[(num_layers, 1)]
+    return last_gate_qubits[0]
+
+
+def build_unitaries(mps: MatrixProductState, max_dim: int | None = None):
+    mps = pad_bond_dim(mps)
+    n = mps.num_sites
+
+    padded_N = 1
+    while padded_N < mps.num_sites:
+        padded_N = 2 * padded_N
+    num_layers = int(np.log2(padded_N))
+
+    all_unitaries = {}
+    current_layer_n = n
+    current_layer_tensors = mps.tensors
+    for k in list(range(1, num_layers)):
+        next_layer_tensors = []
+        i = 0
+        while i < current_layer_n:
+            if i + 1 == current_layer_n:
+                next_layer_tensors.append(current_layer_tensors[i])
+                i += 1
+            else:
+                tensor0, tensor1 = (
+                    current_layer_tensors[i],
+                    current_layer_tensors[i + 1],
+                )
+                if len(tensor0.indices) == 2:
+                    contraction = "ab,acd->bdc"
+                    new_t_inds = ["down", f"p{i+1}"]
+                    boundary = True
+                elif len(tensor1.indices) == 2:
+                    contraction = "abc,bd->cda"
+                    new_t_inds = ["up", f"p{i+1}"]
+                    boundary = True
+                else:
+                    contraction = "abc,bde->cead"
+                    new_t_inds = ["up", "down", f"p{i+1}"]
+                    boundary = False
+                combined_tensor_data = np.einsum(
+                    contraction, tensor0.data.todense(), tensor1.data.todense()
+                )
+                shape = combined_tensor_data.shape
+                if boundary:
+                    matrix = np.reshape(
+                        combined_tensor_data, (shape[0] * shape[1], shape[2])
+                    )
+                else:
+                    matrix = np.reshape(
+                        combined_tensor_data,
+                        (shape[0] * shape[1], shape[2] * shape[3]),
+                    )
+
+                u, s, vh = svd(matrix, full_matrices=False)
+
+                if max_dim:
+                    u = u[:, :max_dim]
+                    s = s[:max_dim]
+                    vh = vh[:max_dim, :]
+
+                d1, d2 = u.shape[0], u.shape[0] - u.shape[1]
+                Q, _ = np.linalg.qr(
+                    np.random.randn(d1, d2) + 1j * np.random.randn(d1, d2)
+                )
+                Q = Q - u @ (u.conj().T @ Q)
+                Q, _ = np.linalg.qr(Q)
+                unitary = np.hstack([u, Q])
+                gate_idx = int(i / 2 + 1)
+                all_unitaries[(k, gate_idx)] = unitary
+
+                next_data = np.diag(s) @ vh
+                if boundary:
+                    next_data = np.moveaxis(next_data, 0, -1)
+                else:
+                    first_dim = vh.shape[0]
+                    next_data = np.reshape(
+                        next_data, (first_dim, mps.bond_dimension, mps.bond_dimension)
+                    )
+                    next_data = np.moveaxis(next_data, 0, -1)
+                next_tensor = Tensor(next_data, new_t_inds, ["TEMP"])
+                next_layer_tensors.append(next_tensor)
+                i += 2
+        current_layer_n = len(next_layer_tensors)
+        current_layer_tensors = next_layer_tensors
+
+    last_contraction = "ab,ac->bc"
+    last_data = np.einsum(
+        last_contraction,
+        next_layer_tensors[0].data.todense(),
+        next_layer_tensors[1].data.todense(),
+    )
+    size = last_data.shape[0] * last_data.shape[1]
+    vec = np.reshape(last_data, (size,))
+    vec = vec / np.linalg.norm(vec)
+    X = np.random.randn(size, size - 1) + 1j * np.random.randn(size, size - 1)
+    X = X - vec[:, None] * (vec.conj() @ X)
+    Q2, _ = np.linalg.qr(X)
+    Q = np.column_stack([vec, Q2])
+    all_unitaries[(num_layers, 1)] = Q
+    return all_unitaries
