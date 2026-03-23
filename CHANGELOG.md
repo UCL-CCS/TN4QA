@@ -61,3 +61,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Necessary bug fix to mps to circuit middle out method
+
+## [0.0.7] - 2026-03-19
+
+### Changed
+- Python version relaxed and dependencies updated
+- Replaced poetry with uv
+
+## [0.0.8] - 2026-03-19
+
+### Changed
+- Removed unused Symmer dependency

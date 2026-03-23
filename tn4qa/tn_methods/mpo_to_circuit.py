@@ -30,7 +30,7 @@ class MPOOptimiser:
         self.num_qubits = qc.num_qubits
         self.tn = TensorNetwork.from_qiskit_circuit(qc)
         for t in self.tn.tensors:
-            t.labels.append(f"variational_site_{self.tn.tensors.index(t)+1}")
+            t.labels.append(f"variational_site_{self.tn.tensors.index(t) + 1}")
         self.reference = reference
         self.left_tn_indices, self.right_tn_indices = self.get_tn_external_indices(
             self.tn
@@ -245,7 +245,7 @@ class MPOOptimiser:
         """
         self.tn = TensorNetwork.from_qiskit_circuit(self.qc)
         for t in self.tn.tensors:
-            t.labels.append(f"variational_site_{self.tn.tensors.index(t)+1}")
+            t.labels.append(f"variational_site_{self.tn.tensors.index(t) + 1}")
 
     def local_update(self, variational_index: int) -> None:
         """

@@ -48,11 +48,11 @@ class QSCI(QuantumAlgorithm):
             self.hamiltonian, max_bond=max_bond
         )
         mpo_timer_end = default_timer()
-        print(f"MPO built in {mpo_timer_end-mpo_timer}s")
+        print(f"MPO built in {mpo_timer_end - mpo_timer}s")
         dmrg_timer = default_timer()
         self.state, self.energy = self.run_dmrg(self.hamiltonian_mpo)
         dmrg_timer_end = default_timer()
-        print(f"DMRG run in {dmrg_timer_end-dmrg_timer}s")
+        print(f"DMRG run in {dmrg_timer_end - dmrg_timer}s")
         self._circuit = None
         self.set_backend(backend=backend)
         self.energies_per_iteration = []

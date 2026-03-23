@@ -11,7 +11,6 @@ from numpy import ndarray
 from qiskit import QuantumCircuit
 from scipy.linalg import svd
 from sparse import SparseArray
-from symmer import QuantumState
 
 from .mpo import MatrixProductOperator
 from .tensor import Tensor
@@ -98,10 +97,10 @@ class MatrixProductState(TensorNetwork):
         for a_idx in range(1, len(arrays) - 1):
             a = arrays[a_idx]
             indices_k = ["", "", ""]
-            indices_k[physical_idx_pos] = f"P{a_idx+1}"
+            indices_k[physical_idx_pos] = f"P{a_idx + 1}"
             indices_k[virtual_output_idx_pos] = f"B{a_idx}"
-            indices_k[virtual_input_idx_pos] = f"B{a_idx+1}"
-            tensor_k = Tensor(a, indices_k, [f"MPS_T{a_idx+1}"])
+            indices_k[virtual_input_idx_pos] = f"B{a_idx + 1}"
+            tensor_k = Tensor(a, indices_k, [f"MPS_T{a_idx + 1}"])
             tensors.append(tensor_k)
 
         last_shape = shape.replace("d", "")
@@ -109,7 +108,7 @@ class MatrixProductState(TensorNetwork):
         virtual_output_idx_pos = last_shape.index("u")
         last_indices = ["", ""]
         last_indices[physical_idx_pos] = f"P{len(arrays)}"
-        last_indices[virtual_output_idx_pos] = f"B{len(arrays)-1}"
+        last_indices[virtual_output_idx_pos] = f"B{len(arrays) - 1}"
         last_tensor = Tensor(arrays[-1], last_indices, [f"MPS_T{len(arrays)}"])
         tensors.append(last_tensor)
 
@@ -208,23 +207,6 @@ class MatrixProductState(TensorNetwork):
             if max_bond:
                 if mps.bond_dimension > max_bond:
                     mps.compress(max_bond)
-        return mps
-
-    @classmethod
-    def from_symmer_quantumstate(
-        cls, quantum_state: QuantumState, max_bond: int | None = None
-    ):
-        """
-        Create an MPS from a Symmer QuantumState object.
-
-        Args:
-            quantum_state: The quantum state.
-
-        Returns:
-            An MPS.
-        """
-        state_dict = quantum_state.to_dictionary
-        mps = cls.from_bitstring_dict(state_dict, max_bond)
         return mps
 
     @classmethod
@@ -374,18 +356,18 @@ class MatrixProductState(TensorNetwork):
                 t,
                 input_indices=input_inds,
                 output_indices=output_inds,
-                new_index_name=f"C{idx+1}",
-                new_labels=[[f"T{idx+1}"], [f"T{idx+2}"]],
+                new_index_name=f"C{idx + 1}",
+                new_labels=[[f"T{idx + 1}"], [f"T{idx + 2}"]],
             )
             if idx == 0:
-                new_idx_order1 = [f"C{idx+1}", "P1"]
+                new_idx_order1 = [f"C{idx + 1}", "P1"]
             else:
                 new_idx_order1 = [
                     f"C{idx}",
-                    f"C{idx+1}",
-                    f"P{idx+1}",
+                    f"C{idx + 1}",
+                    f"P{idx + 1}",
                 ]
-            new_idx_order2 = [f"C{idx+1}"] + output_inds
+            new_idx_order2 = [f"C{idx + 1}"] + output_inds
             tn.tensors[idx].reorder_indices(new_idx_order1)
             tn.tensors[idx + 1].reorder_indices(new_idx_order2)
         arrays = [tn.tensors[i].data for i in range(num_qubits)]
@@ -680,23 +662,26 @@ class MatrixProductState(TensorNetwork):
                 t2 = mpo.tensors[tidx]
                 t1_current_indices = t1.indices
                 t1.indices = [
-                    f"D{tidx+1}" if x[0] == "P" else x for x in t1_current_indices
+                    f"D{tidx + 1}" if x[0] == "P" else x for x in t1_current_indices
                 ]
                 t2_current_indices = t2.indices
                 t2.indices = [
-                    f"D{tidx+1}" if x[0] == "L" else x + "_" for x in t2_current_indices
+                    f"D{tidx + 1}" if x[0] == "L" else x + "_"
+                    for x in t2_current_indices
                 ]
 
             all_tensors = mps.tensors + mpo.tensors
 
             tn = TensorNetwork(all_tensors, "TotalTN")
             for n in range(len(sites)):
-                tn.contract_index(f"D{n+1}")
+                tn.contract_index(f"D{n + 1}")
             for n in range(len(sites) - 1):
-                tn.combine_indices([f"B{n+1}", f"B{n+1}_"], new_index_name=f"B{n+1}")
+                tn.combine_indices(
+                    [f"B{n + 1}", f"B{n + 1}_"], new_index_name=f"B{n + 1}"
+                )
             tn.tensors[0].reorder_indices(["B1", "R1_"])
             for n in range(1, len(sites)):
-                tn.tensors[n].reorder_indices([f"B{n}", f"B{n+1}", f"R{n+1}_"])
+                tn.tensors[n].reorder_indices([f"B{n}", f"B{n + 1}", f"R{n + 1}_"])
 
             arrays = [t.data for t in tn.tensors]
             mps = MatrixProductState.from_arrays(arrays)
@@ -849,9 +834,9 @@ class MatrixProductState(TensorNetwork):
 
         tn = TensorNetwork(all_tensors, "TotalTN")
         for n in range(self.num_sites - 1):
-            tn.contract_index(f"P{n+1}")
-            tn.contract_index(f"B{n+1}")
-            tn.combine_indices([f"P{n+2}", f"B{n+1}_"], new_index_name=f"P{n+2}")
+            tn.contract_index(f"P{n + 1}")
+            tn.contract_index(f"B{n + 1}")
+            tn.combine_indices([f"P{n + 2}", f"B{n + 1}_"], new_index_name=f"P{n + 2}")
 
         tn.contract_index(f"P{self.num_sites}")
         val = complex(tn.tensors[0].data.flatten()[0])
@@ -1244,9 +1229,9 @@ class MatrixProductState(TensorNetwork):
 
         tn = TensorNetwork(all_tensors, "TotalTN")
         for n in range(len(sites) - 1):
-            tn.contract_index(f"P{n+1}")
-            tn.contract_index(f"B{n+1}")
-            tn.combine_indices([f"P{n+2}", f"B{n+2}_"], new_index_name=f"P{n+2}")
+            tn.contract_index(f"P{n + 1}")
+            tn.contract_index(f"B{n + 1}")
+            tn.combine_indices([f"P{n + 2}", f"B{n + 2}_"], new_index_name=f"P{n + 2}")
         tn.contract_index(f"P{len(sites)}")
         tn.contract_index(f"B{len(sites)}")
 
