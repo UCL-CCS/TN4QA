@@ -72,3 +72,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Removed unused Symmer dependency
+
+## [0.0.9] - 2026-03-26
+
+### Changed
+- Python version restricted to < 3.12 due to dependency issues
+
+### Fixed
+- Construction of cost function for MO optimisation method
+
+### Added
+- Log depth MPS to circuit mapping
+- Verifier Circuit class
