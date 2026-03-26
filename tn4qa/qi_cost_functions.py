@@ -57,7 +57,7 @@ def cost_mutual_info_active_inactive(
     n_orbs = mps.num_sites // 2  # Number of orbitals
     active_set = set(active_orbs)
     inactive_orbs = [
-        i for i in range(n_orbs) if i not in active_set
+        i for i in range(1, n_orbs + 1) if i not in active_set
     ]  # Not sure whether to do it like this or to give inactive orbs as an arg
     mi = 0
     for i in active_orbs:
@@ -71,14 +71,14 @@ def cost_mutual_info_active_inactive_dict(
 ) -> dict:
     active_set = set(active_orbs)
     inactive_orbs = [
-        i for i in range(num_orbs) if i not in active_set
+        i for i in range(1, num_orbs + 1) if i not in active_set
     ]  # similar comment as above
     s = {}
     for i in active_orbs:
         for j in inactive_orbs:
-            s[f"S1_{i+1}"] = s.get(f"S1_{i+1}", 0) + 1.0
-            s[f"S1_{j+1}"] = s.get(f"S1_{j+1}", 0) + 1.0
-            s[f"S2_{i+1}_{j+1}"] = s.get(f"S2_{i+1}_{j+1}", 0) - 1.0
+            s[f"S1_{i}"] = s.get(f"S1_{i}", 0) + 1.0
+            s[f"S1_{j}"] = s.get(f"S1_{j}", 0) + 1.0
+            s[f"S2_{i}_{j}"] = s.get(f"S2_{i}_{j}", 0) - 1.0
     return s
 
 
