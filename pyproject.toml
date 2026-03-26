@@ -1,6 +1,6 @@
 [project]
 name = "tn4qa"
-version = "0.0.7"
+version = "0.0.8"
 description = "A Python package to integrate tensor network methods with quantum algorithms."
 authors = [
     {name="Angus Mingare",  email="angus.mingare.22@ucl.ac.uk"},
@@ -30,11 +30,6 @@ dependencies = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[project.optional-dependencies]
-symmer = [
-    "symmer>=0.0.10",
-]
 
 [dependency-groups]
 dev = [
