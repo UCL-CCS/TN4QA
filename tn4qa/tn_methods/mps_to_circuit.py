@@ -862,7 +862,11 @@ def max_svd_dim(k: int, N: int, chi: int, pos: int, max_dim: int | None = None):
             else:
                 return r
         if not carry_bit and pos == ngates_in_layer:
-            r = min(16, chi)
+            _, previous_carry_bit = num_gates_layer_k(1, N)
+            if previous_carry_bit:
+                r = min(8, chi)
+            else:
+                r = min(16, chi)
             if max_dim:
                 return min(r, max_dim)
             else:
@@ -986,7 +990,6 @@ def gate_to_qubits(k: int, N: int, chi: int, pos: int, max_dim: int | None = Non
     else:
         child2_qubits = gate_to_qubits(child2[0], N, chi, child2[1], max_dim)
         child2_extra_qubits = num_extra_inputs(child2[0], N, chi, child2[1], max_dim)
-
     if child2 is None:
         qubits = child1_qubits[child1_extra_qubits:] + [N]
     else:
