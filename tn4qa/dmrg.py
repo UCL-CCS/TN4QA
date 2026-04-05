@@ -4,6 +4,8 @@ from typing import Tuple
 import numpy as np
 import sparse
 from numpy import ndarray
+from pyblock2.algebra.io import MPSTools
+from pyblock2.driver.core import DMRGDriver, SymmetryTypes
 from scipy.sparse.linalg import eigs
 from sparse import SparseArray
 
@@ -16,6 +18,82 @@ from .tn import TensorNetwork
 class DMRG:
     def __init__(
         self,
+        hamiltonian: dict[str, complex],
+        max_mps_bond: int = 16,
+    ) -> "DMRG":
+        self.hamiltonian = hamiltonian
+        pauli = {key[::-1]: value for key, value in hamiltonian.items()}
+        pauli = list(pauli.items())
+        self.pauli_terms = pauli
+        self.nqubits = len(self.pauli_terms[0][0])
+        self.max_bond = max_mps_bond
+
+        self.driver = self.set_driver()
+        self.mpo = self.set_mpo()
+        self.ket = self.set_initial_state()
+        self.energy = None
+        self.mps = None
+        return
+
+    def set_driver(self):
+        driver_obj = DMRGDriver(symm_type=SymmetryTypes.SGB, n_threads=4)
+        driver_obj.initialize_system(
+            n_sites=self.nqubits,
+            pauli_mode=True,
+        )
+        return driver_obj
+
+    def set_mpo(self):
+        mpo = self.driver.get_mpo_any_pauli(self.pauli_terms)
+        return mpo
+
+    def set_initial_state(self):
+        ket = self.driver.get_random_mps(tag="GS", bond_dim=2, nroots=1)
+        return ket
+
+    def run(
+        self,
+        nsweeps: int,
+        bond_dims: list[int] | None = None,
+        noises: list[int] | None = None,
+        thrds: list[int] | None = None,
+    ):
+        if not bond_dims:
+            bond_dims = [
+                round(2 + i * (self.max_bond - 2) / (nsweeps - 1))
+                for i in range(nsweeps)
+            ]
+        if not noises:
+            noises = [1e-3] * len(bond_dims) + [0]
+        if not thrds:
+            thrds = [1e-12] * len(bond_dims)
+        self.energy = self.driver.dmrg(
+            self.mpo,
+            self.ket,
+            n_sweeps=nsweeps,
+            bond_dims=bond_dims,
+            noises=noises,
+            thrds=thrds,
+            iprint=0,
+        )
+        self.mps = self.ket_to_tn4qa_mps()
+        return self.energy, self.mps
+
+    def ket_to_tn4qa_mps(self):
+        ket = self.driver.adjust_mps(self.ket, dot=1)[0]
+        pyket = MPSTools.from_block2(ket)
+
+        arrays = []
+        for tensor in pyket.tensors:
+            arrays.append(np.array(tensor.blocks[0].reduced))
+        mps = MatrixProductState.from_arrays(arrays, shape="upd")
+        mps.reshape()
+        return mps
+
+
+class TN4QA_DMRG:
+    def __init__(
+        self,
         hamiltonian: dict[str, complex]
         | tuple[ndarray, ndarray, float]
         | MatrixProductOperator,
@@ -26,7 +104,7 @@ class DMRG:
         initial_state: MatrixProductState | None = None,
         symmetries: list[str] | None = None,
         num_states: int = 1,
-    ) -> "DMRG":
+    ) -> "TN4QA_DMRG":
         """
         Constructor for the DMRG class.
 
