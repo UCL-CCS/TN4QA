@@ -22,7 +22,11 @@ class DMRG:
         max_mps_bond: int = 16,
     ) -> "DMRG":
         self.hamiltonian = hamiltonian
-        pauli = {key[::-1]: value for key, value in hamiltonian.items()}
+        pauli = {
+            key[::-1]: value
+            for key, value in hamiltonian.items()
+            if np.abs(value) > 0.0
+        }
         pauli = list(pauli.items())
         self.pauli_terms = pauli
         self.nqubits = len(self.pauli_terms[0][0])

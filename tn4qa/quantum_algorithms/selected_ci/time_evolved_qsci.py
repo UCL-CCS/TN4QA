@@ -31,6 +31,8 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
         num_qdrift_circuits: int | None = 10,
         qdrift_error: float | None = None,
         num_electrons: int | None = None,
+        known_important_configurations: list[str] | None = None,
+        known_unimportant_configurations: list[str] | None = None,
         postprocessing_function: list[Callable] | None = None,
         postprocessing_args: list[dict] | None = None,
     ) -> "TimeEvolvedQSCI":
@@ -49,6 +51,8 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
         self.qdrift_error = qdrift_error
 
         self.num_electrons = num_electrons
+        self.important_configurations = known_important_configurations
+        self.unimportant_configurations = known_unimportant_configurations
         self.postprocessing_function = postprocessing_function
         self.postprocessing_args = postprocessing_args
 
@@ -127,6 +131,8 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
             self.backend,
             self.hamiltonian,
             self.num_electrons,
+            self.important_configurations,
+            self.unimportant_configurations,
             self.postprocessing_function,
             self.postprocessing_args,
         )

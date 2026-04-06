@@ -46,6 +46,8 @@ class IterativeQSCI(QuantumAlgorithm):
         self.all_subspace_sizes = []
         self.all_subspaces = []
         self.all_groundstates = []
+        self.important_configurations = []
+        self.unimportant_configurations = []
 
     def sanitize_dict(self, d: dict[str, complex | float]) -> dict[str, float]:
         return {
@@ -73,11 +75,19 @@ class IterativeQSCI(QuantumAlgorithm):
     ):
         if self.method == "TE":
             qsci = TimeEvolvedQSCI(
-                self.hamiltonian, reference_state, **self.method_args
+                self.hamiltonian,
+                reference_state,
+                known_important_configurations=self.important_configurations,
+                known_unimportant_configurations=self.unimportant_configurations,
+                **self.method_args,
             )
         elif self.method == "CTE":
             qsci = ControlledTimeEvolvedQSCI(
-                self.hamiltonian, reference_state, **self.method_args
+                self.hamiltonian,
+                reference_state,
+                known_important_configurations=self.important_configurations,
+                known_unimportant_configurations=self.unimportant_configurations,
+                **self.method_args,
             )
         result = qsci.run(num_shots, subspace_size)
         self.all_results.append(result)
@@ -88,6 +98,16 @@ class IterativeQSCI(QuantumAlgorithm):
         self.all_groundstates.append(gs)
         self.all_subspace_sizes.append(subspace_size)
         self.all_subspaces.append(subspace)
+
+        for sidx in range(len(subspace)):
+            sample = subspace[sidx]
+            amp = gs[sidx]
+            if np.abs(amp) ** 2 > 1e-8:
+                self.important_configurations.append(sample)
+            else:
+                self.unimportant_configurations.append(sample)
+        self.important_configurations = list(set(self.important_configurations))
+        self.unimportant_configurations = list(set(self.unimportant_configurations))
 
         return subspace, gs
 

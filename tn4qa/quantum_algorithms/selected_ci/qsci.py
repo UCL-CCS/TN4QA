@@ -26,6 +26,8 @@ class QSCI(QuantumAlgorithm):
         backend: QuantumBackend | None,
         hamiltonian: dict[str, complex],
         num_electrons: int | None = None,
+        known_important_configurations: list[str] = [],
+        known_unimportant_configurations: list[str] = [],
         postprocessing_functions: list[Callable] | None = None,
         postprocessing_args: list[dict] | None = None,
     ) -> "QSCI":
@@ -37,9 +39,9 @@ class QSCI(QuantumAlgorithm):
         self.hamiltonian_mpo = MatrixProductOperator.from_hamiltonian(self.hamiltonian)
         self.circuits = circuits
         self.set_backend(backend=backend)
-        self.important_configurations = []
-        self.unimportant_configurations = []
         self.energy = None
+        self.important_configurations = known_important_configurations
+        self.unimportant_configurations = known_unimportant_configurations
         self.postprocessing_functions = postprocessing_functions
         self.postprocessing_args = postprocessing_args
 
@@ -166,17 +168,17 @@ class QSCI(QuantumAlgorithm):
         counts = self.postprocessing(counts, self.postprocessing_args)
         sv_counts = self.symmetry_verification(counts, self.num_electrons)
         samples = self.gather_samples(sv_counts, subspace_size)
+        for s in self.unimportant_configurations:
+            if s in samples:
+                samples.remove(s)
+        for s in self.important_configurations:
+            if s not in samples:
+                samples.append(s)
         if len(samples) <= 500:
             projected_ham = self.project_hamiltonian(samples)
             self.energy, groundstate_vec = self.exact_diagonalisation(projected_ham)
         else:
             self.energy, groundstate_vec = self.linear_operator_diagonalisation(samples)
-        for sidx in range(len(samples)):
-            sample = samples[sidx]
-            amp = groundstate_vec[sidx]
-            if np.abs(amp) ** 2 > 0.0:
-                self.important_configurations.append(sample)
-            self.important_configurations = list(set(self.important_configurations))
         end_time = default_timer()
 
         metadata = {
