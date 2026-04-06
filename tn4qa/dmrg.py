@@ -31,6 +31,7 @@ class DMRG:
         self.driver = self.set_driver()
         self.mpo = self.set_mpo()
         self.ket = self.set_initial_state()
+
         self.energy = None
         self.mps = None
         return
@@ -48,6 +49,8 @@ class DMRG:
         return mpo
 
     def set_initial_state(self):
+        # Sometimes there's weird caching behavour so we set this twice
+        ket = self.driver.get_random_mps(tag="GS", bond_dim=2, nroots=1)
         ket = self.driver.get_random_mps(tag="GS", bond_dim=2, nroots=1)
         return ket
 
