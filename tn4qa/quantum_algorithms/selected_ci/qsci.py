@@ -1,22 +1,16 @@
-import copy
 import heapq
-from multiprocessing import Pool, cpu_count
 from timeit import default_timer
 from typing import Callable
 
 import numpy as np
-from numpy import ndarray
 from qiskit import QuantumCircuit
-from scipy.linalg import eigh
-from scipy.sparse.linalg import LinearOperator, eigsh
 
 from ...mpo import MatrixProductOperator
-from ...mps import MatrixProductState
-from ...tn import TensorNetwork
 from ..backend.base import QuantumBackend
-from ..backend.tn_backend import TNQuantumBackend
+from ..backend.qiskit_simulator import QiskitSimulatorBackend
 from ..base import QuantumAlgorithm
 from ..result import Result
+from .diagonalisation import subspace_energy
 
 
 class QSCI(QuantumAlgorithm):
@@ -44,6 +38,11 @@ class QSCI(QuantumAlgorithm):
         self.unimportant_configurations = known_unimportant_configurations
         self.postprocessing_functions = postprocessing_functions
         self.postprocessing_args = postprocessing_args
+
+    @property
+    def circuit(self) -> QuantumCircuit:
+        """Get the circuit from the algorithm"""
+        return self.circuits
 
     def execute_circuits(self, shots_per_circuit: int) -> dict:
         """Execute circuits and collect results"""
@@ -73,8 +72,6 @@ class QSCI(QuantumAlgorithm):
     ) -> dict:
         """Perform symmetry verification"""
         new_counts = {k: v for k, v in counts.items() if v > 0}
-        for sample in self.unimportant_configurations:
-            counts[sample] = 0
         if particle_number is None:
             return new_counts
         else:
@@ -88,98 +85,25 @@ class QSCI(QuantumAlgorithm):
         top_samples = heapq.nlargest(k, cr_counts, key=cr_counts.get)
         return top_samples
 
-    def compute_hij(self, args):
-        i, j, basis, hamiltonian_mpo = args
-        psi_i = MatrixProductState.from_bitstring(basis[i])
-        psi_j = MatrixProductState.from_bitstring(basis[j])
-        ham = copy.deepcopy(hamiltonian_mpo)
-        psi_i.set_default_indices("X", "A")
-        ham.set_default_indices("Y", "A", "B")
-        psi_j.set_default_indices("Z", "B")
-        tn = TensorNetwork(psi_i.tensors + ham.tensors + psi_j.tensors)
-        h_ij = tn.contract_entire_network()
-        return (i, j, h_ij)
-
-    def project_hamiltonian(
-        self, samples: list[str], reset_hamiltonian: bool = False
-    ) -> ndarray:
-        """Project Hamiltonian onto subspace"""
-        n = len(samples)
-        ham_proj = np.zeros((n, n), dtype=complex)
-
-        # Prepare arguments for each task
-        if reset_hamiltonian:
-            ham = MatrixProductOperator.from_hamiltonian(self.hamiltonian)
-        else:
-            ham = self.hamiltonian_mpo
-        args_list = [(i, j, samples, ham) for i in range(n) for j in range(i, n)]
-
-        # Launch worker pool
-        with Pool(processes=cpu_count() - 1) as pool:
-            results = pool.map(self.compute_hij, args_list)
-
-        # Fill in the matrix from results
-        for i, j, h_ij in results:
-            ham_proj[i, j] = h_ij
-            if i != j:
-                ham_proj[j, i] = h_ij.conjugate()
-
-        return ham_proj
-
-    def exact_diagonalisation(
-        self, hamiltonian_matrix: ndarray
-    ) -> tuple[float, ndarray]:
-        """Perform exact diagonalisation on the projected Hamiltonian"""
-        if hamiltonian_matrix.shape[0] >= 200:
-            eval, evec = eigsh(hamiltonian_matrix, k=1, which="SA", tol=1e-10)
-        else:
-            eval, evec = eigh(hamiltonian_matrix)
-        return eval[0], evec[:, 0]
-
-    def linear_operator_diagonalisation(
-        self, samples: list[str]
-    ) -> tuple[float, ndarray]:
-        """For larger subspaces this will be more efficient"""
-        basis_states = [MatrixProductState.from_bitstring(s) for s in samples]
-        n = len(basis_states)
-        ham_mpo = copy.deepcopy(self.hamiltonian_mpo)
-
-        def matvec(v):
-            psi_v = basis_states[0]
-            psi_v.multiply_by_constant(v[0])
-            for j in range(1, n):
-                temp_mps = basis_states[j]
-                temp_mps.multiply_by_constant(v[j])
-                psi_v = psi_v + temp_mps
-            H_psi_v = psi_v.apply_mpo(ham_mpo)
-            return np.array(
-                [basis_states[i].compute_inner_product(H_psi_v) for i in range(n)]
-            )
-
-        H_linear = LinearOperator(shape=(n, n), matvec=matvec, dtype=np.complex128)
-        eval, evec = eigsh(H_linear, k=1, which="SA", tol=1e-10)
-        return eval[0], evec[:, 0]
+    def diagonalisation(self, samples: list[str]):
+        energy, gs = subspace_energy(self.hamiltonian, samples)
+        return energy, gs
 
     def run(self, num_shots: int, subspace_size: int) -> Result:
         """Run the full algorithm pipeline. Returns result object or final value."""
         start_time = default_timer()
         shots_per_circuit = int(num_shots / len(self.circuits))
-        counts = self.execute_circuits(self.circuits, shots_per_circuit)
-        counts = self.postprocessing(counts, self.postprocessing_args)
-        sv_counts = self.symmetry_verification(counts, self.num_electrons)
+        counts = self.execute_circuits(shots_per_circuit)
+        pp_counts = self.postprocessing(counts, self.postprocessing_args)
+        sv_counts = self.symmetry_verification(pp_counts, self.num_electrons)
         samples = self.gather_samples(sv_counts, subspace_size)
-        for s in self.unimportant_configurations:
-            if s in samples:
-                samples.remove(s)
-        for s in self.important_configurations:
-            if s not in samples:
-                samples.append(s)
-        if len(samples) <= 500:
-            projected_ham = self.project_hamiltonian(samples)
-            self.energy, groundstate_vec = self.exact_diagonalisation(projected_ham)
-        else:
-            self.energy, groundstate_vec = self.linear_operator_diagonalisation(samples)
+        samples = [s for s in samples if s not in self.unimportant_configurations]
+        samples = list(set(samples) | set(self.important_configurations))
+        self.energy, groundstate_vec = self.diagonalisation(samples)
         end_time = default_timer()
+
+        circ_depths = [qc.depth() for qc in self.circuits]
+        avg_depth = np.mean(circ_depths)
 
         metadata = {
             "algorithm_name": "QSCI",
@@ -187,6 +111,10 @@ class QSCI(QuantumAlgorithm):
             "max_subspace_size": subspace_size,
             "actual_subspace_size": len(samples),
             "subspace": samples,
+            "avg_circuit_depth": avg_depth,
+            "counts": counts,
+            "pp_counts": pp_counts,
+            "sv_counts": sv_counts,
             "total_runtime": end_time - start_time,
         }
         if self.backend is not None:
@@ -208,6 +136,6 @@ class QSCI(QuantumAlgorithm):
     def set_backend(self, backend: QuantumBackend | None) -> None:
         """Attach a QuantumBackend instance for execution."""
         if backend is None:
-            backend = TNQuantumBackend()
+            backend = QiskitSimulatorBackend()
         self.backend = backend
         return
