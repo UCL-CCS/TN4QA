@@ -1884,7 +1884,7 @@ class MatrixProductOperator(TensorNetwork):
             cache_expression=False,
             prefer_einsum=True,
         )
-        new_t = Tensor(new_t_data, [f"F{idx}", f"E{idx + 1}", f"B{idx + 1}"], [])
+        new_t = Tensor(new_t_data, [f"F{n-1}", f"E{n}", f"B{n}"], [])
         tn.pop_tensors_by_label(t1.labels)
         tn.pop_tensors_by_label(t2.labels)
         tn.pop_tensors_by_label(t3.labels)
@@ -2356,6 +2356,7 @@ class MatrixProductOperator(TensorNetwork):
     def extend_mpo_to_size(
         self, num_sites: int, sites: list[int]
     ) -> "MatrixProductOperator":
+        physical_dim = self.tensors[0].dimensions[-1]
         if self.num_sites == 1:
             arrays = []
             for idx in range(1, num_sites + 1):
@@ -2368,9 +2369,13 @@ class MatrixProductOperator(TensorNetwork):
                     arrays.append(array)
                 else:
                     if idx == 1 or idx == num_sites:
-                        array = np.eye(2).reshape((1, 2, 2))
+                        array = np.eye(physical_dim).reshape(
+                            (1, physical_dim, physical_dim)
+                        )
                     else:
-                        array = np.eye(2).reshape((1, 1, 2, 2))
+                        array = np.eye(physical_dim).reshape(
+                            (1, 1, physical_dim, physical_dim)
+                        )
                     arrays.append(array)
             mpo = MatrixProductOperator.from_arrays(arrays)
             return mpo
@@ -2396,21 +2401,28 @@ class MatrixProductOperator(TensorNetwork):
                 current_counter += 1
             else:
                 if idx == 1:
-                    array = np.eye(2).reshape((1, 2, 2))
+                    array = np.eye(physical_dim).reshape(
+                        (1, physical_dim, physical_dim)
+                    )
                 elif idx == num_sites:
-                    array = np.eye(2).reshape((1, 2, 2))
+                    array = np.eye(physical_dim).reshape(
+                        (1, physical_dim, physical_dim)
+                    )
                 elif (
                     idx != 1 and idx != num_sites and current_counter != self.num_sites
                 ):
                     array = np.array(
-                        [[np.zeros((2, 2))] * self.bond_dimension] * self.bond_dimension
+                        [[np.zeros((physical_dim, physical_dim))] * self.bond_dimension]
+                        * self.bond_dimension
                     )
                     for x in range(self.bond_dimension):
-                        array[x, x, :, :] = np.eye(2)
+                        array[x, x, :, :] = np.eye(physical_dim)
                 elif (
                     idx != 1 and idx != num_sites and current_counter == self.num_sites
                 ):
-                    array = np.eye(2).reshape((1, 1, 2, 2))
+                    array = np.eye(physical_dim).reshape(
+                        (1, 1, physical_dim, physical_dim)
+                    )
                 arrays.append(array)
 
         mpo = MatrixProductOperator.from_arrays(arrays)

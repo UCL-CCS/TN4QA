@@ -1,7 +1,4 @@
 import copy
-import os
-import shutil
-import uuid
 from typing import Tuple
 
 import numpy as np
@@ -44,15 +41,9 @@ class DMRG:
         return
 
     def set_driver(self):
-        scratch = "./dmrg_scratch"
-        if os.path.exists(scratch):
-            shutil.rmtree(scratch)  # always start clean
-        os.makedirs(scratch)
-
         driver_obj = DMRGDriver(
             symm_type=SymmetryTypes.SGB,
             n_threads=4,
-            scratch=scratch,
         )
         driver_obj.initialize_system(
             n_sites=self.nqubits,
@@ -65,8 +56,8 @@ class DMRG:
         return mpo
 
     def set_initial_state(self):
-        tag = f"GS_{uuid.uuid4().hex[:8]}"
-        ket = self.driver.get_random_mps(tag=tag, bond_dim=2, nroots=1)
+        ket = self.driver.get_random_mps(tag="GS", bond_dim=2, nroots=1)
+        ket = self.driver.get_random_mps(tag="GS", bond_dim=2, nroots=1)
         return ket
 
     def run(
