@@ -113,7 +113,7 @@ def exp_pauli_string_to_circ(pauli_string: str, rot_angle: float) -> QuantumCirc
         q1, q2 = non_id_qubits[non_id_idx], non_id_qubits[non_id_idx + 1]
         qc.cx(q1, q2)
     qc.rz(2 * rot_angle, non_id_qubits[-1])
-    for non_id_idx in range(len(non_id_qubits) - 1):
+    for non_id_idx in list(range(len(non_id_qubits) - 1))[::-1]:
         q1, q2 = non_id_qubits[non_id_idx], non_id_qubits[non_id_idx + 1]
         qc.cx(q1, q2)
 
@@ -159,7 +159,7 @@ def controlled_exp_pauli_string_circ(
         q1, q2 = non_id_qubits[non_id_idx], non_id_qubits[non_id_idx + 1]
         qc.cx(q1, q2)
     qc.crz(2 * rot_angle, ctrl_idxs, non_id_idx[-1])
-    for non_id_idx in range(len(non_id_qubits) - 1):
+    for non_id_idx in list(range(len(non_id_qubits) - 1))[::-1]:
         q1, q2 = non_id_qubits[non_id_idx], non_id_qubits[non_id_idx + 1]
         qc.cx(q1, q2)
 
