@@ -84,3 +84,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Log depth MPS to circuit mapping
 - Verifier Circuit class
+
+## [0.0.10] - 2026-04-10
+
+### Changed
+- Default DMRG solver changed to Block2
+
+### Fixed
+- Bug in exp_pauli_to_circuit builder
+
+### Added
+- Parent Hamiltonian class
+- Noise modelling functionality
+- Error mitigation functionality
+- TNQEM method
