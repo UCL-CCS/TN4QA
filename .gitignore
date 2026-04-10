@@ -127,6 +127,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv_ham
 env/
 venv/
 ENV/
@@ -159,6 +160,7 @@ cython_debug/
 
 # Scratch space
 tmp/
+dmrg_scratch
 
 # Misc.
 .DS_Store
