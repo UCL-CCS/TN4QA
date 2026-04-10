@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tn4qa.dmrg import DMRG
+from tn4qa.dmrg import TN4QA_DMRG
 
 
 @pytest.fixture(scope="module")
@@ -24,6 +24,6 @@ def water_integrals():
 @pytest.fixture(scope="module")
 def water_DMRG(water_integrals):
     ones, twos = water_integrals
-    dmrg = DMRG(hamiltonian=(ones, twos, 0), max_mps_bond=4, method="two-site")
+    dmrg = TN4QA_DMRG(hamiltonian=(ones, twos, 0), max_mps_bond=4, method="two-site")
     dmrg.run(5)
     return dmrg.mps

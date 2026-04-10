@@ -1,5 +1,4 @@
 import copy
-from collections import Counter
 from typing import List, TypeAlias, Union
 
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
@@ -1266,103 +1265,132 @@ class MatrixProductState(TensorNetwork):
             dist[bitstring] = probability
         return dist
 
-    def sample_bitstrings(self, num_bitstrings: int = 1) -> dict[str, int]:
+    def sample_bitstrings(
+        self,
+        num_samples: int = 1,
+        seed: int | None = None,
+    ) -> dict[str, int]:
         """
-        Sample bitstrings from an MPS
+        Draw `num_bitstrings` samples from the Born distribution of `mps`.
 
-        Args:
-            num_bitstrings: The number of samples to take
+        Parameters
+        ----------
+        mps            : MatrixProductState in any gauge.
+        num_bitstrings : Number of samples to draw (with replacement).
+        seed           : Optional RNG seed for reproducibility.
 
-        Returns:
-            A dictionary of the form {bitstring : counts}
+        Returns
+        -------
+        dict mapping bitstring → count.
+
+        Algorithm
+        ---------
+        1. Canonicalise once to top-canonical form (orthogonality centre at 1).
+        Cost: O(N d χ³).
+
+        2. For each sample, sweep top-to-bottom:
+        - At site i, compute marginal probs from the accumulated env (χ×χ matrix).
+        - Sample a bit, accumulate env update.  Cost per site: O(d χ²).
+        - Total per sample: O(N d χ²).  [χ² not χ³ because no SVD needed]
+
+        The overall cost is  O(N d χ³)  for canonicalisation  +
+                            O(S · N · d · χ²)  for S samples.
         """
-        if self.num_sites <= 15:
-            dist = self.get_probability_distribution()
-            samples = np.random.choice(
-                list(dist.keys()), size=num_bitstrings, p=list(dist.values())
-            )
-            output = dict(Counter(list(samples)))
-            return output
+        mps = copy.deepcopy(self)
 
-        samples = {}
-        prefix_prob_dict = {}  # {prefix : (prob0, prob1)}
-        sample_prob_dict = {}  # {bitstring : probabiity}
+        def _dense(tensor) -> np.ndarray:
+            """Return tensor data as a dense numpy array."""
+            arr = tensor.data.todense()
+            return np.asarray(arr)
 
-        samples_collected = 0
-        self_copy = copy.deepcopy(self)
-        while samples_collected < num_bitstrings:
-            prob_existing_sample = np.sum(list(sample_prob_dict.values()))
-            choose_existing_sample = np.random.choice(
-                ["y", "n"], p=[prob_existing_sample, 1 - prob_existing_sample]
-            )
-            if choose_existing_sample == "y":
-                probs_norm = np.sum(list(sample_prob_dict.values()))
-                normalised_probs = [x / probs_norm for x in sample_prob_dict.values()]
-                bitstring = np.random.choice(
-                    list(sample_prob_dict.keys()), p=normalised_probs
-                )
-                samples[bitstring] += 1
-                samples_collected += 1
-                continue
-            bitstring = ""
-            current_mps = copy.deepcopy(self_copy)
-            current_mpo = current_mps.form_density_operator()
-            total_prob = 1.0
-            temp_prob = 1.0
-            for site in range(1, self.num_sites + 1):
-                if bitstring in prefix_prob_dict:
-                    prob0, prob1 = prefix_prob_dict[bitstring]
-                else:
-                    num_sites_to_trace = len(bitstring) - (
-                        self.num_sites - current_mpo.num_sites
+        def _site_tensor(mps, site: int) -> np.ndarray:
+            """
+            Return the dense array for the 1-indexed site.
+            Index layout:
+            Interior  (1 < site < N)  →  [up, down, physical]   shape (χ_u, χ_d, d)
+            Top       (site == 1)     →  [down, physical]         shape (χ_d, d)
+            Bottom    (site == N)     →  [up, physical]           shape (χ_u, d)
+            """
+            return _dense(mps.tensors[site - 1])
+
+        rng = np.random.default_rng(seed)
+        N = mps.num_sites
+
+        canonical_mps = copy.deepcopy(mps)
+        canonical_mps.move_orthogonality_centre(1)
+
+        tensors: list[np.ndarray] = [
+            _site_tensor(canonical_mps, s) for s in range(1, N + 1)
+        ]
+
+        def _phys_dim(site_idx: int) -> int:
+            """Physical dim is always the last index of the tensor."""
+            return tensors[site_idx].shape[-1]
+
+        counts: dict[str, int] = {}
+
+        for _ in range(num_samples):
+            bits: list[str] = []
+
+            env: np.ndarray | float = 1.0
+
+            for site_idx in range(N):
+                A = tensors[site_idx]
+                is_top = site_idx == 0
+                is_bottom = site_idx == N - 1
+                d = _phys_dim(site_idx)
+
+                if is_top:
+                    raw_probs = np.array(
+                        [np.real(np.dot(A[:, k].conj(), A[:, k])) for k in range(d)]
                     )
-                    if len(bitstring) > 0 and num_sites_to_trace > 0:
-                        sub_mpo_bitstring = bitstring[-num_sites_to_trace:]
-                        sub_mpo = MatrixProductOperator.from_bitstring(
-                            sub_mpo_bitstring
-                        )
-                        current_mpo = current_mpo.contract_sub_mpo(
-                            sub_mpo, list(range(1, num_sites_to_trace + 1))
-                        )
-                        current_mpo = current_mpo.partial_trace(
-                            list(range(1, num_sites_to_trace + 1)),
-                            set_default_indices=True,
-                        )
-                        current_mpo.multiply_by_constant(1 / temp_prob)
-                        current_mpo.indices = current_mpo.get_all_indices()
-                        temp_prob = 1.0
-                    if site != self.num_sites:
-                        site_rdm = (
-                            current_mpo.partial_trace(
-                                list(range(2, current_mpo.num_sites + 1))
+                elif is_bottom:
+                    raw_probs = np.array(
+                        [
+                            np.real(np.einsum("i,ij,j->", A[:, k].conj(), env, A[:, k]))
+                            for k in range(d)
+                        ]
+                    )
+                else:
+                    raw_probs = np.array(
+                        [
+                            np.real(
+                                np.einsum(
+                                    "ij,ik,jk->", env, A[:, :, k].conj(), A[:, :, k]
+                                )
                             )
-                            .tensors[0]
-                            .data.todense()
-                        )
+                            for k in range(d)
+                        ]
+                    )
+
+                raw_probs = np.clip(raw_probs, 0.0, None)
+                total = raw_probs.sum()
+                if total < 1e-15:
+                    raise ValueError(
+                        f"Probability at site {site_idx + 1} is numerically zero. "
+                        f"Check MPS normalisation."
+                    )
+                probs = raw_probs / total
+
+                bit = int(rng.choice(d, p=probs))
+                bits.append(str(bit))
+
+                if not is_bottom:
+                    if is_top:
+                        v = A[:, bit]
+                        norm = np.sqrt(np.real(np.dot(v.conj(), v)))
+                        v = v / (norm if norm > 1e-15 else 1.0)
+                        env = np.outer(v.conj(), v)
                     else:
-                        site_rdm = current_mpo.tensors[0].data.todense()
-                    prob0 = min(site_rdm[0, 0].real, 1.0)
-                    prob1 = 1.0 - prob0
+                        M = A[:, :, bit]
+                        env_new = np.einsum("ij,ik,jl->kl", env, M.conj(), M)
+                        norm = np.trace(env_new).real
+                        env = env_new / (norm if norm > 1e-15 else 1.0)
 
-                site_bit = np.random.choice(["0", "1"], p=[prob0, prob1])
-                bitstring += site_bit
-                if site_bit == "0":
-                    temp_prob *= prob0
-                    total_prob *= prob0
-                else:
-                    temp_prob *= prob1
-                    total_prob *= prob1
-                if bitstring[:-1] not in prefix_prob_dict:
-                    prefix_prob_dict[bitstring[:-1]] = (prob0, prob1)
-            if bitstring not in sample_prob_dict:
-                if bitstring in samples:
-                    samples[bitstring] += 1
-                else:
-                    samples[bitstring] = 1
-                samples_collected += 1
-                sample_prob_dict[bitstring] = total_prob
+            bitstring = "".join(bits)
+            counts[bitstring] = counts.get(bitstring, 0) + 1
 
-        return samples
+        return counts
 
     def get_approximate_probability_distribution(
         self, sample_size: int = 1000

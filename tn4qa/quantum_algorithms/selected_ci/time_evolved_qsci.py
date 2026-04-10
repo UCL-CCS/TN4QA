@@ -1,49 +1,71 @@
 import copy
-from timeit import default_timer
+from typing import Callable
 
 import numpy as np
 from qiskit import QuantumCircuit
 
+from ...mps import MatrixProductState
 from ...quantum_algorithms.hamiltonian_simulation.qdrift import (
     QDriftSimulation,
 )
 from ...quantum_algorithms.hamiltonian_simulation.trotterisation import (
     TrotterSimulation,
 )
+from ...tn_methods.mps_to_circuit import MPSAnalyticDecomposition
 from ..backend.base import QuantumBackend
-from ..backend.tn_backend import TNQuantumBackend
+from ..backend.qiskit_simulator import QiskitSimulatorBackend
+from ..base import QuantumAlgorithm
 from ..result import Result
 from .qsci import QSCI
 
 
-class TimeEvolvedQSCI(QSCI):
+class TimeEvolvedQSCI(QuantumAlgorithm):
     def __init__(
         self,
         hamiltonian: dict,
-        hf_state: str | None = None,
-        backend: QuantumBackend | None = None,
+        reference_state: MatrixProductState,
         duration: float = np.pi,
         num_circuits: int = 5,
+        backend: QuantumBackend | None = None,
         qdrift: bool = True,
-        max_mpo_bond: int | None = None,
-        **kwargs,
-    ) -> "QSCI":
+        num_qdrift_circuits: int | None = 10,
+        qdrift_error: float | None = None,
+        max_qdrift_terms: int | None = None,
+        num_electrons: int | None = None,
+        known_important_configurations: list[str] = [],
+        known_unimportant_configurations: list[str] = [],
+        postprocessing_function: list[Callable] | None = None,
+        postprocessing_args: list[dict] | None = None,
+    ) -> "TimeEvolvedQSCI":
         """
-        Constructor for QSCI class.
+        Constructor for TE-QSCI class.
         """
         self.duration = duration
+        self.circuits = []
         self.num_circuits = num_circuits
-        self.qdrift_config = kwargs
+        self.hamiltonian = self.sanitize_dict(hamiltonian)
+        self.reference_state = reference_state
+        self.reference_state_qc = self.create_reference_circuit()
+        self.backend = self.set_backend(backend=backend)
+
         self.qdrift = qdrift
-        hamiltonian = self.sanitize_dict(hamiltonian)
-        super().__init__(
-            hamiltonian, hf_state=hf_state, backend=backend, max_bond=max_mpo_bond
-        )
+        self.num_qdrift_circuits = num_qdrift_circuits
+        self.qdrift_error = qdrift_error
+        self.max_qdrift_terms = max_qdrift_terms
+
+        self.num_electrons = num_electrons
+        self.important_configurations = known_important_configurations
+        self.unimportant_configurations = known_unimportant_configurations
+        self.postprocessing_function = postprocessing_function
+        self.postprocessing_args = postprocessing_args
+
         self.circuit_depths = []
+        self.energy = None
 
     @property
     def circuit(self) -> QuantumCircuit:
-        return self._circuit
+        """Get the circuit from the algorithm"""
+        return self.circuits
 
     def sanitize_dict(self, d: dict[str, complex | float]) -> dict[str, float]:
         return {
@@ -51,14 +73,24 @@ class TimeEvolvedQSCI(QSCI):
             for k, v in d.items()
         }
 
+    def create_reference_circuit(self) -> QuantumCircuit:
+        """Create a circuit to prepare the reference state"""
+        if self.reference_state.bond_dimension <= 2:
+            mpstocirc = MPSAnalyticDecomposition(self.reference_state, 1, 1.0)
+            qc = mpstocirc.bond_dim_2_to_qc_exact(self.reference_state)
+        else:
+            mpstocirc = MPSAnalyticDecomposition(self.reference_state, 1, 1.0)
+            qc = mpstocirc.mps_to_qc_via_ttn(self.reference_state, 2)
+        return qc
+
     def perform_time_evolution(self, duration: float) -> QuantumCircuit:
         """Add time evolution to the circuit"""
         if duration == 0.0:
-            ref = copy.deepcopy(self.circuit)
+            ref = copy.deepcopy(self.reference_state_qc)
             return ref
         sim = TrotterSimulation(self.hamiltonian, duration=duration)
         sim_circ = sim.circuit
-        ref = copy.deepcopy(self.circuit)
+        ref = copy.deepcopy(self.reference_state_qc)
         ref.compose(sim_circ, inplace=True)
         return ref
 
@@ -67,134 +99,68 @@ class TimeEvolvedQSCI(QSCI):
     ) -> QuantumCircuit:
         """Add qdrift time evolution to the circuit"""
         if duration == 0.0:
-            ref = copy.deepcopy(self.circuit)
+            ref = copy.deepcopy(self.reference_state_qc)
             return ref
-        sim = QDriftSimulation(self.hamiltonian, duration=duration, error=error)
+        sim = QDriftSimulation(
+            self.hamiltonian,
+            duration=duration,
+            error=error,
+            max_num_terms=self.max_qdrift_terms,
+        )
         sim_circ = sim.circuit
-        ref = copy.deepcopy(self.circuit)
+        ref = copy.deepcopy(self.reference_state_qc)
         ref.compose(sim_circ, inplace=True)
         return ref
 
-    def get_counts(
-        self, duration: float, num_circuits: int, shots: int
-    ) -> dict[str, int]:
-        """Get counts using Trotterisation"""
-        duration_per_circuit = duration / num_circuits
-        counts = {}
-        for idx in range(num_circuits):
+    def build_circuits_trotter(self, duration: float) -> list[QuantumCircuit]:
+        """Get circuits using Trotterisation"""
+        duration_per_circuit = duration / self.num_circuits
+        circuits = []
+        for idx in range(self.num_circuits):
             qc = self.perform_time_evolution((idx + 1) * duration_per_circuit)
-            subcounts = self.backend.run(qc, shots=shots)
-            for b, count in subcounts.items():
-                counts[b] = counts.get(b, 0) + count
-        return counts
+            circuits.append(qc)
+        return circuits
 
-    def get_counts_qdrift(
-        self, duration: float, num_circuits: int, shots: int
-    ) -> dict[str, int]:
-        """Get counts using qDRIFT"""
-        duration_per_circuit = duration / (num_circuits - 1)
-        counts = {}
-        for idx in range(num_circuits):
-            shots_per_circuit = int(shots / self.qdrift_config["num_qdrift_circuits"])
-            for _ in range(self.qdrift_config["num_qdrift_circuits"]):
+    def build_circuits_qdrift(self, duration: float) -> list[QuantumCircuit]:
+        """Get circuits using qDRIFT"""
+        duration_per_circuit = duration / (self.num_circuits)
+        circuits = []
+        for idx in range(self.num_circuits):
+            for _ in range(self.num_qdrift_circuits):
                 qc = self.perform_time_evolution_qdrift(
-                    idx * duration_per_circuit, error=self.qdrift_config["error"]
+                    (idx + 1) * duration_per_circuit, error=self.qdrift_error
                 )
-                self.circuit_depths.append(qc.depth())
-                subcounts = self.backend.run(qc, shots=shots_per_circuit)
-                for b, count in subcounts.items():
-                    counts[b] = counts.get(b, 0) + count
-        return counts
+                circuits.append(qc)
+        return circuits
 
-    def run(
-        self, num_shots: int, subspace_size: int, num_iterations: int = 1
-    ) -> Result:
-        """Run the full algorithm pipeline. Returns result object or final value."""
-        start_time = default_timer()
-        for idx in range(num_iterations):
-            print("Starting iteration", idx)
-            # if self.hfs:
-            #     self.state, _ = self.hf_suppression(self.state)
-            self._circuit = self.prepare_state(self.state)
-            if self.qdrift:
-                counts = self.get_counts_qdrift(
-                    self.duration, self.num_circuits, num_shots
-                )
-            else:
-                counts = self.get_counts(self.duration, self.num_circuits, num_shots)
-            cr_counts = self.configuration_recovery(counts, self.num_electrons)
-            print("Samples Collected!")
-            samples = self.gather_samples(cr_counts, subspace_size)
-            # if self.hfs and self.hf_state not in samples:
-            #     samples += self.hf_state
-            if self.hf_state not in samples:
-                samples.append(self.hf_state)
-            for sample in self.important_configurations:
-                if sample not in samples:
-                    samples.append(sample)
-            if idx == num_iterations - 1:
-                reset_hamiltonian = True
-            else:
-                reset_hamiltonian = False
-            if len(samples) <= 500:
-                projected_ham = self.project_hamiltonian(
-                    samples, reset_hamiltonian=reset_hamiltonian
-                )
-                self.energy, groundstate_vec = self.exact_diagonalisation(projected_ham)
-            else:
-                self.energy, groundstate_vec = self.linear_operator_diagonalisation(
-                    samples
-                )
-            for sidx in range(len(samples)):
-                sample = samples[sidx]
-                amp = groundstate_vec[sidx]
-                if np.abs(amp) ** 2 > 0.0:
-                    self.important_configurations.append(sample)
-                else:
-                    self.unimportant_configurations.append(sample)
-            self.important_configurations = list(set(self.important_configurations))
-            print("Exact Diagonalisation Complete!")
-            self.state = self.reconstruct_mps(samples, groundstate_vec)
-            self.energy = self.final_energy()
-            self.energies_per_iteration.append(self.energy)
-            print("Finished iteration", idx)
-            print("Energy =", self.energy)
-            print("Number of configuration =", len(samples))
-        end_time = default_timer()
-
-        metadata = {
-            "algorithm_name": "Time Evolved QSCI",
-            "qdrift": self.qdrift,
-            "num_shots": num_shots,
-            "num_iterations": num_iterations,
-            "max_subspace_size": subspace_size,
-            "actual_subspace_size": len(samples),
-            "subspace": samples,
-            "total_runtime": end_time - start_time,
-            "average_circuit_depth": np.mean(self.circuit_depths),
-        }
-        if self.backend is not None:
-            metadata["backend_name"] = self.backend.name
-            metadata["backend_coupling_map"] = self.backend.coupling_map
-            metadata["backend_basis_gates"] = self.backend.basis_gates
-            metadata["backend_num_qubits"] = self.backend.num_qubits
+    def build_circuits(self) -> list[QuantumCircuit]:
         if self.qdrift:
-            metadata.update(self.qdrift_config)
+            circuits = self.build_circuits_qdrift(self.duration)
+        else:
+            circuits = self.build_circuits_trotter(self.duration)
+        self.circuits = circuits
+        return circuits
 
-        result = self.energy
-
-        result = Result(
-            result=result,
-            measurements=counts,
-            parameters=None,
-            metadata=metadata,
+    def run(self, num_shots: int, subspace_size: int) -> Result:
+        """Run the full algorithm pipeline. Returns result object or final value."""
+        circuits = self.build_circuits()
+        qsci = QSCI(
+            circuits,
+            self.backend,
+            self.hamiltonian,
+            self.num_electrons,
+            self.important_configurations,
+            self.unimportant_configurations,
+            self.postprocessing_function,
+            self.postprocessing_args,
         )
-        print("Run finished")
+        result = qsci.run(num_shots, subspace_size)
+
         return result
 
     def set_backend(self, backend: QuantumBackend | None) -> None:
         """Attach a QuantumBackend instance for execution."""
         if backend is None:
-            backend = TNQuantumBackend()
+            backend = QiskitSimulatorBackend()
         self.backend = backend
         return

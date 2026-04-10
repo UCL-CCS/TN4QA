@@ -22,6 +22,7 @@ class QDriftSimulation(QuantumAlgorithm):
         error: float | None = None,
         backend: QuantumBackend | None = None,
         seed: int | None = None,
+        max_num_terms: int | None = None,
     ) -> "QDriftSimulation":
         """
         Constructor for qDRIFT simulation class.
@@ -45,6 +46,7 @@ class QDriftSimulation(QuantumAlgorithm):
         self.num_terms = int(
             np.ceil(2 * (self.norm**2) * (self.duration**2) / self.error)
         )
+        self.num_terms = int(min(self.num_terms, max_num_terms))
 
         self._circuit = self.build_circuit(
             self.hamiltonian, self.norm, self.num_terms, self.duration, self.seed

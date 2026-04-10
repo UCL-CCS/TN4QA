@@ -23,24 +23,29 @@ h2_file = "molecules/H2.json"
 h2_data = ReadMoleculeData(h2_file)
 h2_ham = h2_data.qubit_hamiltonian
 
-h2_dmrg = DMRG(h2_ham, max_mps_bond=4, method="two-site")
-h2_dmrg.run(20)
-h2_mps = h2_dmrg.mps
+h2_dmrg = DMRG(h2_ham, 8)
+_, h2_mps = h2_dmrg.run(20)
+# h2_mps = h2_dmrg.mps
 
 
 def test_rdm1():
     h2_rdm1_dmrg = get_one_orbital_rdm(h2_mps, 1)
+    print(h2_rdm1)
+    print(h2_rdm1_dmrg)
 
     assert np.allclose(h2_rdm1, h2_rdm1_dmrg, atol=0.01)
 
 
 def test_rdm2():
     h2_rdm2_dmrg = get_two_orbital_rdm(h2_mps, [1, 2])
+    print(h2_rdm2.round(2))
+    print(h2_rdm2_dmrg.round(2))
 
     assert np.allclose(h2_rdm2, h2_rdm2_dmrg, atol=0.01)
 
 
 def test_mutual_information(water_DMRG):
+    print(water_DMRG)
     assert np.isclose(
         get_mutual_information(water_DMRG, [1, 1]),
         get_one_orbital_entropy(water_DMRG, 1),
