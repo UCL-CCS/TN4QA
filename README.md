@@ -4,10 +4,11 @@ TN4QA (Tensor Networks for Quantum Algorithms) is a package designed to build wo
 
 ## Installation
 
-Install the dependencies using
+Install from PyPI using
+
 ```
-pip install poetry
-poetry install
+pip install tn4qa \
+  --extra-index-url https://block-hczhai.github.io/block2-preview/pypi/
 ```
 
 ## Getting Started
