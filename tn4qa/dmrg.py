@@ -66,7 +66,12 @@ class DMRG:
                 for i in range(nsweeps)
             ]
         if not noises:
-            noises = [1e-3] * (len(bond_dims) - 1) + [0]
+            noises = (
+                [1e-2] * max(1, nsweeps // 3)
+                + [1e-4] * max(1, nsweeps // 3)
+                + [1e-6] * max(1, nsweeps - 2 * (nsweeps // 3) - 1)
+                + [0]
+            )
         if not thrds:
             thrds = [1e-12] * len(bond_dims)
         self.energy = self.driver.dmrg(
