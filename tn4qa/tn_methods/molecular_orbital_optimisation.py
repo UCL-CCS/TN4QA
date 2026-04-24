@@ -199,20 +199,11 @@ class MolecularOrbitalOptimisation:
         self,
         hamiltonian: dict[str, complex],
         max_mps_bond: int | None,
-        method: str,
-        convergence_threshold: float,
-        initial_state: MatrixProductState,
         maxiter: int,
     ) -> MatrixProductState:
         """Run DMRG to get an approximate groundstate in the initial MO basis"""
-        dmrg = DMRG(
-            hamiltonian,
-            max_mps_bond=max_mps_bond,
-            method=method,
-            convergence_threshold=convergence_threshold,
-            initial_state=initial_state,
-        )
-        _, psi = dmrg.run(maxiter=maxiter)
+        dmrg = DMRG(hamiltonian, max_mps_bond=max_mps_bond)
+        _, psi = dmrg.run(nsweeps=maxiter)
         return psi
 
     def build_cost_function_mpo(

@@ -1612,7 +1612,10 @@ class MatrixProductOperator(TensorNetwork):
 
     @classmethod
     def purity_mpo(
-        cls, num_sites: int, target_sites: list[int]
+        cls,
+        num_sites: int,
+        target_sites: list[int],
+        max_bond: int | None = None,
     ) -> "MatrixProductOperator":
         """Build an MPO that calculates the purity of a RDM for an MPS.
 
@@ -1640,6 +1643,7 @@ class MatrixProductOperator(TensorNetwork):
             mpo = mpo.apply_nonlocal_two_qubit_gate(
                 swap_sparse,
                 [idx, num_sites + idx],
+                max_bond=max_bond,
             )
 
         return mpo
