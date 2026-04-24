@@ -1,18 +1,18 @@
-from typing import List, Union
+from __future__ import annotations
+
+import copy
 
 # Contraction path finding is offloaded to Cotengra
 import cotengra as ctg
 import numpy as np
 
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
-import sparse
-from numpy.linalg import svd
+import scipy.linalg
 
 # Qiskit quantum circuit integration
-from qiskit import QuantumCircuit
 from scipy.sparse.linalg import svds
 
-from .tensor import Tensor
+from .tensor import StorageHint, Tensor, _as_dense, _make_storage
 
 # Visualisation
 from .visualisation import draw_arbitrary_tn, draw_quantum_circuit
@@ -20,7 +20,7 @@ from .visualisation import draw_arbitrary_tn, draw_quantum_circuit
 
 class TensorNetwork:
     def __init__(
-        self, tensors: List[Tensor], name: str = "TN", count_from: int = 1
+        self, tensors: list[Tensor], name: str = "TN", count_from: int = 1
     ) -> None:
         """
         Constructor for the TensorNetwork class.
@@ -51,7 +51,7 @@ class TensorNetwork:
             output += f"Tensor with shape {shape} and indices {indices} \n"
         return output
 
-    def __add__(self, other: "TensorNetwork") -> "TensorNetwork":
+    def __add__(self, other: TensorNetwork) -> TensorNetwork:
         """
         Defines addition for tensor networks.
         """
@@ -63,50 +63,6 @@ class TensorNetwork:
             i += 1
         self.indices = self.get_all_indices()
         return self
-
-    @classmethod
-    def from_qiskit_circuit(
-        cls, qc: QuantumCircuit, dagger: bool = False
-    ) -> "TensorNetwork":
-        """
-        Construct a tensor network from a Qiskit QuantumCircuit object.
-
-        Args:
-            qc: The QuantumCircuit.
-            dagger: If True will construct a TN for the inverse circuit
-
-        Returns:
-            A tensor network.
-        """
-        num_qubits = qc.num_qubits
-        index_prefixes = [f"QW{x}" for x in range(1, num_qubits + 1)]
-        wire_counts = {str(x): 0 for x in range(num_qubits)}
-        tensors = []
-
-        data = qc.data
-        if dagger:
-            data = data[::-1]
-
-        tensor_number = 1
-        for inst in data:
-            inst_num_qubits = inst.operation.num_qubits
-            qidxs = [inst.qubits[i]._index for i in range(inst_num_qubits)]
-            indices = [0] * (2 * len(qidxs))
-            labels = [f"T{tensor_number}"]
-            for qidx in qidxs:
-                qw = index_prefixes[qidx]
-                wire_in = str(wire_counts[str(qidx)])
-                wire_out = str(wire_counts[str(qidx)] + 1)
-                indices[qidxs.index(qidx)] = qw + "N" + wire_out
-                indices[len(qidxs) + qidxs.index(qidx)] = qw + "N" + wire_in
-                labels.append(f"Q{qidx}")
-                wire_counts[str(qidx)] += 1
-            inst_tensor = Tensor.from_qiskit_gate(inst, indices, labels, dagger)
-            tensors.append(inst_tensor)
-            tensor_number += 1
-
-        tn = TensorNetwork(tensors, name="QuantumCircuit")
-        return tn
 
     def get_index_to_tensor_dict(self) -> dict:
         """
@@ -155,7 +111,7 @@ class TensorNetwork:
                 return t.dimensions[t.indices.index(idx)]
         raise ValueError
 
-    def get_internal_indices(self) -> List[str]:
+    def get_internal_indices(self) -> list[str]:
         """
         Get the internal indices of the tensor network.
 
@@ -166,7 +122,7 @@ class TensorNetwork:
         internal_bonds = [idx for idx in tn_dict.keys() if len(tn_dict[idx]) == 2]
         return internal_bonds
 
-    def get_external_indices(self) -> List[str]:
+    def get_external_indices(self) -> list[str]:
         """
         Get the external bonds of the tensor network.
 
@@ -177,7 +133,7 @@ class TensorNetwork:
         external_bonds = [idx for idx in tn_dict.keys() if len(tn_dict[idx]) == 1]
         return external_bonds
 
-    def get_all_indices(self) -> List[str]:
+    def get_all_indices(self) -> list[str]:
         """
         Get all indices in the tensor network.
 
@@ -187,7 +143,7 @@ class TensorNetwork:
         dict = self.get_index_to_tensor_dict()
         return list(dict.keys())
 
-    def get_all_labels(self) -> List[str]:
+    def get_all_labels(self) -> list[str]:
         """
         Get all labels in the tensor network.
 
@@ -227,7 +183,7 @@ class TensorNetwork:
 
         return new_label
 
-    def get_tensors_from_index_name(self, idx: str) -> List[Tensor]:
+    def get_tensors_from_index_name(self, idx: str) -> list[Tensor]:
         """
         Get all tensors connected to a given index.
 
@@ -239,7 +195,7 @@ class TensorNetwork:
         """
         return [t for t in self.tensors if idx in t.indices]
 
-    def get_tensors_from_label(self, label: str) -> List[Tensor]:
+    def get_tensors_from_label(self, label: str) -> list[Tensor]:
         """
         Get all tensors connected to a given label.
 
@@ -250,82 +206,6 @@ class TensorNetwork:
             A list of tensors with label as one of their labels.
         """
         return [t for t in self.tensors if label in t.labels]
-
-    def contract_index(self, idx: str) -> None:
-        """
-        Contract an index in the tensor network.
-
-        Args:
-            idx: The name of the index to contract.
-        """
-        tensors = self.get_tensors_from_index_name(idx)
-
-        array0, array1 = tensors[0].data, tensors[1].data
-        indices0, indices1 = tensors[0].indices, tensors[1].indices
-
-        output_indices = [i for i in indices0 if i != idx] + [
-            i for i in indices1 if i != idx
-        ]
-        new_data = ctg.array_contract(
-            arrays=[array0, array1],
-            inputs=[indices0, indices1],
-            output=output_indices,
-            cache_expression=True,
-            prefer_einsum=True,
-        )
-        new_labels = [self.get_new_label()]
-        if len(new_data.shape) > len(output_indices):
-            new_data = new_data.reshape(new_data.shape[1:])
-        new_tensor = Tensor(new_data, output_indices, new_labels)
-
-        pos = self.tensors.index(tensors[0])
-        self.tensors.remove(tensors[0])
-        self.tensors.remove(tensors[1])
-        self.indices.remove(idx)
-        self.add_tensor(new_tensor, position=pos)
-
-        return
-    
-    def contract_indices(self, idxs: List[str]) -> None:
-        """
-        Contract multiple indices in the tensor network.
-
-        Args:
-            idxs: The names of the indices to contract.
-        """
-        candidate_tensors = [
-            t for t in self.tensors
-            if all(idx in t.indices for idx in idxs)
-        ]
-
-        if len(candidate_tensors) != 2:
-            raise ValueError("Can only contract indices connecting two tensors.")
-        tensor0, tensor1 = candidate_tensors[0], candidate_tensors[1]
-            
-        output_indices = [i for i in tensor0.indices if i not in idxs] + [
-            i for i in tensor1.indices if i not in idxs
-        ]
-
-        new_data = ctg.array_contract(
-            arrays=[tensor0.data, tensor1.data],
-            inputs=[tensor0.indices, tensor1.indices],
-            output=output_indices,
-            cache_expression=True,
-            prefer_einsum=True,
-        )
-        new_labels = [self.get_new_label()]
-        if len(new_data.shape) > len(output_indices):
-            new_data = new_data.reshape(new_data.shape[1:])
-        new_tensor = Tensor(new_data, output_indices, new_labels)
-
-        pos = self.tensors.index(tensor0)
-        self.tensors.remove(tensor0)
-        self.tensors.remove(tensor1)
-        for idx in idxs:
-            self.indices.remove(idx)
-        self.add_tensor(new_tensor, position=pos)
-
-        return
 
     def compress_index(
         self,
@@ -363,17 +243,36 @@ class TensorNetwork:
             cache_expression=True,
             prefer_einsum=True,
         )
-        temp_tensor = Tensor(new_data, output_indices, ["TEMP"])
-
+        if (
+            tensors[0].storage_hint == StorageHint.SPARSE
+            and tensors[1].storage_hint == StorageHint.SPARSE
+        ):
+            sh = StorageHint.SPARSE
+        else:
+            sh = StorageHint.DENSE
+        temp_tensor = Tensor(new_data, output_indices, ["TEMP"], storage_hint=sh)
         input_idxs = [i for i in indices0 if i != idx]
         output_idxs = [i for i in indices1 if i != idx]
         temp_tensor.tensor_to_matrix(input_idxs, output_idxs)
 
         bond_dim = min([max_bond, temp_tensor.data.shape[0], temp_tensor.data.shape[1]])
-        if bond_dim >= min([temp_tensor.data.shape[0], temp_tensor.data.shape[1]]) - 1:
-            u, s, vh = svd(temp_tensor.data.todense(), full_matrices=False)
-        else:
+        sparse_req = (
+            bond_dim < min([temp_tensor.data.shape[0], temp_tensor.data.shape[1]]) - 1
+        )
+        if sh == StorageHint.SPARSE and sparse_req:
             u, s, vh = svds(temp_tensor.data, k=bond_dim)
+            idx_s = np.argsort(s)[::-1]
+            s = s[idx_s]
+            u = u[:, idx_s]
+            vh = vh[idx_s, :]
+        else:
+            u, s, vh = scipy.linalg.svd(
+                temp_tensor.to_dense(), full_matrices=False, check_finite=False
+            )
+
+        u = np.asarray(u)
+        s = np.asarray(s)
+        vh = np.asarray(vh)
 
         s = s[s > 1e-14]
         sq = s**2
@@ -385,8 +284,8 @@ class TensorNetwork:
                 break
         keep_dim = min(keep_dim, bond_dim)
 
-        new_data0 = sparse.COO.from_numpy(vh[:keep_dim, :])
-        new_data1 = sparse.COO.from_numpy(u[:, :keep_dim] * s[:keep_dim])
+        new_data0 = _make_storage(np.asarray(vh[:keep_dim, :]), sh)
+        new_data1 = _make_storage(np.asarray(u[:, :keep_dim] * s[:keep_dim]), sh)
 
         idx_pos0 = indices0.index(idx)
         idx_pos1 = indices1.index(idx)
@@ -410,7 +309,7 @@ class TensorNetwork:
 
         return
 
-    def pop_tensors_by_label(self, labels: List[str]) -> List[Tensor]:
+    def pop_tensors_by_label(self, labels: list[str]) -> list[Tensor]:
         """
         Remove tensors from the network given a set of labels.
 
@@ -463,9 +362,7 @@ class TensorNetwork:
                 self.indices.append(idx)
         return
 
-    def contract_entire_network(
-        self, optimisation_method: str = "greedy"
-    ) -> Union[Tensor, complex]:
+    def contract_entire_network(self) -> Tensor | complex:
         """
         Contracts all internal indices in the network.
 
@@ -482,8 +379,7 @@ class TensorNetwork:
             inputs=input_indices,
             output=output_indices,
             cache_expression=True,
-            prefer_einsum=True,
-            optimize=optimisation_method,
+            optimize="auto-hq",
         )
         if len(output_indices) == 0:
             return complex(output_tensor_data.flatten()[0])
@@ -492,8 +388,8 @@ class TensorNetwork:
             return output_tensor
 
     def compute_environment_tensor_by_label(
-        self, labels: List[str], replace_tensor: bool = False
-    ) -> Union[Tensor, None]:
+        self, labels: list[str], replace_tensor: bool = False
+    ) -> Tensor | None:
         """
         Compute the environment of a tensor in the network given a set of labels.
 
@@ -517,7 +413,7 @@ class TensorNetwork:
 
     def new_index_name(
         self, index_prefix: str = "B", num_new_indices: int = 1
-    ) -> Union[str, List[str]]:
+    ) -> str | list[str]:
         """
         Generate a new index name not already in use.
 
@@ -550,7 +446,7 @@ class TensorNetwork:
         return new_indices
 
     def combine_indices(
-        self, idxs: List[str], new_index_name: str | None = None
+        self, idxs: list[str], new_index_name: str | None = None
     ) -> None:
         """
         Combine two or more indices within the network. Only valid when all indices are between the same two tensors.
@@ -563,86 +459,6 @@ class TensorNetwork:
         for t in tensors:
             t.combine_indices(idxs, new_index_name)
         self.indices = self.get_all_indices()
-        return
-
-    def svd(
-        self,
-        tensor: Tensor,
-        input_indices: List[str],
-        output_indices: List[str],
-        max_bond: int | None = None,
-        new_index_name: str | None = None,
-        new_labels: List[List[str]] | None = None,
-        tol: float | None = 1e-12,
-    ) -> None:
-        """
-        Perform an SVD on a tensor.
-
-        Args:
-            tensor: The tensor.
-            input_indices: Indices to be treated as one side of SVD.
-            output_indices: Indices to be treated as other side of SVD.
-            max_bond: The maximum bond dimension allwoed.
-            new_index_name (optional): What to call the resulting new index.
-            tol: Tolerance for keeping singular values
-        """
-        original_position = self.tensors.index(tensor)
-        original_labels = tensor.labels
-        original_input_dims = [tensor.get_dimension_of_index(x) for x in input_indices]
-        original_output_dims = [
-            tensor.get_dimension_of_index(x) for x in output_indices
-        ]
-        tensor.tensor_to_matrix(input_indices, output_indices)
-        if not max_bond:
-            max_bond = min([tensor.dimensions[0], tensor.dimensions[1]])
-        else:
-            max_bond = min([max_bond, tensor.dimensions[0], tensor.dimensions[1]])
-
-        u, s, vh = svd(tensor.data.todense(), full_matrices=False)
-
-        s = s[s > 1e-14]
-        sq = s**2
-        cumulative = np.cumsum(sq[::-1])[::-1]
-        keep_dim = len(s)
-        for k in range(len(s)):
-            if cumulative[k] < tol**2:
-                keep_dim = k + 1
-                break
-        keep_dim = min(keep_dim, max_bond)
-
-        threshold = 1e-14
-        data0 = vh[:keep_dim, :]
-        data0[np.abs(data0) < threshold] = 0.0
-        data1 = u[:, :keep_dim] * s[:keep_dim]
-        data1[np.abs(data1) < threshold] = 0.0
-
-        tensor0_data = sparse.COO.from_numpy(data0)
-        tensor1_data = sparse.COO.from_numpy(data1)
-
-        if not new_index_name:
-            new_index_name = self.new_index_name()
-
-        tensor0_labels = [self.get_new_label("TN_T")]
-        tensor1_labels = [self.get_new_label("TN_T")]
-        if new_labels:
-            tensor0_labels = tensor0_labels + new_labels[0]
-            tensor1_labels = tensor1_labels + new_labels[1]
-
-        tensor0_indices = [new_index_name] + input_indices
-        tensor1_indices = output_indices + [new_index_name]
-
-        tensor0_dims = [keep_dim] + original_input_dims
-        tensor1_dims = original_output_dims + [keep_dim]
-
-        tensor0_data = sparse.reshape(tensor0_data, tensor0_dims)
-        tensor1_data = sparse.reshape(tensor1_data, tensor1_dims)
-
-        tensor0 = Tensor(tensor0_data, tensor0_indices, tensor0_labels)
-        tensor1 = Tensor(tensor1_data, tensor1_indices, tensor1_labels)
-
-        self.pop_tensors_by_label(original_labels)
-        self.add_tensor(tensor0, original_position)
-        self.add_tensor(tensor1, original_position + 1)
         return
 
     def compress(self, max_bond: int) -> None:
@@ -679,3 +495,213 @@ class TensorNetwork:
 
         else:
             draw_arbitrary_tn(self.tensors)
+
+    def svd(
+        self,
+        tensor: Tensor,
+        input_indices: list[str],
+        output_indices: list[str],
+        max_bond: int | None = None,
+        new_index_name: str | None = None,
+        new_labels: list[list[str]] | None = None,
+        tol: float = 1e-12,
+    ) -> None:
+        """
+        Split tensor via SVD into two tensors and replace the original
+        in the network.
+
+        The heavy computation (SVD itself) always runs on a dense matrix.
+        Outputs are stored dense unless the parent tensor had SPARSE hint.
+        """
+        original_position = self.tensors.index(tensor)
+        original_labels = list(tensor.labels)
+        orig_in_dims = [tensor.get_dimension_of_index(x) for x in input_indices]
+        orig_out_dims = [tensor.get_dimension_of_index(x) for x in output_indices]
+
+        tmp = copy.deepcopy(tensor)
+        tmp.tensor_to_matrix(input_indices, output_indices)
+        data = tmp.data
+        sh = tmp.storage_hint
+
+        rows, cols = data.shape
+        if max_bond is None:
+            max_bond = min(rows, cols)
+        else:
+            max_bond = min(max_bond, rows, cols)
+
+        sparse_req = max_bond < min([rows, cols]) - 1
+        if sh == StorageHint.SPARSE and sparse_req:
+            u, s, vh = svds(data, k=max_bond)
+            idx = np.argsort(s)[::-1]
+            s = s[idx]
+            u = u[:, idx]
+            vh = vh[idx, :]
+        else:
+            u, s, vh = scipy.linalg.svd(
+                tmp.to_dense(), full_matrices=False, check_finite=False
+            )
+
+        u = np.asarray(u)
+        s = np.asarray(s)
+        vh = np.asarray(vh)
+
+        s = s[s > 1e-14]
+        sq = s**2
+        cumulative = np.cumsum(sq[::-1])[::-1]
+        keep_dim = len(s)
+        for k in range(len(s)):
+            if cumulative[k] < tol**2:
+                keep_dim = k + 1
+                break
+        keep_dim = min(keep_dim, max_bond)
+        if keep_dim == 0:
+            keep_dim += 1
+
+        eps = 1e-16
+        data0 = vh[:keep_dim, :]
+        data1 = u[:, :keep_dim] * s[:keep_dim]
+        data0[np.abs(data0) < eps] = 0.0
+        data1[np.abs(data1) < eps] = 0.0
+
+        # Reshape back to original index structure
+        data0 = data0.reshape([keep_dim] + orig_in_dims)
+        data1 = data1.reshape(orig_out_dims + [keep_dim])
+
+        hint = tensor.storage_hint
+        stored0 = _make_storage(np.asarray(data0), hint)
+        stored1 = _make_storage(np.asarray(data1), hint)
+
+        new_idx = new_index_name or self.new_index_name()
+
+        lbl0 = [self.get_new_label()]
+        lbl1 = [self.get_new_label()]
+        if new_labels:
+            lbl0 += new_labels[0]
+            lbl1 += new_labels[1]
+
+        t0 = Tensor(stored0, [new_idx] + input_indices, lbl0, hint)
+        t1 = Tensor(stored1, output_indices + [new_idx], lbl1, hint)
+
+        self.pop_tensors_by_label(original_labels)
+        self.add_tensor(t0, original_position)
+        self.add_tensor(t1, original_position + 1)
+        return
+
+    @staticmethod
+    def _contract_pair(
+        t0: Tensor,
+        t1: Tensor,
+        output_indices: list[str],
+        cache: bool = False,
+    ) -> np.ndarray:
+        """
+        Contract two tensors over their shared indices..
+        """
+        both_sparse = t0.is_sparse() and t1.is_sparse()
+        if both_sparse:
+            return ctg.array_contract(
+                arrays=[t0.data, t1.data],
+                inputs=[t0.indices, t1.indices],
+                output=output_indices,
+                cache_expression=cache,
+                prefer_einsum=True,
+            )
+        a0 = _as_dense(t0.data)
+        a1 = _as_dense(t1.data)
+        return np.einsum(
+            _build_einsum_str(t0.indices, t1.indices, output_indices),
+            a0,
+            a1,
+            optimize="optimal",
+        )
+
+    def contract_index(self, idx: str) -> None:
+        """Contract the two tensors sharing index idx."""
+        t0, t1 = self.get_tensors_from_index_name(idx)
+        output_indices = [i for i in t0.indices if i != idx] + [
+            i for i in t1.indices if i != idx
+        ]
+        new_data = self._contract_pair(t0, t1, output_indices, cache=False)
+
+        while new_data.ndim > len(output_indices) and new_data.shape[0] == 1:
+            new_data = new_data.squeeze(0)
+
+        hint = (
+            StorageHint.SPARSE
+            if (
+                t0.storage_hint is StorageHint.SPARSE
+                and t1.storage_hint is StorageHint.SPARSE
+            )
+            else StorageHint.DENSE
+        )
+        stored = (
+            _make_storage(new_data, hint)
+            if isinstance(new_data, np.ndarray)
+            else new_data
+        )
+
+        new_t = Tensor(stored, output_indices, [self.get_new_label()], hint)
+        pos = self.tensors.index(t0)
+        self.tensors.remove(t0)
+        self.tensors.remove(t1)
+        if idx in self.indices:
+            self.indices.remove(idx)
+        self.add_tensor(new_t, pos)
+        return
+
+    def contract_indices(self, idxs: list[str]) -> None:
+        """Contract multiple shared indices between exactly two tensors."""
+        candidates = [t for t in self.tensors if all(idx in t.indices for idx in idxs)]
+        if len(candidates) != 2:
+            raise ValueError(
+                f"contract_indices expects exactly 2 tensors sharing {idxs}, "
+                f"found {len(candidates)}"
+            )
+        t0, t1 = candidates
+        output_indices = [i for i in t0.indices if i not in idxs] + [
+            i for i in t1.indices if i not in idxs
+        ]
+        new_data = self._contract_pair(t0, t1, output_indices, cache=False)
+        while new_data.ndim > len(output_indices) and new_data.shape[0] == 1:
+            new_data = new_data.squeeze(0)
+
+        hint = (
+            StorageHint.SPARSE
+            if (
+                t0.storage_hint is StorageHint.SPARSE
+                and t1.storage_hint is StorageHint.SPARSE
+            )
+            else StorageHint.DENSE
+        )
+        stored = (
+            _make_storage(new_data, hint) if hint is StorageHint.SPARSE else new_data
+        )
+
+        new_t = Tensor(stored, output_indices, [self.get_new_label()], hint)
+        pos = self.tensors.index(t0)
+        self.tensors.remove(t0)
+        self.tensors.remove(t1)
+        for idx in idxs:
+            if idx in self.indices:
+                self.indices.remove(idx)
+        self.add_tensor(new_t, pos)
+        return
+
+
+_LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def _build_einsum_str(
+    idx0: list[str],
+    idx1: list[str],
+    out: list[str],
+) -> str:
+    """Map named index lists to an opt_einsum / numpy einsum string."""
+    all_named = list(dict.fromkeys(idx0 + idx1 + out))
+    if len(all_named) > len(_LETTERS):
+        raise ValueError("Too many distinct indices for einsum string builder")
+    mapping = {name: _LETTERS[i] for i, name in enumerate(all_named)}
+    s0 = "".join(mapping[i] for i in idx0)
+    s1 = "".join(mapping[i] for i in idx1)
+    s_o = "".join(mapping[i] for i in out)
+    return f"{s0},{s1}->{s_o}"

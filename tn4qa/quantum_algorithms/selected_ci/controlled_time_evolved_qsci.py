@@ -41,13 +41,14 @@ class ControlledTimeEvolvedQSCI(QuantumAlgorithm):
         """
         Constructor for TE-QSCI class.
         """
-        self.duration = duration
+        # self.duration = duration
         self.circuits = []
         self.num_circuits = num_circuits
         self.norm = None
         hamiltonian = self.sanitize_dict(hamiltonian)
         hamiltonian = self.normalise_hamiltonian(hamiltonian)
         self.hamiltonian = self.rescale_hamiltonian(hamiltonian)
+        self.duration = (2 * self.norm * duration) / np.pi
         self.reference_state = reference_state
         self.reference_state_qc = self.create_reference_circuit()
         self.backend = self.set_backend(backend=backend)

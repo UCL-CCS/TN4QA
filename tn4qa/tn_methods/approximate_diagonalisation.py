@@ -214,7 +214,7 @@ class ApproximateDiagonalisation:
         env_copy = copy.deepcopy(env_tensor)
         output_inds, input_inds = self.get_local_indices(variational_idx)
         env_copy.tensor_to_matrix(input_inds, output_inds)
-        env_mat = env_copy.data.todense()
+        env_mat = env_copy.to_dense()
         return env_mat
 
     def get_maximum_eigenvector(self, mat: ndarray) -> ndarray:
@@ -432,7 +432,7 @@ class ApproximateDiagonalisationMPO:
         env_copy = copy.deepcopy(env_tensor)
         output_inds, input_inds = self.get_local_indices(variational_idx)
         env_copy.tensor_to_matrix(input_inds, output_inds)
-        env_mat = env_copy.data.todense()
+        env_mat = env_copy.to_dense()
         return env_mat
 
     def get_maximum_eigenvector(self, mat: ndarray) -> ndarray:

@@ -6,9 +6,10 @@ import cotengra as ctg
 
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
 import numpy as np
+import scipy
+import scipy.linalg
 import sparse
 from numpy import ndarray
-from numpy.linalg import svd
 
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
@@ -16,10 +17,11 @@ from qiskit.circuit import CircuitInstruction
 from qiskit.circuit.library import UnitaryGate
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.quantum_info import Operator
+from scipy.sparse.linalg import svds
 from sparse import SparseArray
 
 from .quantum_algorithms.utils import exp_pauli_string_to_circ
-from .tensor import Tensor
+from .tensor import StorageHint, Tensor, _as_dense, _as_sparse, _make_storage
 from .tn import TensorNetwork
 from .utils import _update_array, _update_array_fermion
 
@@ -71,7 +73,10 @@ class MatrixProductOperator(TensorNetwork):
 
     @classmethod
     def from_arrays(
-        cls, arrays: List[DataOptions], shape: str = "udrl"
+        cls,
+        arrays: List[DataOptions],
+        shape: str = "udrl",
+        storage_hint: StorageHint = StorageHint.DENSE,
     ) -> "MatrixProductOperator":
         """
         Create an MPO from a list of arrays.
@@ -98,7 +103,7 @@ class MatrixProductOperator(TensorNetwork):
         first_indices[right_idx_pos] = "R1"
         first_indices[left_idx_pos] = "L1"
         first_indices[down_idx_pos] = "B1"
-        first_tensor = Tensor(arrays[0], first_indices, ["MPO_T1"])
+        first_tensor = Tensor(arrays[0], first_indices, ["MPO_T1"], storage_hint)
         tensors.append(first_tensor)
 
         right_idx_pos = shape.index("r")
@@ -112,7 +117,7 @@ class MatrixProductOperator(TensorNetwork):
             indices_k[left_idx_pos] = f"L{a_idx + 1}"
             indices_k[up_idx_pos] = f"B{a_idx}"
             indices_k[down_idx_pos] = f"B{a_idx + 1}"
-            tensor_k = Tensor(a, indices_k, [f"MPO_T{a_idx + 1}"])
+            tensor_k = Tensor(a, indices_k, [f"MPO_T{a_idx + 1}"], storage_hint)
             tensors.append(tensor_k)
 
         last_shape = shape.replace("d", "")
@@ -123,7 +128,9 @@ class MatrixProductOperator(TensorNetwork):
         last_indices[right_idx_pos] = f"R{len(arrays)}"
         last_indices[left_idx_pos] = f"L{len(arrays)}"
         last_indices[up_idx_pos] = f"B{len(arrays) - 1}"
-        last_tensor = Tensor(arrays[-1], last_indices, [f"MPO_T{len(arrays)}"])
+        last_tensor = Tensor(
+            arrays[-1], last_indices, [f"MPO_T{len(arrays)}"], storage_hint
+        )
         tensors.append(last_tensor)
 
         mpo = cls(tensors, shape)
@@ -148,7 +155,7 @@ class MatrixProductOperator(TensorNetwork):
         end_array = np.array([[1, 0], [0, 1]]).reshape(1, 2, 2)
         middle_arrays = np.array([[1, 0], [0, 1]]).reshape(1, 1, 2, 2)
         arrays = [end_array] + [middle_arrays] * (num_sites - 2) + [end_array]
-        mpo = cls.from_arrays(arrays)
+        mpo = cls.from_arrays(arrays, storage_hint=StorageHint.SPARSE)
         return mpo
 
     @classmethod
@@ -190,6 +197,7 @@ class MatrixProductOperator(TensorNetwork):
                     np.array([[1, 0], [0, 1]], dtype=complex).reshape(1, 2, 2),
                     first_indices,
                     first_labels,
+                    storage_hint=StorageHint.DENSE,
                 )
                 tensors.append(tensor)
             else:
@@ -199,6 +207,7 @@ class MatrixProductOperator(TensorNetwork):
                     np.array([[1, 0], [0, 1]], dtype=complex).reshape(1, 1, 2, 2),
                     indices,
                     labels,
+                    storage_hint=StorageHint.DENSE,
                 )
                 tensors.append(tensor)
 
@@ -240,12 +249,20 @@ class MatrixProductOperator(TensorNetwork):
                     tensor = Tensor.rank_3_copy(indices, labels)
                 else:
                     tensor = Tensor.rank_3_qiskit_gate(unitary_gate, indices, labels)
-                tensor.data = sparse.reshape(
-                    tensor.data,
-                    (tensor.dimensions[0],)
-                    + (1,)
-                    + (tensor.dimensions[1], tensor.dimensions[2]),
-                )
+                if isinstance(tensor.data, np.ndarray):
+                    tensor.data = np.reshape(
+                        tensor.data,
+                        (tensor.dimensions[0],)
+                        + (1,)
+                        + (tensor.dimensions[1], tensor.dimensions[2]),
+                    )
+                else:
+                    tensor.data = sparse.reshape(
+                        tensor.data,
+                        (tensor.dimensions[0],)
+                        + (1,)
+                        + (tensor.dimensions[1], tensor.dimensions[2]),
+                    )
                 tensor.dimensions = (
                     (tensor.dimensions[0],)
                     + (1,)
@@ -266,7 +283,10 @@ class MatrixProductOperator(TensorNetwork):
                     tensor = Tensor.rank_4_qiskit_gate(unitary_gate, indices, labels)
                 else:
                     tensor = Tensor.from_array(
-                        np.eye(4).reshape(2, 2, 2, 2), indices, labels
+                        np.eye(4).reshape(2, 2, 2, 2),
+                        indices,
+                        labels,
+                        storage_hint=StorageHint.SPARSE,
                     )
                 tensors.append(tensor)
 
@@ -278,6 +298,7 @@ class MatrixProductOperator(TensorNetwork):
                     np.array([[1, 0], [0, 1]], dtype=complex).reshape(1, 2, 2),
                     last_indices,
                     last_labels,
+                    storage_hint=StorageHint.DENSE,
                 )
                 tensors.append(tensor)
             else:
@@ -287,6 +308,7 @@ class MatrixProductOperator(TensorNetwork):
                     np.array([[1, 0], [0, 1]], dtype=complex).reshape(1, 1, 2, 2),
                     indices,
                     labels,
+                    storage_hint=StorageHint.DENSE,
                 )
                 tensors.append(tensor)
 
@@ -316,7 +338,7 @@ class MatrixProductOperator(TensorNetwork):
             indices = ["R1", "L1"]
             label = ["MPO_T!"]
             gate = pauli_dict[ps[0]]
-            tensor = Tensor(gate, indices, label)
+            tensor = Tensor(gate, indices, label, storage_hint=StorageHint.DENSE)
             tensors.append(tensor)
             mpo = cls(tensors)
             return mpo
@@ -324,7 +346,9 @@ class MatrixProductOperator(TensorNetwork):
         first_indices = ["B1", "R1", "L1"]
         first_labels = ["MPO_T1"]
         first_gate = pauli_dict[ps[0]].reshape(1, 2, 2)
-        first_tensor = Tensor(first_gate, first_indices, first_labels)
+        first_tensor = Tensor(
+            first_gate, first_indices, first_labels, storage_hint=StorageHint.DENSE
+        )
         tensors.append(first_tensor)
 
         num_sites = len(ps)
@@ -332,45 +356,20 @@ class MatrixProductOperator(TensorNetwork):
             qidx_indices = [f"B{qidx - 1}", f"B{qidx}", f"R{qidx}", f"L{qidx}"]
             qidx_labels = [f"MPO_T{qidx}"]
             qidx_gate = pauli_dict[ps[qidx - 1]].reshape(1, 1, 2, 2)
-            qidx_tensor = Tensor(qidx_gate, qidx_indices, qidx_labels)
+            qidx_tensor = Tensor(
+                qidx_gate, qidx_indices, qidx_labels, storage_hint=StorageHint.DENSE
+            )
             tensors.append(qidx_tensor)
 
         last_indices = [f"B{num_sites - 1}", f"R{num_sites}", f"L{num_sites}"]
         last_labels = [f"MPO_T{num_sites}"]
         last_gate = pauli_dict[ps[-1]].reshape(1, 2, 2)
-        last_tensor = Tensor(last_gate, last_indices, last_labels)
+        last_tensor = Tensor(
+            last_gate, last_indices, last_labels, storage_hint=StorageHint.DENSE
+        )
         tensors.append(last_tensor)
 
         mpo = cls(tensors)
-        return mpo
-
-    @classmethod
-    def from_hamiltonian_adder(
-        cls, ham: dict[str, complex], max_bond: int | None = None
-    ) -> "MatrixProductOperator":
-        """
-        Create an MPO for a Hamiltonian.
-
-        Args:
-            ham: The dict representation of the Hamiltonian {pauli_string : weight}.
-            max_bond: The maximum bond dimension allowed.
-
-        Returns:
-            An MPO.
-        """
-        pauli_strings = list(ham.keys())
-        first_ps = pauli_strings[0]
-        mpo = cls.from_pauli_string(first_ps)
-        mpo.multiply_by_constant(ham[first_ps])
-
-        for ps in pauli_strings[1:]:
-            temp_mpo = cls.from_pauli_string(ps)
-            temp_mpo.multiply_by_constant(ham[ps])
-            mpo = mpo + temp_mpo
-            if max_bond:
-                if mpo.bond_dimension > max_bond:
-                    mpo.compress(max_bond)
-
         return mpo
 
     @classmethod
@@ -462,7 +461,8 @@ class MatrixProductOperator(TensorNetwork):
         )
 
         mpo = MatrixProductOperator.from_arrays(
-            [first_array] + middle_arrays + [last_array]
+            [first_array] + middle_arrays + [last_array],
+            storage_hint=StorageHint.SPARSE,
         )
         if max_bond:
             if mpo.bond_dimension > max_bond:
@@ -549,6 +549,8 @@ class MatrixProductOperator(TensorNetwork):
             mpo = self.contract_sub_mpo(gate_mpo, [site0, site1], max_bond=max_bond)
             return mpo
 
+        if isinstance(data, np.ndarray):
+            data = sparse.COO.from_numpy(data)
         data = sparse.reshape(data, (2, 2, 2, 2))
         if site1 < site0:
             data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
@@ -640,16 +642,39 @@ class MatrixProductOperator(TensorNetwork):
                     tensor0.dimensions[0] * 2 * tensor0.dimensions[3],
                 )
 
-        output_data = sparse.einsum(contraction, tensor0.data, tensor1.data, data)
-        output_data = np.reshape(output_data, mat_shape)
+        if tensor0.is_sparse() and tensor1.is_sparse():
+            output_data = sparse.einsum(contraction, tensor0.data, tensor1.data, data)
+            output_data = sparse.reshape(output_data, mat_shape)
+            sh = StorageHint.SPARSE
+        else:
+            output_data = np.einsum(
+                contraction, tensor0.to_dense(), tensor1.to_dense(), data.todense()
+            )
+            output_data = np.reshape(output_data, mat_shape)
+            sh = StorageHint.DENSE
 
         if max_bond:
             bond_dim = min([max_bond, mat_shape[0], mat_shape[1]])
         else:
             bond_dim = min([mat_shape[0], mat_shape[1]])
 
-        u, s, vh = svd(output_data.todense(), full_matrices=False)
-        s = s[s > 1e-16]
+        sparse_req = bond_dim < min([mat_shape[0], mat_shape[1]]) - 1
+        if tensor0.is_sparse() and tensor1.is_sparse() and sparse_req:
+            u, s, vh = svds(output_data, k=max_bond)
+            idx = np.argsort(s)[::-1]
+            s = s[idx]
+            u = u[:, idx]
+            vh = vh[idx, :]
+        else:
+            u, s, vh = scipy.linalg.svd(
+                _as_dense(output_data), full_matrices=False, check_finite=False
+            )
+
+        u = np.asarray(u)
+        s = np.asarray(s)
+        vh = np.asarray(vh)
+
+        s = s[s > 1e-14]
         sq = s**2
         cumulative = np.cumsum(sq[::-1])[::-1]
         keep_dim = len(s)
@@ -658,31 +683,40 @@ class MatrixProductOperator(TensorNetwork):
                 keep_dim = k + 1
                 break
         keep_dim = min(keep_dim, bond_dim)
+        if keep_dim == 0:
+            keep_dim += 1
 
-        threshold = 1e-14
+        eps = 1e-16
         data0 = vh[:keep_dim, :]
-        data0[np.abs(data0) < threshold] = 0.0
         data1 = u[:, :keep_dim] * s[:keep_dim]
-        data1[np.abs(data1) < threshold] = 0.0
+        data0[np.abs(data0) < eps] = 0.0
+        data1[np.abs(data1) < eps] = 0.0
 
-        new_data0 = sparse.COO.from_numpy(data0)
-        new_data1 = sparse.COO.from_numpy(data1)
+        new_data0 = _make_storage(data0, sh)
+        new_data1 = _make_storage(data1, sh)
+
+        if sh == StorageHint.SPARSE:
+            reshape_func = sparse.reshape
+            moveaxis_func = sparse.moveaxis
+        else:
+            reshape_func = np.reshape
+            moveaxis_func = np.moveaxis
 
         if site1 < site0:
             if site0 - 1 == 1:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-2:])
-                new_data1 = sparse.reshape(new_data1, output_shape[:3] + (keep_dim,))
-                new_data1 = sparse.moveaxis(new_data1, [3], [0])
+                new_data0 = reshape_func(new_data0, (keep_dim,) + output_shape[-2:])
+                new_data1 = reshape_func(new_data1, output_shape[:3] + (keep_dim,))
+                new_data1 = moveaxis_func(new_data1, [3], [0])
             elif site0 == self.num_sites:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-3:])
-                new_data0 = sparse.moveaxis(new_data0, [0], [1])
-                new_data1 = sparse.reshape(new_data1, output_shape[:2] + (keep_dim,))
-                new_data1 = sparse.moveaxis(new_data1, [2], [0])
+                new_data0 = reshape_func(new_data0, (keep_dim,) + output_shape[-3:])
+                new_data0 = moveaxis_func(new_data0, [0], [1])
+                new_data1 = reshape_func(new_data1, output_shape[:2] + (keep_dim,))
+                new_data1 = moveaxis_func(new_data1, [2], [0])
             else:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-3:])
-                new_data0 = sparse.moveaxis(new_data0, [0], [1])
-                new_data1 = sparse.reshape(new_data1, output_shape[:3] + (keep_dim,))
-                new_data1 = sparse.moveaxis(new_data1, [3], [0])
+                new_data0 = reshape_func(new_data0, (keep_dim,) + output_shape[-3:])
+                new_data0 = moveaxis_func(new_data0, [0], [1])
+                new_data1 = reshape_func(new_data1, output_shape[:3] + (keep_dim,))
+                new_data1 = moveaxis_func(new_data1, [3], [0])
             self.tensors[site0 - 2].data = new_data0
             self.tensors[site0 - 2].dimensions = self.tensors[site0 - 2].data.shape
             self.tensors[site0 - 1].data = new_data1
@@ -691,19 +725,19 @@ class MatrixProductOperator(TensorNetwork):
             self.bond_dimension = max(self.bond_dims)
         else:
             if site0 == 1:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-2:])
-                new_data1 = sparse.reshape(new_data1, output_shape[:3] + (keep_dim,))
-                new_data1 = sparse.moveaxis(new_data1, [3], [0])
+                new_data0 = reshape_func(new_data0, (keep_dim,) + output_shape[-2:])
+                new_data1 = reshape_func(new_data1, output_shape[:3] + (keep_dim,))
+                new_data1 = moveaxis_func(new_data1, [3], [0])
             elif site0 + 1 == self.num_sites:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-3:])
-                new_data0 = sparse.moveaxis(new_data0, [0], [1])
-                new_data1 = sparse.reshape(new_data1, output_shape[:2] + (keep_dim,))
-                new_data1 = sparse.moveaxis(new_data1, [2], [0])
+                new_data0 = reshape_func(new_data0, (keep_dim,) + output_shape[-3:])
+                new_data0 = moveaxis_func(new_data0, [0], [1])
+                new_data1 = reshape_func(new_data1, output_shape[:2] + (keep_dim,))
+                new_data1 = moveaxis_func(new_data1, [2], [0])
             else:
-                new_data0 = sparse.reshape(new_data0, (keep_dim,) + output_shape[-3:])
-                new_data0 = sparse.moveaxis(new_data0, [0], [1])
-                new_data1 = sparse.reshape(new_data1, output_shape[:3] + (keep_dim,))
-                new_data1 = sparse.moveaxis(new_data1, [3], [0])
+                new_data0 = reshape_func(new_data0, (keep_dim,) + output_shape[-3:])
+                new_data0 = moveaxis_func(new_data0, [0], [1])
+                new_data1 = reshape_func(new_data1, output_shape[:3] + (keep_dim,))
+                new_data1 = moveaxis_func(new_data1, [3], [0])
             self.tensors[site0 - 1].data = new_data0
             self.tensors[site0 - 1].dimensions = self.tensors[site0 - 1].data.shape
             self.tensors[site0].data = new_data1
@@ -712,103 +746,47 @@ class MatrixProductOperator(TensorNetwork):
             self.bond_dimension = max(self.bond_dims)
         return self
 
-    @classmethod
-    def two_qubit_gate_to_full_length_mpo(
-        cls, data: SparseArray, sites: list[int], num_sites: int
-    ) -> "MatrixProductOperator":
-        site0, site1 = sites[0], sites[1]
-
-        data = sparse.reshape(data, (2, 2, 2, 2))
-        data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
-        if site1 < site0:
-            data = sparse.moveaxis(data, [0, 1, 2, 3], [1, 0, 3, 2])
-        data = sparse.reshape(data, (4, 4))
-        gate = UnitaryGate(data.todense())
-        qc = QuantumCircuit(2)
-        qc.append(gate, [0, 1])
-        gate_mpo = cls.from_qiskit_gate(qc.data[0])
-        gate_mpo_bond = gate_mpo.tensors[0].dimensions[0]
-
-        first_array = gate_mpo.tensors[0].data
-        last_array = gate_mpo.tensors[1].data
-        q0 = min(site0, site1)
-        q1 = max(site0, site1)
-        num_intermediate_sites = q1 - q0 - 1
-        middle_array = np.array([[np.zeros((2, 2))] * gate_mpo_bond] * gate_mpo_bond)
-        for x in range(gate_mpo_bond):
-            middle_array[x, x, :, :] = np.eye(2)
-        middle_arrays = [middle_array for _ in range(num_intermediate_sites)]
-        arrays = [first_array] + middle_arrays + [last_array]
-        nonlocal_mpo = MatrixProductOperator.from_arrays(arrays)
-        if q0 == 1:
-            arrays = [
-                nonlocal_mpo.tensors[x].data for x in range(nonlocal_mpo.num_sites)
-            ]
-            if q1 == num_sites:
-                pass
-            else:
-                shape = arrays[-1].shape
-                arrays[-1] = arrays[-1].reshape((shape[0], 1, shape[1], shape[2]))
-                post_arrays = [np.eye(2).reshape(1, 1, 2, 2)] * (num_sites - q1 - 1) + [
-                    np.eye(2).reshape(1, 2, 2)
-                ]
-                nonlocal_mpo = MatrixProductOperator.from_arrays(arrays + post_arrays)
-        else:
-            prior_arrays = [np.eye(2).reshape(1, 2, 2)] + [
-                np.eye(2).reshape(1, 1, 2, 2)
-            ] * (q0 - 2)
-            shape = nonlocal_mpo.tensors[0].data.shape
-            first_nonlocal_array = nonlocal_mpo.tensors[0].data.reshape(
-                (1, shape[0], shape[1], shape[2])
-            )
-            remaining_arrays = [
-                nonlocal_mpo.tensors[x].data for x in range(1, nonlocal_mpo.num_sites)
-            ]
-            if q1 == num_sites:
-                nonlocal_mpo = MatrixProductOperator.from_arrays(
-                    prior_arrays + [first_nonlocal_array] + remaining_arrays
-                )
-            else:
-                shape = remaining_arrays[-1].shape
-                remaining_arrays[-1] = remaining_arrays[-1].reshape(
-                    (shape[0], 1, shape[1], shape[2])
-                )
-                post_arrays = [np.eye(2).reshape(1, 1, 2, 2)] * (num_sites - q1 - 1) + [
-                    np.eye(2).reshape(1, 2, 2)
-                ]
-                nonlocal_mpo = MatrixProductOperator.from_arrays(
-                    prior_arrays
-                    + [first_nonlocal_array]
-                    + remaining_arrays
-                    + post_arrays
-                )
-        return nonlocal_mpo
-
     def apply_nonlocal_two_qubit_gate(
         self,
-        data: SparseArray,
-        sites: list[int],
+        data,
+        sites: list,
         max_bond: int | None = None,
     ) -> "MatrixProductOperator":
         """
-        Apply a two qubit gate on distant qubits
+        Apply a 2-qubit gate between non-neighbouring sites using a SWAP network.
 
-        Args:
-            data: The two-qubit matrix
-            sites: The sites to apply it to
-            max_bond: The maximum allowed bond dimension
+        Mirrors apply_nonlocal_two_qubit_gate from CircuitSimulator:
+        1. Sort sites so site0 < site1; record if original order was flipped.
+        2. If already neighbouring, call apply_local_two_qubit_gate directly.
+        3. SWAP site1 leftward until adjacent to site0.
+        4. Apply local gate (with qubit labels swapped in G if flipped).
+        5. SWAP back rightward to original position.
         """
-        site0, site1 = sites[0], sites[1]
-        if site0 == site1 - 1 or site1 == site0 - 1:
-            return self.apply_local_two_qubit_gate(data, sites, max_bond)
+        site0_orig, site1_orig = sites
+        site0, site1 = sorted(sites)
+        flipped = site0_orig > site1_orig
 
-        nonlocal_mpo = MatrixProductOperator.two_qubit_gate_to_full_length_mpo(
-            data, sites, self.num_sites
+        if site1 == site0 + 1:
+            return self.apply_local_two_qubit_gate(data, sites, max_bond=max_bond)
+
+        G = _as_dense(data).reshape(4, 4)
+        if flipped:
+            G = G.reshape(2, 2, 2, 2).transpose(1, 0, 3, 2).reshape(4, 4)
+
+        # Move site1 leftward to be adjacent to site0
+        for s in range(site1, site0 + 1, -1):
+            _apply_swap_mpo(self, s - 1, max_bond)
+
+        # Apply local gate at (site0, site0+1)
+        self.apply_local_two_qubit_gate(
+            _as_sparse(G), [site0, site0 + 1], max_bond=max_bond
         )
 
-        mpo = self.multiply_and_compress(nonlocal_mpo, max_bond)
+        # Swap back rightward
+        for s in range(site0 + 1, site1):
+            _apply_swap_mpo(self, s, max_bond)
 
-        return mpo
+        return self
 
     @classmethod
     def from_qiskit_circuit(
@@ -972,8 +950,7 @@ class MatrixProductOperator(TensorNetwork):
             num_sites, [], list(range(1, num_sites)), num_sites, z_gate
         )
 
-        x_layer_copy = copy.deepcopy(x_layer_mpo)
-        mpo = mcz_mpo.multiply_and_compress_three(x_layer_mpo, x_layer_copy)
+        mpo = mcz_mpo.multiply_and_compress_three(x_layer_mpo, x_layer_mpo)
 
         return mpo
 
@@ -1029,12 +1006,66 @@ class MatrixProductOperator(TensorNetwork):
         Returns:
             An MPO.
         """
-        mpo = cls.from_bitstring(samples[0])
-        for sample in samples[1:]:
-            temp_mpo = cls.from_bitstring(sample)
-            mpo = mpo + temp_mpo
-            if max_bond and mpo.bond_dimension > max_bond:
-                mpo.compress(max_bond)
+        num_sites = len(samples[0])
+        num_states = len(samples)
+
+        first_coords = [[], [], []]
+        last_coords = [[], [], []]
+
+        middle_coords = [[[], [], [], []] for _ in range(num_sites - 2)]
+
+        first_data = []
+        last_data = []
+        middle_data = [[] for _ in range(num_sites - 2)]
+
+        for s_idx, bitstring in enumerate(samples):
+            b0 = int(bitstring[0])
+
+            first_coords[0].append(s_idx)
+            first_coords[1].append(b0)
+            first_coords[2].append(b0)
+            first_data.append(1.0)
+
+            for site in range(1, num_sites - 1):
+                b = int(bitstring[site])
+
+                mid = site - 1
+
+                middle_coords[mid][0].append(s_idx)
+                middle_coords[mid][1].append(s_idx)
+                middle_coords[mid][2].append(b)
+                middle_coords[mid][3].append(b)
+
+                middle_data[mid].append(1.0)
+
+            bL = int(bitstring[-1])
+
+            last_coords[0].append(s_idx)
+            last_coords[1].append(bL)
+            last_coords[2].append(bL)
+            last_data.append(1.0)
+
+        first_array = sparse.COO(first_coords, first_data, shape=(num_states, 2, 2))
+
+        middle_arrays = [
+            sparse.COO(
+                middle_coords[i],
+                middle_data[i],
+                shape=(num_states, num_states, 2, 2),
+            )
+            for i in range(num_sites - 2)
+        ]
+
+        last_array = sparse.COO(last_coords, last_data, shape=(num_states, 2, 2))
+
+        mpo = MatrixProductOperator.from_arrays(
+            [first_array] + middle_arrays + [last_array],
+            storage_hint=StorageHint.SPARSE,
+        )
+
+        if max_bond is not None and mpo.bond_dimension > max_bond:
+            mpo.compress(max_bond)
+
         return mpo
 
     @classmethod
@@ -1109,48 +1140,6 @@ class MatrixProductOperator(TensorNetwork):
             if max_bond:
                 if mpo.bond_dimension > max_bond:
                     mpo.compress(max_bond)
-        return mpo
-
-    @classmethod
-    def from_electron_integral_arrays_adder(
-        cls,
-        one_elec_integrals: ndarray,
-        two_elec_integrals: ndarray,
-        max_bond: int | None = None,
-    ):
-        """
-        Construct an MPO of a Fermionic Hamiltonian given as the arrays of one and two electron integrals. Slow method
-
-        Args:
-            one_elec_integrals: The 1e integrals in an (N,N) array.
-            two_elec_integrals: The 2e integrals in an (N,N,N,N) array.
-
-        Returns:
-            An MPO.
-        """
-        ops = []
-        num_sites = one_elec_integrals.shape[0]
-        for i in range(num_sites):
-            for j in range(num_sites):
-                op_list = [(f"{i}", "+"), (f"{j}", "-")]
-                ops.append((op_list, one_elec_integrals[i, j]))
-
-        for i in range(num_sites):
-            for j in range(num_sites):
-                for k in range(num_sites):
-                    for l in range(num_sites):
-                        op_list = [
-                            (f"{i}", "+"),
-                            (f"{j}", "+"),
-                            (f"{k}", "-"),
-                            (f"{l}", "-"),
-                        ]
-                        ops.append((op_list, 0.5 * two_elec_integrals[i, j, k, l]))
-
-        mpo = MatrixProductOperator.from_fermionic_operator(num_sites, ops)
-        if max_bond:
-            if mpo.bond_dimension > max_bond:
-                mpo.compress(max_bond)
         return mpo
 
     @classmethod
@@ -1313,16 +1302,61 @@ class MatrixProductOperator(TensorNetwork):
             max_bond: Maximum allowed bond dimension
         """
         num_sites = int(np.log2(len(diag)))
-        mpo = MatrixProductOperator.from_bitstring("0" * num_sites)
-        mpo.multiply_by_constant(diag[0])
-        for i in range(1, len(diag)):
-            bitstring = bin(i)[2:].zfill(num_sites)
-            temp_mpo = MatrixProductOperator.from_bitstring(bitstring)
-            temp_mpo.multiply_by_constant(diag[i])
-            mpo = mpo + temp_mpo
-            if max_bond:
-                if mpo.bond_dimension > max_bond:
-                    mpo.compress(max_bond)
+        num_states = len(diag)
+
+        first_coords = [[], [], []]
+        middle_coords = [[[], [], [], []] for _ in range(num_sites - 2)]
+        last_coords = [[], [], []]
+
+        first_data = []
+        middle_data = [[] for _ in range(num_sites - 2)]
+        last_data = []
+
+        for state_idx, value in enumerate(diag):
+            bitstring = bin(state_idx)[2:].zfill(num_sites)
+            b0 = int(bitstring[0])
+
+            first_coords[0].append(state_idx)
+            first_coords[1].append(b0)
+            first_coords[2].append(b0)
+            first_data.append(value)
+
+            for site in range(1, num_sites - 1):
+                b = int(bitstring[site])
+                mid = site - 1
+
+                middle_coords[mid][0].append(state_idx)
+                middle_coords[mid][1].append(state_idx)
+                middle_coords[mid][2].append(b)
+                middle_coords[mid][3].append(b)
+
+                middle_data[mid].append(1.0)
+
+            bL = int(bitstring[-1])
+
+            last_coords[0].append(state_idx)
+            last_coords[1].append(bL)
+            last_coords[2].append(bL)
+            last_data.append(1.0)
+
+        first_array = sparse.COO(first_coords, first_data, shape=(num_states, 2, 2))
+
+        middle_arrays = [
+            sparse.COO(
+                middle_coords[i],
+                middle_data[i],
+                shape=(num_states, num_states, 2, 2),
+            )
+            for i in range(num_sites - 2)
+        ]
+
+        last_array = sparse.COO(last_coords, last_data, shape=(num_states, 2, 2))
+
+        mpo = MatrixProductOperator.from_arrays(
+            [first_array] + middle_arrays + [last_array],
+            storage_hint=StorageHint.SPARSE,
+        )
+
         return mpo
 
     @classmethod
@@ -1339,15 +1373,75 @@ class MatrixProductOperator(TensorNetwork):
         Returns:
             MPO
         """
-        mpo = MatrixProductOperator.identity_mpo(num_sites)
-        for i in range(len(diag)):
-            bitstring = bin(i)[2:].zfill(num_sites)
-            temp_mpo = MatrixProductOperator.from_bitstring(bitstring)
-            temp_mpo.multiply_by_constant(diag[i] - 1.0)
-            mpo = mpo + temp_mpo
-            if max_bond:
-                if mpo.bond_dimension > max_bond:
-                    mpo.compress(max_bond)
+        num_states = 2**num_sites
+        k = len(diag)
+
+        first_coords = [[], [], []]
+        last_coords = [[], [], []]
+
+        middle_coords = [[[], [], [], []] for _ in range(num_sites - 2)]
+
+        first_data = []
+        last_data = []
+        middle_data = [[] for _ in range(num_sites - 2)]
+
+        for state_idx in range(num_states):
+            bitstring = bin(state_idx)[2:].zfill(num_sites)
+
+            # Determine coefficient
+            coeff = diag[state_idx] if state_idx < k else 1.0
+
+            # Correction relative to identity (only needed for first tensor)
+            delta = coeff - 1.0
+
+            b0 = int(bitstring[0])
+
+            first_coords[0].append(state_idx)
+            first_coords[1].append(b0)
+            first_coords[2].append(b0)
+
+            # identity + correction
+            first_data.append(1.0 + delta)
+
+            for site in range(1, num_sites - 1):
+                b = int(bitstring[site])
+                mid = site - 1
+
+                middle_coords[mid][0].append(state_idx)
+                middle_coords[mid][1].append(state_idx)
+                middle_coords[mid][2].append(b)
+                middle_coords[mid][3].append(b)
+
+                middle_data[mid].append(1.0)
+
+            bL = int(bitstring[-1])
+
+            last_coords[0].append(state_idx)
+            last_coords[1].append(bL)
+            last_coords[2].append(bL)
+
+            last_data.append(1.0)
+
+        first_array = sparse.COO(first_coords, first_data, shape=(num_states, 2, 2))
+
+        middle_arrays = [
+            sparse.COO(
+                middle_coords[i],
+                middle_data[i],
+                shape=(num_states, num_states, 2, 2),
+            )
+            for i in range(num_sites - 2)
+        ]
+
+        last_array = sparse.COO(last_coords, last_data, shape=(num_states, 2, 2))
+
+        mpo = MatrixProductOperator.from_arrays(
+            [first_array] + middle_arrays + [last_array],
+            storage_hint=StorageHint.SPARSE,
+        )
+
+        if max_bond is not None and mpo.bond_dimension > max_bond:
+            mpo.compress(max_bond)
 
         return mpo
 
@@ -1400,33 +1494,8 @@ class MatrixProductOperator(TensorNetwork):
         Returns:
             An MPO representing the diagonal matrix where the (i,i)-th entry is i/2^num_sites
         """
-        arrays = []
-        D = 2
-        I = np.eye(2)
-        P1 = np.array([[0, 0], [0, 1]])
-
-        for site in range(num_sites):
-            weight = 2 ** (num_sites - site - 1)
-            A = weight * P1
-
-            if site == 0:
-                W = np.zeros((D, 2, 2))
-                W[0] = I
-                W[1] = A
-            elif site == num_sites - 1:
-                W = np.zeros((D, 2, 2))
-                W[0] = A
-                W[1] = I
-            else:
-                W = np.zeros((D, D, 2, 2))
-                W[0, 0] = I
-                W[0, 1] = A
-                W[1, 1] = I
-
-            arrays.append(W)
-
-        mpo = MatrixProductOperator.from_arrays(arrays)
-        mpo.multiply_by_constant(1 / 2**num_sites)
+        diag = [i / (2**num_sites) for i in range(num_sites)]
+        mpo = cls.from_diagonal_matrix(diag)
         return mpo
 
     @classmethod
@@ -1441,14 +1510,8 @@ class MatrixProductOperator(TensorNetwork):
             num_sites: Number of sites
             k: Number of increasing entries
         """
-        mpo = MatrixProductOperator.identity_mpo(num_sites)
-        for idx in range(k):
-            weight = 1 - idx / k
-            bitstring = bin(idx)[2:].zfill(num_sites)
-            temp_mpo = MatrixProductOperator.from_bitstring(bitstring)
-            temp_mpo.multiply_by_constant(weight)
-            mpo -= temp_mpo
-
+        diag = [i / 2**k for i in range(k)]
+        mpo = cls.from_short_diagonal_matrix(num_sites, diag)
         return mpo
 
     @classmethod
@@ -1620,21 +1683,86 @@ class MatrixProductOperator(TensorNetwork):
             pauli_string: The Pauli string P
             x: The rotation coefficient x
         """
-        mpo_p = cls.from_pauli_string(pauli_string)
-        mpo_p.multiply_by_constant(1j * np.sin(x))
-        mpo_id = cls.identity_mpo(len(pauli_string))
-        mpo_id.multiply_by_constant(np.cos(x))
-        mpo = mpo_p + mpo_id
-        return mpo
+        num_sites = len(pauli_string)
 
-    def to_sparse_array(self, optimisation_method: str = "greedy") -> SparseArray:
+        first_coords = [[], [], []]
+        last_coords = [[], [], []]
+
+        middle_coords = [[[], [], [], []] for _ in range(num_sites - 2)]
+
+        first_data = []
+        last_data = []
+        middle_data = [[] for _ in range(num_sites - 2)]
+
+        c = np.cos(x)
+        s = 1j * np.sin(x)
+
+        for site, p in enumerate(pauli_string):
+            for s_idx in [0, 1]:
+                for t_idx in [0, 1]:
+                    # identity contribution always present
+                    val = c if s_idx == t_idx else 0.0
+
+                    # Pauli contribution
+                    if p == "I":
+                        val += s if s_idx == t_idx else 0.0
+                    elif p == "X":
+                        val += s if s_idx != t_idx else 0.0
+                    elif p == "Z":
+                        val += (
+                            s * (1 if s_idx == t_idx else 0) * (1 if s_idx == 0 else -1)
+                        )
+                    elif p == "Y":
+                        if s_idx == 0 and t_idx == 1:
+                            val += -s
+                        elif s_idx == 1 and t_idx == 0:
+                            val += s
+
+                    if site == 0:
+                        first_coords[0].append(0)
+                        first_coords[1].append(s_idx)
+                        first_coords[2].append(t_idx)
+                        first_data.append(val)
+
+                    elif site == num_sites - 1:
+                        last_coords[0].append(0)
+                        last_coords[1].append(s_idx)
+                        last_coords[2].append(t_idx)
+                        last_data.append(val)
+
+                    else:
+                        mid = site - 1
+                        middle_coords[mid][0].append(0)
+                        middle_coords[mid][1].append(0)
+                        middle_coords[mid][2].append(s_idx)
+                        middle_coords[mid][3].append(t_idx)
+                        middle_data[mid].append(val)
+
+        first_array = sparse.COO(first_coords, first_data, shape=(1, 2, 2))
+
+        middle_arrays = [
+            sparse.COO(middle_coords[i], middle_data[i], shape=(1, 1, 2, 2))
+            for i in range(num_sites - 2)
+        ]
+
+        last_array = sparse.COO(last_coords, last_data, shape=(1, 2, 2))
+
+        return MatrixProductOperator.from_arrays(
+            [first_array] + middle_arrays + [last_array],
+            storage_hint=StorageHint.SPARSE,
+        )
+
+    def to_sparse_array(self) -> SparseArray:
         """
         Converts MPO to a sparse matrix.
         """
         mpo = copy.deepcopy(self)
         mpo.reshape()
         mpo.set_default_indices()
-        tensor = mpo.contract_entire_network(optimisation_method)
+        for t in mpo.tensors:
+            if isinstance(t.data, np.ndarray):
+                t.data = sparse.COO.from_numpy(t.data)
+        tensor = mpo.contract_entire_network()
         output_indices = [x for x in mpo.indices if x[0] == "R"]
         input_indices = [x for x in mpo.indices if x[0] == "L"]
 
@@ -1642,15 +1770,23 @@ class MatrixProductOperator(TensorNetwork):
 
         return tensor.data
 
-    def to_dense_array(self, optimisation_method: str = "greedy") -> ndarray:
+    def to_dense_array(self) -> ndarray:
         """
         Converts MPO to a dense matrix.
         """
         mpo = copy.deepcopy(self)
-        sparse_matrix = mpo.to_sparse_array(optimisation_method)
-        dense_matrix = sparse_matrix.todense()
+        mpo.reshape()
+        mpo.set_default_indices()
+        for t in mpo.tensors:
+            if not isinstance(t.data, np.ndarray):
+                t.data = t.data.todense()
+        tensor = mpo.contract_entire_network()
+        output_indices = [x for x in mpo.indices if x[0] == "R"]
+        input_indices = [x for x in mpo.indices if x[0] == "L"]
 
-        return dense_matrix
+        tensor.tensor_to_matrix(input_indices, output_indices)
+
+        return tensor.data
 
     def __add__(self, other: "MatrixProductOperator") -> "MatrixProductOperator":
         """
@@ -1658,46 +1794,76 @@ class MatrixProductOperator(TensorNetwork):
         """
         self.reshape()
         other.reshape()
+
+        self_sparse = all(isinstance(t.data, SparseArray) for t in self.tensors)
+        other_sparse = all(isinstance(t.data, SparseArray) for t in other.tensors)
+
+        result_sparse = self_sparse and other_sparse
+
         arrays = []
 
-        t1 = self.tensors[0]
-        t2 = other.tensors[0]
+        t1 = self.tensors[0].data
+        t2 = other.tensors[0].data
 
-        data1 = t1.data
-        data2 = t2.data
-        new_data = sparse.concatenate([data1, data2], axis=0)
+        if result_sparse:
+            new_data = sparse.concatenate([_as_sparse(t1), _as_sparse(t2)], axis=0)
+        else:
+            new_data = np.concatenate([_as_dense(t1), _as_dense(t2)], axis=0)
+
         arrays.append(new_data)
 
+        # ============================================================
+        # MIDDLE TENSORS
+        # ============================================================
         for t_idx in range(1, self.num_sites - 1):
-            t1 = self.tensors[t_idx]
-            t2 = other.tensors[t_idx]
+            t1 = self.tensors[t_idx].data
+            t2 = other.tensors[t_idx].data
 
-            t1_data = t1.data
-            t2_data = t2.data
+            if result_sparse:
+                t1 = _as_sparse(t1)
+                t2 = _as_sparse(t2)
 
-            D1_up, D1_down, d_out, d_in = t1_data.shape
-            D2_up, D2_down, _, _ = t2_data.shape
+                D1_up, D1_down, d_out, d_in = t1.shape
+                D2_up, D2_down, _, _ = t2.shape
 
-            zeros_top_right = sparse.COO(np.zeros((D1_up, D2_down, d_out, d_in)))
-            zeros_bottom_left = sparse.COO(np.zeros((D2_up, D1_down, d_out, d_in)))
+                zeros_tr = sparse.COO(np.zeros((D1_up, D2_down, d_out, d_in)))
+                zeros_bl = sparse.COO(np.zeros((D2_up, D1_down, d_out, d_in)))
 
-            top = sparse.concatenate([t1_data, zeros_top_right], axis=1)
-            bottom = sparse.concatenate([zeros_bottom_left, t2_data], axis=1)
+                top = sparse.concatenate([t1, zeros_tr], axis=1)
+                bottom = sparse.concatenate([zeros_bl, t2], axis=1)
 
-            new_data = sparse.concatenate([top, bottom], axis=0)
+                new_data = sparse.concatenate([top, bottom], axis=0)
+
+            else:
+                t1 = _as_dense(t1)
+                t2 = _as_dense(t2)
+
+                D1_up, D1_down, d_out, d_in = t1.shape
+                D2_up, D2_down, _, _ = t2.shape
+
+                zeros_tr = np.zeros((D1_up, D2_down, d_out, d_in), dtype=complex)
+                zeros_bl = np.zeros((D2_up, D1_down, d_out, d_in), dtype=complex)
+
+                top = np.concatenate([t1, zeros_tr], axis=1)
+                bottom = np.concatenate([zeros_bl, t2], axis=1)
+
+                new_data = np.concatenate([top, bottom], axis=0)
 
             arrays.append(new_data)
 
-        t1 = self.tensors[-1]
-        t2 = other.tensors[-1]
+        t1 = self.tensors[-1].data
+        t2 = other.tensors[-1].data
 
-        data1 = t1.data
-        data2 = t2.data
-        new_data = sparse.concatenate([data1, data2], axis=0)
+        if result_sparse:
+            new_data = sparse.concatenate([_as_sparse(t1), _as_sparse(t2)], axis=0)
+        else:
+            new_data = np.concatenate([_as_dense(t1), _as_dense(t2)], axis=0)
+
         arrays.append(new_data)
 
-        output = MatrixProductOperator.from_arrays(arrays)
-        return output
+        sh = StorageHint.SPARSE if result_sparse else StorageHint.DENSE
+
+        return MatrixProductOperator.from_arrays(arrays, storage_hint=sh)
 
     def __sub__(self, other: "MatrixProductOperator") -> "MatrixProductOperator":
         """
@@ -2209,150 +2375,6 @@ class MatrixProductOperator(TensorNetwork):
             t.data = sparse.COO.conj(t.data)
         return
 
-    def swap_neighbouring_sites(self, idx: int) -> None:
-        """
-        Swap two neighbouring sites of the MPO.
-
-        Args:
-            idx: The index of the first site
-        """
-        if idx == self.num_sites:
-            return
-        self.reshape()
-        if self.num_sites == 2:
-            bond = self.tensors[0].indices[0]
-            right_idx1 = self.tensors[0].indices[1]
-            left_idx1 = self.tensors[0].indices[2]
-            right_idx2 = self.tensors[1].indices[1]
-            left_idx2 = self.tensors[1].indices[2]
-            self.contract_index(bond)
-            self.svd(
-                self.tensors[0],
-                [right_idx2, left_idx2],
-                [right_idx1, left_idx1],
-                new_index_name=bond,
-                max_bond=None,
-                tol=1e-12,
-            )
-            self.tensors[0].reorder_indices([bond, right_idx2, left_idx2])
-            self.tensors[1].reorder_indices([bond, right_idx1, left_idx1])
-
-            self.indices = self.get_all_indices()
-            return
-
-        if idx == 1:
-            bond = self.tensors[0].indices[0]
-            right_idx1 = self.tensors[0].indices[1]
-            left_idx1 = self.tensors[0].indices[2]
-            right_idx2 = self.tensors[1].indices[2]
-            left_idx2 = self.tensors[1].indices[3]
-        elif idx == self.num_sites - 1:
-            bond = self.tensors[idx - 1].indices[1]
-            right_idx1 = self.tensors[idx - 1].indices[2]
-            left_idx1 = self.tensors[idx - 1].indices[3]
-            right_idx2 = self.tensors[idx].indices[1]
-            left_idx2 = self.tensors[idx].indices[2]
-        else:
-            bond = self.tensors[idx - 1].indices[1]
-            right_idx1 = self.tensors[idx - 1].indices[2]
-            left_idx1 = self.tensors[idx - 1].indices[3]
-            right_idx2 = self.tensors[idx].indices[2]
-            left_idx2 = self.tensors[idx].indices[3]
-
-        input_inds = copy.deepcopy(self.tensors[idx - 1].indices)
-        input_inds.remove(bond)
-        input_inds.remove(right_idx1)
-        input_inds.remove(left_idx1)
-        input_inds.append(right_idx2)
-        input_inds.append(left_idx2)
-        output_inds = copy.deepcopy(self.tensors[idx].indices)
-        output_inds.remove(bond)
-        output_inds.remove(right_idx2)
-        output_inds.remove(left_idx2)
-        output_inds.append(right_idx1)
-        output_inds.append(left_idx1)
-        self.contract_index(bond)
-        self.svd(
-            self.tensors[idx - 1],
-            input_inds,
-            output_inds,
-            max_bond=None,
-            tol=1e-12,
-            new_index_name=bond,
-        )
-
-        if idx == 1:
-            self.tensors[idx - 1].reorder_indices([bond] + input_inds)
-        else:
-            self.tensors[idx - 1].reorder_indices(
-                [input_inds[0]] + [bond] + [input_inds[1], input_inds[2]]
-            )
-        self.tensors[idx].reorder_indices([bond] + output_inds)
-
-        self.indices = self.get_all_indices()
-        return
-
-    def swap_sites(self, idx1: int, idx2: int) -> None:
-        """
-        Swap two sites of the MPO.
-
-        Args:
-            idx1: The index of the first site
-            idx2: The index of the second site
-        """
-        if idx1 == idx2:
-            return
-
-        self.reshape()
-        if idx1 < idx2:
-            first_idx = idx1
-            second_idx = idx2
-        else:
-            first_idx = idx2
-            second_idx = idx1
-
-        for idx in range(first_idx, second_idx):
-            self.swap_neighbouring_sites(idx)
-        for idx in list(range(first_idx, second_idx - 1))[::-1]:
-            self.swap_neighbouring_sites(idx)
-        return
-
-    def reorder_sites(
-        self, site_mapping: list[int], set_default_indices: bool = False
-    ) -> None:
-        """
-        Reorder the sites of the MPO without changing the operator.
-
-        Args:
-            site_mapping: A list of the target ordering of sites
-        """
-        target_pos = [i - 1 for i in site_mapping]
-
-        visited = [False] * self.num_sites
-
-        for i in range(self.num_sites):
-            if visited[i] or target_pos[i] == i:
-                continue
-
-            j = i
-            cycle = []
-
-            while not visited[j]:
-                visited[j] = True
-                cycle.append(j)
-                j = target_pos[j]
-
-            for k in range(len(cycle) - 1, 0, -1):
-                # Apply swaps on logical site indices (1-based)
-                a = cycle[k - 1] + 1
-                b = cycle[k] + 1
-                self.swap_sites(a, b)
-
-        if set_default_indices:
-            self.set_default_indices()
-
-        return
-
     def extend_mpo_to_size(
         self, num_sites: int, sites: list[int]
     ) -> "MatrixProductOperator":
@@ -2465,65 +2487,206 @@ class MatrixProductOperator(TensorNetwork):
         return mpo
 
     def partial_trace(
-        self, sites: list[int], matrix: bool = False, set_default_indices: bool = False
-    ) -> Union[ndarray, "MatrixProductOperator"]:
+        self, sites: list[int], matrix: bool = False
+    ) -> Union[complex, ndarray, "MatrixProductOperator"]:
         """
         Compute the partial trace.
-
         Args:
             sites: The list of sites to trace over.
-            matrix: If True returns the reduced density matrix, otherwise returns a MPDO.
-            set_default_indices: If True resets the index labels to default values
-
+            matrix: If True returns the reduced density matrix as a 2D ndarray,
+                    otherwise returns an MPDO.
         Returns:
-            The reduced state.
+            The reduced state as a complex scalar, ndarray, or MatrixProductOperator.
         """
-        mpo = copy.deepcopy(self)
-        num_sites_to_trace = len(sites)
+        # Handle no trace
+        if len(sites) == 0 and matrix:
+            return self.to_dense_array()
+        elif len(sites) == 0:
+            return self
 
-        if not matrix:
-            all_sites = list(range(1, self.num_sites + 1))
-            target_site_ordering = [0] * self.num_sites
-            for idx in sites:
-                target_site_ordering[idx - 1] = sites.index(idx) + 1
-                all_sites.remove(sites.index(idx) + 1)
-            for site in all_sites:
-                target_site_ordering[target_site_ordering.index(0)] = site
-            mpo.reorder_sites(target_site_ordering, set_default_indices=True)
-            for idx in range(num_sites_to_trace):
-                if mpo.num_sites == 2:
-                    output = sparse.einsum(
-                        "brr,bcd->cd", mpo.tensors[0].data, mpo.tensors[1].data
-                    )
-                    new_indices = [f"R{idx + 2}", f"L{idx + 2}"]
-                    new_dimensions = output.shape
+        # Handle full trace
+        if len(sites) == self.num_sites:
+            return self.trace()
+
+        # Determine final storage hint before deepcopy
+        all_sparse = all(t.storage_hint == StorageHint.SPARSE for t in self.tensors)
+        final_storage_hint = StorageHint.SPARSE if all_sparse else StorageHint.DENSE
+
+        mpo = copy.deepcopy(self)
+        n = mpo.num_sites
+        traced_sites = set(sites)
+
+        # Step 1: Trace physical legs of each site to be traced.
+        for site_idx in sites:
+            tensor = mpo.tensors[site_idx - 1]
+            einsum_fn = (
+                sparse.einsum
+                if tensor.storage_hint == StorageHint.SPARSE
+                else np.einsum
+            )
+            if site_idx == 1:
+                tensor.data = einsum_fn("acc->a", tensor.data)
+            elif site_idx == n:
+                tensor.data = einsum_fn("acc->a", tensor.data)
+            else:
+                tensor.data = einsum_fn("abcc->ab", tensor.data)
+
+        # Step 2: Find contiguous runs of traced sites
+        sorted_sites = sorted(traced_sites)
+        runs = []
+        run_start = sorted_sites[0]
+        run_end = sorted_sites[0]
+        for s in sorted_sites[1:]:
+            if s == run_end + 1:
+                run_end = s
+            else:
+                runs.append((run_start, run_end))
+                run_start = s
+                run_end = s
+        runs.append((run_start, run_end))
+
+        # Step 3: For each run, contract the chain of traced tensors together,
+        # then absorb into the nearest untraced neighbour.
+        # Process in reverse order so that popping tensors doesn't shift indices.
+        for run_start, run_end in reversed(runs):
+            # Contract the chain of traced tensors within this run
+            chain_data = mpo.tensors[run_start - 1].data
+            is_sparse = mpo.tensors[run_start - 1].storage_hint == StorageHint.SPARSE
+
+            for site_idx in range(run_start + 1, run_end + 1):
+                next_data = mpo.tensors[site_idx - 1].data
+                next_is_sparse = (
+                    mpo.tensors[site_idx - 1].storage_hint == StorageHint.SPARSE
+                )
+
+                # Reconcile sparse/dense
+                if next_is_sparse and not is_sparse:
+                    chain_data = sparse.COO.from_numpy(chain_data)
+                    is_sparse = True
+                elif not next_is_sparse and is_sparse:
+                    next_data = sparse.COO.from_numpy(next_data)
+                einsum_fn = sparse.einsum if is_sparse else np.einsum
+
+                chain_rank = chain_data.ndim
+                next_rank = next_data.ndim
+
+                if chain_rank == 1 and next_rank == 1:
+                    # vector . vector -> scalar
+                    chain_data = einsum_fn("a,a->", chain_data, next_data)
+                elif chain_rank == 1 and next_rank == 2:
+                    # vector . matrix -> vector
+                    chain_data = einsum_fn("a,ab->b", chain_data, next_data)
+                elif chain_rank == 2 and next_rank == 1:
+                    # matrix . vector -> vector
+                    chain_data = einsum_fn("ab,b->a", chain_data, next_data)
+                elif chain_rank == 2 and next_rank == 2:
+                    # matrix . matrix -> matrix
+                    chain_data = einsum_fn("ab,bc->ac", chain_data, next_data)
+
+            # chain_data is now rank-0 (scalar), rank-1, or rank-2
+            # depending on whether run boundaries are at MPO boundaries.
+
+            # Find nearest untraced neighbour: prefer right (below), else left (above)
+            if run_end < n and (run_end + 1) not in traced_sites:
+                neighbour_idx = run_end + 1
+                absorb_direction = "from_above"
+            else:
+                neighbour_idx = run_start - 1
+                absorb_direction = "from_below"
+
+            neighbour_tensor = mpo.tensors[neighbour_idx - 1]
+            nb_is_sparse = neighbour_tensor.storage_hint == StorageHint.SPARSE
+
+            # Reconcile sparse/dense between chain and neighbour
+            if is_sparse and not nb_is_sparse:
+                neighbour_tensor.data = sparse.COO.from_numpy(neighbour_tensor.data)
+                nb_is_sparse = True
+            elif not is_sparse and nb_is_sparse:
+                chain_data = sparse.COO.from_numpy(chain_data)
+            einsum_fn = sparse.einsum if nb_is_sparse else np.einsum
+
+            nb_data = neighbour_tensor.data
+            chain_rank = chain_data.ndim
+
+            if absorb_direction == "from_above":
+                # Chain is above neighbour: chain's down bond contracts with neighbour's up bond.
+                # Neighbour is rank-4 [up, down, R, L] for interior, rank-3 [up, R, L] for site n.
+                if chain_rank == 0:
+                    neighbour_tensor.data = nb_data * chain_data
+                elif chain_rank == 1:
+                    # chain: [down]; neighbour up bond contracts with it
+                    if neighbour_idx == n:
+                        neighbour_tensor.data = einsum_fn(
+                            "a,abc->bc", chain_data, nb_data
+                        )
+                    else:
+                        neighbour_tensor.data = einsum_fn(
+                            "a,abcd->bcd", chain_data, nb_data
+                        )
                 else:
-                    output = sparse.einsum(
-                        "brr,bcde->cde", mpo.tensors[0].data, mpo.tensors[1].data
-                    )
-                    new_indices = [f"B{idx + 2}", f"R{idx + 2}", f"L{idx + 2}"]
-                    new_dimensions = output.shape
-                mpo.tensors.pop(0)
-                mpo.tensors[0].data = output
-                mpo.tensors[0].indices = new_indices
-                mpo.tensors[0].dimensions = new_dimensions
-                mpo.num_sites -= 1
-            if set_default_indices:
-                mpo.set_default_indices()
-            return mpo
+                    # chain: [up, down]; contract chain's down with neighbour's up
+                    if neighbour_idx == n:
+                        neighbour_tensor.data = einsum_fn(
+                            "ab,bcd->acd", chain_data, nb_data
+                        )
+                    else:
+                        neighbour_tensor.data = einsum_fn(
+                            "ab,bcde->acde", chain_data, nb_data
+                        )
+            else:
+                # Chain is below neighbour: chain's up bond contracts with neighbour's down bond.
+                # Neighbour is rank-4 [up, down, R, L] for interior, rank-3 [down, R, L] for site 1.
+                if chain_rank == 0:
+                    neighbour_tensor.data = nb_data * chain_data
+                elif chain_rank == 1:
+                    # chain: [up]; neighbour down bond contracts with it
+                    if neighbour_idx == 1:
+                        neighbour_tensor.data = einsum_fn(
+                            "abc,a->bc", nb_data, chain_data
+                        )
+                    else:
+                        neighbour_tensor.data = einsum_fn(
+                            "abcd,b->acd", nb_data, chain_data
+                        )
+                else:
+                    # chain: [up, down]; contract chain's up with neighbour's down
+                    if neighbour_idx == 1:
+                        neighbour_tensor.data = einsum_fn(
+                            "abc,ad->dbc", nb_data, chain_data
+                        )
+                    else:
+                        neighbour_tensor.data = einsum_fn(
+                            "abcd,be->aecd", nb_data, chain_data
+                        )
+
+            neighbour_tensor.storage_hint = (
+                StorageHint.SPARSE if nb_is_sparse else StorageHint.DENSE
+            )
+
+            # Remove traced tensors in this run (in reverse to preserve indices)
+            for site_idx in range(run_end, run_start - 1, -1):
+                mpo.tensors.pop(site_idx - 1)
+            mpo.num_sites -= run_end - run_start + 1
+
+        # Step 4: Rebuild clean MPO using from_arrays
+        array_list = [t.data for t in mpo.tensors]
+        if final_storage_hint == StorageHint.SPARSE:
+            array_list = [
+                sparse.COO.from_numpy(a) if not isinstance(a, sparse.COO) else a
+                for a in array_list
+            ]
         else:
-            all_sites = list(range(1, self.num_sites + 1))
-            for idx in sites:
-                all_sites.remove(idx)
-                current_indices = mpo.tensors[idx - 1].indices
-                mpo.tensors[idx - 1].indices = [
-                    "R" + x[1:] if x[0] == "L" else x for x in current_indices
-                ]
-            result = mpo.contract_entire_network()
-            output_inds = [f"R{x}" for x in all_sites]
-            input_inds = [f"L{x}" for x in all_sites]
-            result.tensor_to_matrix(input_idxs=input_inds, output_idxs=output_inds)
-            return result
+            array_list = [
+                a.todense() if isinstance(a, sparse.COO) else a for a in array_list
+            ]
+
+        output_mpo = MatrixProductOperator.from_arrays(
+            array_list, storage_hint=final_storage_hint
+        )
+
+        if matrix:
+            return output_mpo.to_dense_array()
+        return output_mpo
 
     def set_default_indices(
         self,
@@ -2595,43 +2758,6 @@ class MatrixProductOperator(TensorNetwork):
         )
         trace = mpo.contract_entire_network()
         return trace
-
-    def evolve_by_quantum_circuit(
-        self, qc: QuantumCircuit, max_bond: int | None = None
-    ) -> "MatrixProductOperator":
-        """
-        Evolve the MPO under the action of a quantum circuit
-
-        Args:
-            qc: The QuantumCircuit
-            max_bond: Maximum bond dimension
-        """
-        data = qc.data
-        mpo = copy.deepcopy(self)
-        for inst in data:
-            qidxs = [
-                inst.qubits[i]._index + 1 for i in range(inst.operation.num_qubits)
-            ]
-            data = sparse.COO.from_numpy(Operator(inst.operation).reverse_qargs().data)
-            if len(qidxs) == 1:
-                mpo.apply_one_qubit_gate(data, qidxs[0])
-                mpo.apply_one_qubit_gate(data, qidxs[0], dagger=True)
-            elif len(qidxs) == 2:
-                gate_mpo = MatrixProductOperator.two_qubit_gate_to_full_length_mpo(
-                    data, [qidxs[0], qidxs[1]], mpo.num_sites
-                )
-                gate_mpo_dagger = copy.deepcopy(gate_mpo)
-                gate_mpo_dagger.dagger()
-                mpo = mpo.multiply_and_compress_three(
-                    gate_mpo_dagger, gate_mpo, max_bond
-                )
-
-        mpo.update_bond_information()
-        if max_bond:
-            if mpo.bond_dimension > max_bond:
-                mpo.compress(max_bond)
-        mpo.update_bond_information()
-        return mpo
 
     def compress(self, max_bond: int) -> None:
         """Special compress method for MPO
@@ -2714,3 +2840,15 @@ class MatrixProductOperator(TensorNetwork):
         self.bond_dimension = max(self.bond_dims)
         self.physical_dimension = max(self.physical_dims)
         return
+
+
+_MPO_SWAP = sparse.COO.from_numpy(
+    np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=complex)
+)
+
+
+def _apply_swap_mpo(
+    mpo: "MatrixProductOperator", site: int, max_bond: int | None
+) -> None:
+    """Apply SWAP between MPO sites `site` and `site+1` in-place."""
+    mpo.apply_local_two_qubit_gate(_MPO_SWAP, [site, site + 1], max_bond=max_bond)

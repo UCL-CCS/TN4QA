@@ -17,7 +17,7 @@ class TNQuantumErrorMitigation:
         self,
         circuit: QuantumCircuit,
         backend: BackendV2,
-        max_bond_dimension: int,
+        max_bond_dimension: int | None,
         representation: str = "PTM",
     ):
         """Constructor
@@ -41,7 +41,7 @@ class TNQuantumErrorMitigation:
             readout_errors=False,
         ).build()
         self.noisy_circuit = NoisyCircuitDecomposer(
-            backend, self.noise_model
+            backend, self.noise_model, optimization_level=3
         ).decompose(circuit)
         self.tnqem_mpo = self.build_tnqem_mpo()
 
@@ -241,6 +241,7 @@ class TNQuantumErrorMitigation:
 
     def build_tnqem_mpo(self) -> MatrixProductOperator:
         tnqem_mpo = self.build_identity_mpo()
+        tnqem_mpo.move_orthogonality_centre(1)
         for data in self.noisy_circuit.values():
             data = data[0]
             qidxs = data["qubits"]
@@ -330,7 +331,7 @@ class TNQuantumErrorMitigation:
         for site in range(1, N + 1):
             is_top = site == 1
             is_bottom = site == N
-            A = np.asarray(canonical_mps.tensors[site - 1].data.todense())
+            A = np.asarray(canonical_mps.tensors[site - 1].to_dense())
             reduced_arrays.append(self.marginalise_to_qubit(A, is_top, is_bottom))
 
         # Reconstruct a new MPS with d=2 physical indices

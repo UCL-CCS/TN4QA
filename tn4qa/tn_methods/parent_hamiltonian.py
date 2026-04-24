@@ -131,7 +131,7 @@ class ParentHamiltonian:
 
     @staticmethod
     def _get_dense(tensor) -> np.ndarray:
-        return np.asarray(tensor.data.todense())
+        return np.asarray(tensor.to_dense())
 
     def _physical_dim(self, mps) -> int:
         """Physical dimension = last index of any tensor."""

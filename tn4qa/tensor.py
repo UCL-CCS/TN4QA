@@ -1,82 +1,126 @@
-from typing import List, TypeAlias, Union
+from __future__ import annotations
 
-# Underlying tensor objects can either be NumPy arrays or Sparse arrays
+import copy
+from enum import Enum, auto
+from typing import Union
+
 import numpy as np
 import sparse
 from numpy import ndarray
 from numpy.linalg import svd
 from qiskit.circuit import CircuitInstruction, Operation
-
-# Qiskit quantum circuit integration
 from qiskit.quantum_info import Operator
 from sparse import SparseArray
 
-DataOptions: TypeAlias = Union[ndarray, SparseArray]
-QiskitOptions: TypeAlias = Union[CircuitInstruction, Operation]  # type: ignore
+DataOptions = Union[ndarray, SparseArray]
+QiskitOptions = Union[CircuitInstruction, Operation]
+
+SPARSE_THRESHOLD = 0.10
+
+
+class StorageHint(Enum):
+    DENSE = auto()  # ndarray
+    SPARSE = auto()  # always COO  (mainly for chemistry Hamiltonians)
+
+
+def _make_storage(array: ndarray, hint: StorageHint = StorageHint.DENSE) -> DataOptions:
+    """Return array in the appropriate storage format."""
+    arr = np.asarray(array) if not isinstance(array, np.ndarray) else array
+    if hint is StorageHint.SPARSE:
+        return sparse.COO(arr)
+    if hint is StorageHint.DENSE:
+        return arr
+
+
+def _as_dense(data: DataOptions) -> ndarray:
+    """Return data as a dense ndarray."""
+    if isinstance(data, np.ndarray):
+        return data
+    return data.todense()
+
+
+def _as_sparse(data: DataOptions) -> SparseArray:
+    """Return data as a COO sparse array."""
+    if isinstance(data, np.ndarray):
+        return sparse.COO(data)
+    return data
+
+
+_I = np.eye(2, dtype=complex)
+_X = np.array([[0, 1], [1, 0]], dtype=complex)
+_Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+_Z = np.array([[1, 0], [0, -1]], dtype=complex)
+PAULI = {"I": _I, "X": _X, "Y": _Y, "Z": _Z}
 
 
 class Tensor:
-    def __init__(
-        self, data: DataOptions, indices: List[str], labels: List[str]
-    ) -> None:
-        """
-        Constructor for the Tensor class.
+    """
+    Base class for tensors.
 
-        Args:
-            data: The underlying data for the tensor. Internally this will always be stored as a sparse array.
-            indices: Names for each dimension of the data array.
-            labels: A list of labels to be associated with this tensor.
-        """
-        if isinstance(data, np.ndarray):
-            sparse_array = sparse.COO(data)
-        else:
-            sparse_array = data
-        self.data = sparse_array
-        self.dimensions = data.shape
-        self.rank = len(self.dimensions)
-        self.indices = indices
-        self.labels = labels
+    Parameters
+    ----------
+    data : ndarray or sparse.COO
+        Underlying array.
+    indices : list[str]
+        One name per axis.
+    labels : list[str]
+        Arbitrary metadata tags.
+    storage_hint : StorageHint
+        Recorded for use by operations that produce derived tensors
+    """
+
+    def __init__(
+        self,
+        data: DataOptions,
+        indices: list[str],
+        labels: list[str],
+        storage_hint: StorageHint = StorageHint.DENSE,
+    ) -> None:
+        if isinstance(data, np.ndarray) and storage_hint is StorageHint.SPARSE:
+            data = sparse.COO(data)
+        self.data: DataOptions = data
+        self.dimensions: tuple = data.shape
+        self.rank: int = len(data.shape)
+        self.indices: list[str] = list(indices)
+        self.labels: list[str] = list(labels)
+        self.storage_hint: StorageHint = storage_hint
+
+    def as_dense(self) -> ndarray:
+        return _as_dense(self.data)
+
+    def as_sparse(self) -> SparseArray:
+        return _as_sparse(self.data)
+
+    def is_sparse(self) -> bool:
+        return isinstance(self.data, SparseArray)
 
     @classmethod
     def from_array(
-        cls, array: DataOptions, indices: List[str] = None, labels: List[str] = ["T1"]
-    ) -> "Tensor":
-        """
-        Construct a tensor object from the array.
-
-        Args:
-            array: the underlying data for the tensor.
-            index_prefix (optional): Default is "I".
-            labels (optional): Default is "T1".
-
-        Returns:
-            tensor: The Tensor object.
-        """
-
-        data = array
-        if array.size == 0:  # Check if the array is empty
-            indices = []
+        cls,
+        array: DataOptions,
+        indices: list[str] | None = None,
+        labels: list[str] | None = None,
+        storage_hint: StorageHint = StorageHint.DENSE,
+    ) -> Tensor:
+        labels = labels or ["T1"]
+        if isinstance(array, SparseArray) and storage_hint == StorageHint.SPARSE:
+            data = array
         else:
-            rank = len(array.shape)  # Use array.shape to calculate rank
-            if not indices:
-                index_prefix = "B"
-                indices = [index_prefix + str(d_idx + 1) for d_idx in range(rank)]
-            else:
-                indices = indices
-        labels = labels
-
-        tensor = cls(data, indices, labels)
-
-        return tensor
+            arr = _as_dense(array)
+            data = _make_storage(arr, storage_hint)
+        rank = len(data.shape) if data.size != 0 else 0
+        if not indices:
+            indices = ["B" + str(i + 1) for i in range(rank)]
+        return cls(data, indices, labels, storage_hint)
 
     @classmethod
     def from_qiskit_gate(
         cls,
         gate: QiskitOptions,
-        indices: List[str] = None,
-        labels: List[str] = ["T1"],
+        indices: list[str] = None,
+        labels: list[str] = ["T1"],
         dagger: bool = False,
-    ) -> "Tensor":
+    ) -> Tensor:
         """
         Construct a tensor object from the array.
 
@@ -107,14 +151,14 @@ class Tensor:
                 indices[num_qubits + idx - 1] = "I" + str(idx)
         labels = labels + [gate.name]
 
-        tensor = cls(data, indices, labels)
+        tensor = cls(data, indices, labels, StorageHint.DENSE)
 
         return tensor
 
     @classmethod
     def rank_3_copy(
-        cls, indices: List[str] = ["B1", "R1", "L1"], labels: List[str] = ["T1"]
-    ) -> "Tensor":
+        cls, indices: list[str] = ["B1", "R1", "L1"], labels: list[str] = ["T1"]
+    ) -> Tensor:
         """
         Construct a tensor object for the rank-3 copy tensor.
 
@@ -130,13 +174,13 @@ class Tensor:
         ).reshape(2, 2, 2)
         indices = indices
         labels = labels + ["copy3"]
-        tensor = cls(array, indices, labels)
+        tensor = cls(array, indices, labels, StorageHint.DENSE)
         return tensor
 
     @classmethod
     def rank_4_copy(
-        cls, indices: List[str] = ["B1", "B2", "R1", "L1"], labels: List[str] = ["T1"]
-    ) -> "Tensor":
+        cls, indices: list[str] = ["B1", "B2", "R1", "L1"], labels: list[str] = ["T1"]
+    ) -> Tensor:
         """
         Construct a tensor object for the rank-4 copy tensor.
 
@@ -156,13 +200,13 @@ class Tensor:
         ).reshape(2, 2, 2, 2)
         indices = indices
         labels = labels + ["copy4"]
-        tensor = cls(array, indices, labels)
+        tensor = cls(array, indices, labels, StorageHint.DENSE)
         return tensor
 
     @classmethod
     def rank_3_copy_open(
-        cls, indices: List[str] = ["B1", "R1", "L1"], labels: List[str] = ["T1"]
-    ) -> "Tensor":
+        cls, indices: list[str] = ["B1", "R1", "L1"], labels: list[str] = ["T1"]
+    ) -> Tensor:
         """
         Construct a tensor object for the rank-3 copy tensor with open control.
 
@@ -178,13 +222,13 @@ class Tensor:
         ).reshape(2, 2, 2)
         indices = indices
         labels = labels + ["copy3open"]
-        tensor = cls(array, indices, labels)
+        tensor = cls(array, indices, labels, StorageHint.DENSE)
         return tensor
 
     @classmethod
     def rank_4_copy_open(
-        cls, indices: List[str] = ["B1", "B2", "R1", "L1"], labels: List[str] = ["T1"]
-    ) -> "Tensor":
+        cls, indices: list[str] = ["B1", "B2", "R1", "L1"], labels: list[str] = ["T1"]
+    ) -> Tensor:
         """
         Construct a tensor object for the rank-4 copy tensor with open control.
 
@@ -204,16 +248,16 @@ class Tensor:
         ).reshape(2, 2, 2, 2)
         indices = indices
         labels = labels + ["copy4open"]
-        tensor = cls(array, indices, labels)
+        tensor = cls(array, indices, labels, StorageHint.DENSE)
         return tensor
 
     @classmethod
     def rank_3_qiskit_gate(
         cls,
         gate: QiskitOptions,
-        indices: List[str] = ["B1", "R1", "L1"],
-        labels: List[str] = ["T1"],
-    ) -> "Tensor":
+        indices: list[str] = ["B1", "R1", "L1"],
+        labels: list[str] = ["T1"],
+    ) -> Tensor:
         """
         Construct a tensor object for the rank-3 gate tensor.
 
@@ -233,16 +277,16 @@ class Tensor:
         )
         indices = indices
         labels = labels + [f"rank3{gate.name}"]
-        tensor = cls(array, indices, labels)
+        tensor = cls(array, indices, labels, StorageHint.DENSE)
         return tensor
 
     @classmethod
     def rank_4_qiskit_gate(
         cls,
         gate: QiskitOptions,
-        indices: List[str] = ["B1", "B2", "R1", "L1"],
-        labels: List[str] = ["T1"],
-    ) -> "Tensor":
+        indices: list[str] = ["B1", "B2", "R1", "L1"],
+        labels: list[str] = ["T1"],
+    ) -> Tensor:
         """
         Construct a tensor object for the rank-4 gate tensor.
 
@@ -263,18 +307,21 @@ class Tensor:
         ).reshape(2, 2, 2, 2)
         indices = indices
         labels = labels + [f"rank4{gate.name}"]
-        tensor = cls(array, indices, labels)
+        tensor = cls(array, indices, labels, StorageHint.DENSE)
         return tensor
 
     def __str__(self) -> str:
-        """
-        Defines output of print.
-        """
-        shape = str(self.dimensions)
-        indices = str(self.indices)
-        return f"Tensor with shape {shape} and indices {indices}"
+        fmt = "sparse" if self.is_sparse() else "dense"
+        return f"Tensor(shape={self.dimensions}, indices={self.indices}, {fmt})"
 
-    def reorder_indices(self, index_order: List[str]) -> None:
+    def __repr__(self) -> str:
+        return self.__str__()
+
+    def to_dense(self) -> ndarray:
+        data = self.data
+        return data.todense() if hasattr(data, "todense") else data
+
+    def reorder_indices(self, index_order: list[str]) -> None:
         """
         Used to change the order of indices in the tensor object.
 
@@ -283,73 +330,32 @@ class Tensor:
         """
         old_indices = list(range(len(self.indices)))
         new_indices = [index_order.index(idx) for idx in self.indices]
-        new_data = sparse.moveaxis(self.data, old_indices, new_indices)
+        if isinstance(self.data, np.ndarray):
+            new_data = np.moveaxis(self.data, old_indices, new_indices)
+        else:
+            new_data = sparse.moveaxis(self.data, old_indices, new_indices)
         self.data = new_data
         self.indices = index_order
         self.dimensions = new_data.shape
         return
 
-    def new_index_name(
-        self, index_prefix: str = "B", num_new_indices: int = 1
-    ) -> Union[str, List[str]]:
-        """
-        Generate a new index name not already in use.
-
-        Args:
-            index_prefix (optional): Default is "B".
-            num_new_indices (optional): Number of new names required. Default is 1.
-
-        Returns:
-            The new index name. Returned as a str if num_new_indices=1, otherwise returned as List[str].
-        """
-        current_indices = [x for x in self.indices if len(x) > len(index_prefix)]
-        current_vals = []
-        for idx in current_indices:
-            if (
-                idx[: len(index_prefix)] == index_prefix
-                and idx[len(index_prefix) :].isdigit()
-            ):
-                current_vals.append(int(idx[len(index_prefix) :]))
-        if len(current_vals) > 0:
-            max_current_val = max(current_vals)
-        else:
-            max_current_val = 0
-        new_indices = [
-            index_prefix + str(max_current_val + i)
-            for i in range(1, num_new_indices + 1)
-        ]
-
-        if num_new_indices == 1:
-            return new_indices[0]
-        return new_indices
+    def new_index_name(self, prefix: str = "B", n: int = 1) -> str | list[str]:
+        """Generate n fresh index names with given prefix."""
+        existing = []
+        for idx in self.indices:
+            if idx.startswith(prefix) and idx[len(prefix) :].isdigit():
+                existing.append(int(idx[len(prefix) :]))
+        base = max(existing, default=0)
+        names = [prefix + str(base + i) for i in range(1, n + 1)]
+        return names[0] if n == 1 else names
 
     def get_dimension_of_index(self, index_name: str) -> int:
-        """
-        Get the dimension of an index of the tensor.
-
-        Args:
-            index_name: The name of the index.
-
-        Returns:
-            The dimension associated to index_name.
-        """
         return self.dimensions[self.indices.index(index_name)]
 
-    def get_total_dimension_of_indices(self, idxs: List[str]) -> int:
-        """
-        Get the total dimension of a list of indices of the tensor.
+    def get_total_dimension_of_indices(self, idxs: list[str]) -> int:
+        return int(np.prod([self.get_dimension_of_index(i) for i in idxs]))
 
-        Args:
-            idxs: The names of the indices.
-
-        Returns:
-            The product of dimensions associated to each index in idxs.
-        """
-        dims = [self.get_dimension_of_index(idx) for idx in idxs]
-        total = np.prod(dims)
-        return total
-
-    def combine_indices(self, idxs: List[str], new_index_name: str = None) -> None:
+    def combine_indices(self, idxs: list[str], new_index_name: str = None) -> None:
         """
         Merge two or more indices together in the tensor.
 
@@ -369,7 +375,10 @@ class Tensor:
         self.reorder_indices(temp_index_ordering)
 
         new_shape = [combined_index_dim] + temp_shape[len(idxs) :]
-        new_data = sparse.reshape(self.data, new_shape)
+        if isinstance(self.data, np.ndarray):
+            new_data = np.reshape(self.data, shape=new_shape)
+        else:
+            new_data = sparse.reshape(self.data, new_shape)
         if not new_index_name:
             new_index_name = self.new_index_name()
         new_index_ordering = [new_index_name] + temp_index_ordering[len(idxs) :]
@@ -382,7 +391,7 @@ class Tensor:
 
         return
 
-    def tensor_to_matrix(self, input_idxs: List[str], output_idxs: List[str]) -> None:
+    def tensor_to_matrix(self, input_idxs: list[str], output_idxs: list[str]) -> None:
         """
         Reshape the tensor into a matrix.
 
@@ -397,44 +406,29 @@ class Tensor:
         return
 
     def multiply_by_constant(self, const: complex) -> None:
-        """
-        Multiply the tensor by a constant.
-
-        Args:
-            const: The constant to multiply by.
-        """
         self.data = self.data * const
-        return
 
     def dagger(self) -> None:
-        """
-        Get the conjugate transpose
-        """
+        """Conjugate (not transpose — use reorder_indices for that)."""
         self.data = self.data.conj()
-        return
 
     def get_closest_unitary(
-        self, input_indices: list[str], output_indices: list[str]
-    ) -> "Tensor":
+        self,
+        input_indices: list[str],
+        output_indices: list[str],
+    ) -> Tensor:
         """
-        Perform a polar decomposition to determine the closest unitary matrix to the given tensor.
+        Polar decomposition to find the closest unitary.
 
-        Args:
-            input_indices: The indices to treat as the input indices for the matrix representation
-            output_indices: The indices to treat as the output indices for the matrix representation
-
-        Returns:
-            A new tensor that is unitary as a matrix with index ordering same as self
+        Works on a *copy* so the original tensor is not mutated.
         """
-        matrix = self.tensor_to_matrix(input_indices, output_indices)
-        u, _, vh = svd(matrix, full_matrices=False)
-        unitary_part = u @ vh
-        input_dims = [self.get_dimension_of_index(i) for i in input_indices]
-        output_dims = [self.get_dimension_of_index(i) for i in output_indices]
-        shape = tuple(input_dims + output_dims)
-        unitary_part = unitary_part.reshape(
-            shape
-        )  # This will have index ordering output_inds, input_inds
-        new_t = Tensor(unitary_part, output_indices + input_indices, labels=self.labels)
+        tmp = copy.deepcopy(self)
+        in_dims = [tmp.get_dimension_of_index(i) for i in input_indices]
+        out_dims = [tmp.get_dimension_of_index(i) for i in output_indices]
+        tmp.tensor_to_matrix(input_indices, output_indices)
+        mat = _as_dense(tmp.data)
+        u, _, vh = svd(mat, full_matrices=False)
+        unitary = (u @ vh).reshape(tuple(out_dims + in_dims))
+        new_t = Tensor(unitary, output_indices + input_indices, list(self.labels))
         new_t.reorder_indices(self.indices)
         return new_t

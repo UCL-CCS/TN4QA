@@ -3,22 +3,42 @@ from typing import List, TypeAlias, Union
 
 # Underlying tensor objects can either be NumPy arrays or Sparse arrays
 import numpy as np
+import scipy.linalg
 import sparse
 from numpy import ndarray
 
 # Qiskit quantum circuit integration
 from qiskit import QuantumCircuit
+from qiskit.circuit.library import UnitaryGate
 from scipy.linalg import svd
 from sparse import SparseArray
 
 from .mpo import MatrixProductOperator
-from .tensor import Tensor
+from .tensor import StorageHint, Tensor, _as_dense, _as_sparse
 from .tn import TensorNetwork
 
 # Visualisation
 from .visualisation import draw_mps
 
 DataOptions: TypeAlias = Union[ndarray, SparseArray]
+
+_SWAP = np.array(
+    [[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=complex
+)
+
+
+def _truncate_sv(s: ndarray, max_bond: int, tol: float) -> int:
+    s_sq = s**2
+    cum = np.cumsum(s_sq[::-1])[::-1]
+    keep = len(s)
+    for k in range(len(s)):
+        if s[k] < 1e-14:
+            keep = k
+            break
+        if cum[k] < tol**2:
+            keep = k + 1
+            break
+    return max(1, min(keep, max_bond))
 
 
 class MatrixProductState(TensorNetwork):
@@ -63,7 +83,10 @@ class MatrixProductState(TensorNetwork):
 
     @classmethod
     def from_arrays(
-        cls, arrays: List[DataOptions], shape: str = "udp"
+        cls,
+        arrays: List[DataOptions],
+        shape: str = "udp",
+        storage_hint: StorageHint = StorageHint.DENSE,
     ) -> "MatrixProductState":
         """
         Create an MPS from a list of arrays.
@@ -87,7 +110,7 @@ class MatrixProductState(TensorNetwork):
         first_indices = ["", ""]
         first_indices[physical_idx_pos] = "P1"
         first_indices[virtual_input_idx_pos] = "B1"
-        first_tensor = Tensor(arrays[0], first_indices, ["MPS_T1"])
+        first_tensor = Tensor(arrays[0], first_indices, ["MPS_T1"], storage_hint)
         tensors.append(first_tensor)
 
         physical_idx_pos = shape.index("p")
@@ -99,7 +122,7 @@ class MatrixProductState(TensorNetwork):
             indices_k[physical_idx_pos] = f"P{a_idx + 1}"
             indices_k[virtual_output_idx_pos] = f"B{a_idx}"
             indices_k[virtual_input_idx_pos] = f"B{a_idx + 1}"
-            tensor_k = Tensor(a, indices_k, [f"MPS_T{a_idx + 1}"])
+            tensor_k = Tensor(a, indices_k, [f"MPS_T{a_idx + 1}"], storage_hint)
             tensors.append(tensor_k)
 
         last_shape = shape.replace("d", "")
@@ -108,7 +131,9 @@ class MatrixProductState(TensorNetwork):
         last_indices = ["", ""]
         last_indices[physical_idx_pos] = f"P{len(arrays)}"
         last_indices[virtual_output_idx_pos] = f"B{len(arrays) - 1}"
-        last_tensor = Tensor(arrays[-1], last_indices, [f"MPS_T{len(arrays)}"])
+        last_tensor = Tensor(
+            arrays[-1], last_indices, [f"MPS_T{len(arrays)}"], storage_hint
+        )
         tensors.append(last_tensor)
 
         mps = cls(tensors, shape)
@@ -153,7 +178,7 @@ class MatrixProductState(TensorNetwork):
         else:
             arrays.append(one.reshape((1, 2)))
 
-        return cls.from_arrays(arrays)
+        return cls.from_arrays(arrays, storage_hint=StorageHint.SPARSE)
 
     @classmethod
     def all_zero_mps(cls, num_sites: int) -> "MatrixProductState":
@@ -197,15 +222,60 @@ class MatrixProductState(TensorNetwork):
         """
         bitstrings = list(bitstring_dict.keys())
         weights = list(bitstring_dict.values())
-        mps = MatrixProductState.from_bitstring(bitstrings[0])
-        mps.multiply_by_constant(weights[0])
-        for idx in range(1, len(bitstrings)):
-            temp_mps = MatrixProductState.from_bitstring(bitstrings[idx])
-            temp_mps.multiply_by_constant(weights[idx])
-            mps = mps + temp_mps
-            if max_bond:
-                if mps.bond_dimension > max_bond:
-                    mps.compress(max_bond)
+
+        num_states = len(bitstrings)
+        num_sites = len(bitstrings[0])
+
+        first_coords = [[], []]
+        middle_coords = [[[], [], []] for _ in range(num_sites - 2)]
+        last_coords = [[], []]
+
+        first_data = []
+        middle_data = [[] for _ in range(num_sites - 2)]
+        last_data = []
+
+        for s_idx, (bitstring, weight) in enumerate(zip(bitstrings, weights)):
+            b0 = int(bitstring[0])
+
+            first_coords[0].append(s_idx)
+            first_coords[1].append(b0)
+            first_data.append(weight)
+
+            for site in range(1, num_sites - 1):
+                b = int(bitstring[site])
+                mid = site - 1
+
+                middle_coords[mid][0].append(s_idx)
+                middle_coords[mid][1].append(s_idx)
+                middle_coords[mid][2].append(b)
+
+                middle_data[mid].append(1.0)
+
+            bL = int(bitstring[-1])
+
+            last_coords[0].append(s_idx)
+            last_coords[1].append(bL)
+            last_data.append(1.0)
+
+        first_array = sparse.COO(first_coords, first_data, shape=(num_states, 2))
+
+        middle_arrays = [
+            sparse.COO(
+                middle_coords[i], middle_data[i], shape=(num_states, num_states, 2)
+            )
+            for i in range(num_sites - 2)
+        ]
+
+        last_array = sparse.COO(last_coords, last_data, shape=(num_states, 2))
+
+        mps = MatrixProductState.from_arrays(
+            [first_array] + middle_arrays + [last_array],
+            storage_hint=StorageHint.SPARSE,
+        )
+
+        if max_bond is not None and mps.bond_dimension > max_bond:
+            mps.compress(max_bond)
+
         return mps
 
     @classmethod
@@ -239,6 +309,60 @@ class MatrixProductState(TensorNetwork):
         arrays.append(last_array)
 
         return cls.from_arrays(arrays, shape="udp")
+
+    @classmethod
+    def random_physical_mps(
+        cls,
+        num_sites: int,
+        max_bond: int = 16,
+        correlation_length: float = 2.0,
+        num_layers: int = 3,
+        seed: int | None = None,
+    ):
+        """
+        Construct a random MPS with physically realistic correlations:
+        - exponential decay of correlations
+        - controlled entanglement growth
+
+        Args:
+            num_sites: number of sites
+            max_bond: maximum bond dimension
+            correlation_length: sets decay scale of correlations
+            num_layers: number of circuit layers
+            seed: RNG seed
+        """
+
+        rng = np.random.default_rng(seed)
+
+        mps = cls.from_bitstring("0" * num_sites)
+
+        def random_unitary(strength):
+            H = rng.normal(size=(4, 4)) + 1j * rng.normal(size=(4, 4))
+            H = H + H.conj().T
+            return scipy.linalg.expm(-1j * strength * H)
+
+        for _ in range(num_layers):
+            # loop over distances
+            for dist in range(1, num_sites):
+                # exponential decay of interaction strength
+                strength = np.exp(-dist / correlation_length)
+
+                # skip negligible interactions
+                if strength < 1e-3:
+                    continue
+
+                for i in range(num_sites - dist):
+                    j = i + dist
+
+                    U = random_unitary(strength)
+                    gate = UnitaryGate(U)
+
+                    # Apply gate to sites (i, j)
+                    gate_mpo = MatrixProductOperator.from_qiskit_gate(gate)
+                    mps.apply_sub_mpo(gate_mpo, [i + 1, j + 1], max_bond=max_bond)
+
+        mps.normalise()
+        return mps
 
     @classmethod
     def random_quantum_state_mps(
@@ -383,7 +507,7 @@ class MatrixProductState(TensorNetwork):
         mps_arrays = []
 
         first_t = mpo_tensors[0]
-        data = first_t.data.todense()
+        data = first_t.to_dense()
         data_reshaped = np.moveaxis(data, [0, 1, 2], [0, 2, 1])
         shape = data_reshaped.shape
         data_mat = np.reshape(data_reshaped, (shape[0] * shape[1], shape[2]))
@@ -398,7 +522,7 @@ class MatrixProductState(TensorNetwork):
         mps_arrays.append(us)
 
         for t in mpo_tensors[1:-1]:
-            t_data = t.data.todense()
+            t_data = t.to_dense()
             t_data_reshaped = np.moveaxis(t_data, [0, 1, 2, 3], [2, 0, 1, 3])
             shape = t_data_reshaped.shape
             t_mat = np.reshape(
@@ -416,7 +540,7 @@ class MatrixProductState(TensorNetwork):
             mps_arrays.append(us)
 
         last_t = mpo_tensors[-1]
-        data = last_t.data.todense()
+        data = last_t.to_dense()
         data_reshaped = np.moveaxis(data, [0, 1, 2], [1, 2, 0])
         shape = data_reshaped.shape
         data_mat = np.reshape(data_reshaped, (shape[0], shape[1] * shape[2]))
@@ -440,71 +564,74 @@ class MatrixProductState(TensorNetwork):
         """
         self.reshape()
         other.reshape()
+
+        self_sparse = all(isinstance(t.data, SparseArray) for t in self.tensors)
+        other_sparse = all(isinstance(t.data, SparseArray) for t in other.tensors)
+
+        result_sparse = self_sparse and other_sparse
+
         arrays = []
 
-        t1 = self.tensors[0]
-        t2 = other.tensors[0]
+        t1 = self.tensors[0].data
+        t2 = other.tensors[0].data
 
-        t1_data = t1.data
-        t2_data = t2.data
+        if result_sparse:
+            new_data = sparse.concatenate([_as_sparse(t1), _as_sparse(t2)], axis=0)
+        else:
+            new_data = np.concatenate([_as_dense(t1), _as_dense(t2)], axis=0)
 
-        new_data = sparse.concatenate([t1_data, t2_data], axis=0)
         arrays.append(new_data)
 
         for t_idx in range(1, self.num_sites - 1):
-            t1 = self.tensors[t_idx]
-            t2 = other.tensors[t_idx]
+            t1 = self.tensors[t_idx].data
+            t2 = other.tensors[t_idx].data
 
-            t1_data = t1.data
-            t2_data = t2.data
-            t1_dimensions = t1.dimensions
-            t2_dimensions = t2.dimensions
+            if result_sparse:
+                t1 = _as_sparse(t1)
+                t2 = _as_sparse(t2)
 
-            data1 = sparse.moveaxis(t1_data, [0, 1, 2], [0, 2, 1])
-            data2 = sparse.moveaxis(t2_data, [0, 1, 2], [0, 2, 1])
+                D1_up, D1_down, d = t1.shape
+                D2_up, D2_down, _ = t2.shape
 
-            data1 = sparse.reshape(
-                data1, (t1_dimensions[0] * t1_dimensions[2], t1_dimensions[1])
-            )
-            data2 = sparse.reshape(
-                data2, (t2_dimensions[0] * t2_dimensions[2], t2_dimensions[1])
-            )
+                zeros_tr = sparse.COO(np.zeros((D1_up, D2_down, d)))
+                zeros_bl = sparse.COO(np.zeros((D2_up, D1_down, d)))
 
-            zeros_top_right = sparse.COO.from_numpy(
-                np.zeros((data1.shape[0], data2.shape[1]))
-            )
-            zeros_bottom_left = sparse.COO.from_numpy(
-                np.zeros((data2.shape[0], data1.shape[1]))
-            )
+                # block structure in (up, down)
+                top = sparse.concatenate([t1, zeros_tr], axis=1)
+                bottom = sparse.concatenate([zeros_bl, t2], axis=1)
 
-            new_data = sparse.concatenate(
-                [
-                    sparse.concatenate([data1, zeros_top_right], axis=1),
-                    sparse.concatenate([zeros_bottom_left, data2], axis=1),
-                ]
-            )
-            new_data = sparse.moveaxis(new_data, [0, 1], [1, 0])
-            new_data = sparse.reshape(
-                new_data,
-                (
-                    t1_dimensions[0] + t2_dimensions[0],
-                    t1_dimensions[1] + t2_dimensions[1],
-                    t1_dimensions[2],
-                ),
-            )
+                new_data = sparse.concatenate([top, bottom], axis=0)
+
+            else:
+                t1 = _as_dense(t1)
+                t2 = _as_dense(t2)
+
+                D1_up, D1_down, d = t1.shape
+                D2_up, D2_down, _ = t2.shape
+
+                zeros_tr = np.zeros((D1_up, D2_down, d), dtype=complex)
+                zeros_bl = np.zeros((D2_up, D1_down, d), dtype=complex)
+
+                top = np.concatenate([t1, zeros_tr], axis=1)
+                bottom = np.concatenate([zeros_bl, t2], axis=1)
+
+                new_data = np.concatenate([top, bottom], axis=0)
 
             arrays.append(new_data)
 
-        t1 = self.tensors[-1]
-        t2 = other.tensors[-1]
+        t1 = self.tensors[-1].data
+        t2 = other.tensors[-1].data
 
-        t1_data = t1.data
-        t2_data = t2.data
-        new_data = sparse.concatenate([t1_data, t2_data], axis=0)
+        if result_sparse:
+            new_data = sparse.concatenate([_as_sparse(t1), _as_sparse(t2)], axis=0)
+        else:
+            new_data = np.concatenate([_as_dense(t1), _as_dense(t2)], axis=0)
+
         arrays.append(new_data)
 
-        output = MatrixProductState.from_arrays(arrays)
-        return output
+        sh = StorageHint.SPARSE if result_sparse else StorageHint.DENSE
+
+        return MatrixProductState.from_arrays(arrays, storage_hint=sh)
 
     def __sub__(self, other: "MatrixProductState") -> "MatrixProductState":
         """
@@ -519,6 +646,9 @@ class MatrixProductState(TensorNetwork):
         Convert the MPS to a sparse array.
         """
         mps = copy.deepcopy(self)
+        for t in mps.tensors:
+            if isinstance(t.data, np.ndarray):
+                t.data = sparse.COO.from_numpy(t.data)
         output = mps.contract_entire_network()
         output.combine_indices(output.indices, output.indices[0])
         return output.data
@@ -528,9 +658,12 @@ class MatrixProductState(TensorNetwork):
         Convert the MPS to a dense array.
         """
         mps = copy.deepcopy(self)
-        sparse_array = mps.to_sparse_array()
-        dense_array = sparse_array.todense()
-        return dense_array
+        for t in mps.tensors:
+            if not isinstance(t.data, np.ndarray):
+                t.data = t.data.todense()
+        output = mps.contract_entire_network()
+        output.combine_indices(output.indices, output.indices[0])
+        return output.data
 
     def reshape(self, shape: str = "udp") -> None:
         """
@@ -623,84 +756,104 @@ class MatrixProductState(TensorNetwork):
         for idx in push_up:
             index = internal_indices[idx - 1]
             self.compress_index(index, max_bond, reverse_direction=True)
-
         return
 
-    def apply_sub_mpo(
-        self, mpo: MatrixProductOperator, sites: list[int], max_bond: int | None = None
-    ) -> "MatrixProductState":
+    def _apply_swap(self, site: int, max_bond: int | None = None) -> None:
+        """Apply SWAP gate between sites site and site+1 in-place."""
+        self._apply_local_gate_dense(_SWAP, site, site + 1, max_bond)
+
+    def _apply_local_gate_dense(
+        self,
+        gate: ndarray,
+        site0: int,
+        site1: int,
+        max_bond: int | None,
+        tol: float = 1e-12,
+    ) -> None:
         """
-        Apply a smaller MPO to the MPS
+        Apply a local 2-qubit gate to neighbouring sites (site1 == site0 + 1).
+        Dense throughout. Updates MPS in-place.
 
-        Args:
-            mpo: The MPO to apply.
-            sites: The list of site indices where the MPO will apply.
-
-        Returns:
-            The new MPS.
+        Index convention:
+            Site 1 (left boundary) : (down, phys)
+            Site N (right boundary): (up, phys)
+            Interior               : (up, down, phys)
         """
-        mps = copy.deepcopy(self)
-        mpo = copy.deepcopy(mpo)
-        mps.set_default_indices()
-        mpo.set_default_indices()
+        assert site1 == site0 + 1
+        n = self.num_sites
+        G = gate.reshape(2, 2, 2, 2)  # (out0, out1, in0, in1)
 
-        target_site_ordering = copy.deepcopy(sites)
-        for idx in range(1, self.num_sites + 1):
-            if idx not in sites:
-                target_site_ordering.append(idx)
-        restore_ordering = []
-        for idx in range(1, self.num_sites + 1):
-            restore_ordering.append(target_site_ordering.index(idx) + 1)
-        mps.reorder_sites(target_site_ordering, set_default_indices=True)
+        t0 = _as_dense(self.tensors[site0 - 1].data)
+        t1 = _as_dense(self.tensors[site0].data)
+        eps = 1e-14
 
-        if len(sites) == mps.num_sites:
-            mps = self.apply_mpo(mpo, max_bond)
+        if site0 == 1 and site1 == n:
+            # t0: (d,)  t1: (d,)
+            merged = np.einsum("i,j,klij->kl", t0, t1, G)
+            u, s, vh = scipy.linalg.svd(merged, full_matrices=False, check_finite=False)
+            keep = _truncate_sv(
+                s, min(2, 2) if max_bond is None else min(max_bond, 2, 2), tol
+            )
+            new_t0 = vh[:keep, :]  # (k, d)
+            new_t1 = np.moveaxis((u[:, :keep] * s[:keep]), 1, 0)  # (k, d)
+
+        elif site0 == 1:
+            # t0: (a, i)   t1: (a, b, j)
+            b = t1.shape[1]
+            merged = np.einsum("ai,abj,klij->klb", t0, t1, G)
+            mat = merged.transpose(0, 2, 1).reshape(2, b * 2)
+            bond = min(max_bond, 2, b * 2) if max_bond else min(2, b * 2)
+            u, s, vh = scipy.linalg.svd(mat, full_matrices=False, check_finite=False)
+            keep = _truncate_sv(s, bond, tol)
+            new_t0 = np.moveaxis((u[:, :keep] * s[:keep]), 1, 0)  # (k, d)
+            new_t1 = vh[:keep, :].reshape(keep, b, 2)  # (k, b, d)
+
+        elif site1 == n:
+            # t0: (a, b, i)   t1: (b, j)
+            a = t0.shape[0]
+            merged = np.einsum("abi,bj,klij->akl", t0, t1, G)
+            mat = merged.reshape(a * 2, 2)
+            bond = min(max_bond, a * 2, 2) if max_bond else min(a * 2, 2)
+            u, s, vh = scipy.linalg.svd(mat, full_matrices=False, check_finite=False)
+            keep = _truncate_sv(s, bond, tol)
+            new_t0 = (
+                (u[:, :keep] * s[:keep]).reshape(a, 2, keep).transpose(0, 2, 1)
+            )  # (a, k, d)
+            new_t1 = vh[:keep, :]  # (k, d)
+
         else:
-            for tidx in range(mpo.num_sites):
-                t1 = mps.tensors[tidx]
-                t2 = mpo.tensors[tidx]
-                t1_current_indices = t1.indices
-                t1.indices = [
-                    f"D{tidx + 1}" if x[0] == "P" else x for x in t1_current_indices
-                ]
-                t2_current_indices = t2.indices
-                t2.indices = [
-                    f"D{tidx + 1}" if x[0] == "L" else x + "_"
-                    for x in t2_current_indices
-                ]
+            # t0: (a, b, i)   t1: (b, c, j)
+            a, c = t0.shape[0], t1.shape[1]
+            merged = np.einsum("abi,bcj,klij->aklc", t0, t1, G)
+            mat = merged.reshape(a * 2, 2 * c)
+            bond = min(max_bond, a * 2, 2 * c) if max_bond else min(a * 2, 2 * c)
+            u, s, vh = scipy.linalg.svd(mat, full_matrices=False, check_finite=False)
+            keep = _truncate_sv(s, bond, tol)
+            new_t0 = (
+                (u[:, :keep] * s[:keep]).reshape(a, 2, keep).transpose(0, 2, 1)
+            )  # (a, k, d)
+            new_t1 = vh[:keep, :].reshape(keep, 2, c).transpose(0, 2, 1)  # (k, c, d)
 
-            all_tensors = mps.tensors + mpo.tensors
+        new_t0[np.abs(new_t0) < eps] = 0.0
+        new_t1[np.abs(new_t1) < eps] = 0.0
 
-            tn = TensorNetwork(all_tensors, "TotalTN")
-            for n in range(len(sites)):
-                tn.contract_index(f"D{n + 1}")
-            for n in range(len(sites) - 1):
-                tn.combine_indices(
-                    [f"B{n + 1}", f"B{n + 1}_"], new_index_name=f"B{n + 1}"
-                )
-            tn.tensors[0].reorder_indices(["B1", "R1_"])
-            for n in range(1, len(sites)):
-                tn.tensors[n].reorder_indices([f"B{n}", f"B{n + 1}", f"R{n + 1}_"])
-
-            arrays = [t.data for t in tn.tensors]
-            mps = MatrixProductState.from_arrays(arrays)
-
-        mps.reorder_sites(restore_ordering, set_default_indices=True)
-
-        if max_bond:
-            if mps.bond_dimension > max_bond:
-                mps.compress(max_bond)
-
-        return mps
+        self.tensors[site0 - 1].data = new_t0
+        self.tensors[site0 - 1].dimensions = new_t0.shape
+        self.tensors[site0].data = new_t1
+        self.tensors[site0].dimensions = new_t1.shape
+        self.update_bond_information()
 
     def apply_mpo(
-        self, mpo: MatrixProductOperator, max_bond: int | None = None
+        self,
+        mpo: MatrixProductOperator,
+        max_bond: int | None = None,
     ) -> "MatrixProductState":
         """
-        Apply a MPO to the MPS.
+        Apply an MPO to the full MPS.
 
         Args:
             mpo: The MPO to apply.
+            max_bond: Optional maximum bond dimension.
 
         Returns:
             The new MPS.
@@ -709,30 +862,26 @@ class MatrixProductState(TensorNetwork):
         mpo.reshape()
         arrays = []
 
+        # Left boundary: MPS rank-2 (down, phys), MPO rank-3 (down, R, L)
         t1 = self.tensors[0]
         t2 = mpo.tensors[0]
-
         t1.indices = ["T1_DOWN", "TO_CONTRACT"]
         t2.indices = ["T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
-
         tn = TensorNetwork([t1, t2])
         tn.contract_index("TO_CONTRACT")
-
         tensor = Tensor(tn.tensors[0].data, tn.get_all_indices(), tn.get_all_labels())
         tensor.combine_indices(["T1_DOWN", "T2_DOWN"], new_index_name="DOWN")
         tensor.reorder_indices(["DOWN", "T2_RIGHT"])
         arrays.append(tensor.data)
 
+        # Interior sites: MPS rank-3 (up, down, phys), MPO rank-4 (up, down, R, L)
         for t_idx in range(1, self.num_sites - 1):
             t1 = self.tensors[t_idx]
             t2 = mpo.tensors[t_idx]
-
             t1.indices = ["T1_UP", "T1_DOWN", "TO_CONTRACT"]
             t2.indices = ["T2_UP", "T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
-
             tn = TensorNetwork([t1, t2])
             tn.contract_index("TO_CONTRACT")
-
             tensor = Tensor(
                 tn.tensors[0].data, tn.get_all_indices(), tn.get_all_labels()
             )
@@ -741,24 +890,337 @@ class MatrixProductState(TensorNetwork):
             tensor.reorder_indices(["UP", "DOWN", "T2_RIGHT"])
             arrays.append(tensor.data)
 
+        # Right boundary: MPS rank-2 (up, phys), MPO rank-3 (up, R, L)
         t1 = self.tensors[-1]
         t2 = mpo.tensors[-1]
-
         t1.indices = ["T1_UP", "TO_CONTRACT"]
         t2.indices = ["T2_UP", "T2_RIGHT", "TO_CONTRACT"]
-
         tn = TensorNetwork([t1, t2])
         tn.contract_index("TO_CONTRACT")
-
         tensor = Tensor(tn.tensors[0].data, tn.get_all_indices(), tn.get_all_labels())
         tensor.combine_indices(["T1_UP", "T2_UP"], new_index_name="UP")
         tensor.reorder_indices(["UP", "T2_RIGHT"])
         arrays.append(tensor.data)
+
         mps = MatrixProductState.from_arrays(arrays)
-        if max_bond:
-            if mps.bond_dimension > max_bond:
-                mps.compress(max_bond)
+        if max_bond and mps.bond_dimension > max_bond:
+            mps.compress(max_bond)
         return mps
+
+    def apply_sub_mpo(
+        self,
+        mpo: MatrixProductOperator,
+        sites: list[int],
+        max_bond: int | None = None,
+    ) -> "MatrixProductState":
+        """
+        Apply a smaller MPO to the MPS at the given contiguous sites,
+        using a SWAP network to bring non-contiguous sites together.
+
+        Args:
+            mpo: The MPO to apply.
+            sites: The list of contiguous site indices where the MPO acts.
+            max_bond: Optional maximum bond dimension.
+
+        Returns:
+            The new MPS.
+        """
+        mps = copy.deepcopy(self)
+        mpo = copy.deepcopy(mpo)
+        mps.set_default_indices()
+        mpo.set_default_indices()
+        mps.reshape()
+        mpo.reshape()
+
+        sorted_sites = sorted(sites)
+        n_sub = len(sorted_sites)
+
+        # SWAP non-contiguous sites into a contiguous block at their natural positions.
+        # For each gap between consecutive target sites, SWAP the intervening
+        # sites outward so that the target sites become adjacent.
+        # We track where each target site actually is after swaps.
+        current_positions = list(sorted_sites)
+
+        for i in range(n_sub - 1):
+            target = current_positions[i] + 1
+            while current_positions[i + 1] > target:
+                # SWAP current_positions[i+1] leftward by one
+                swap_site = current_positions[i + 1] - 1
+                mps._apply_swap(swap_site, max_bond)
+                current_positions[i + 1] -= 1
+
+        # current_positions is now a contiguous block starting at sorted_sites[0]
+        block_start = current_positions[0]  # == sorted_sites[0]
+
+        # Apply the sub-MPO site by site across the contiguous block
+        n = mps.num_sites
+
+        if n_sub == 1:
+            # Single site: just contract the physical leg directly
+            t_mps = mps.tensors[block_start - 1]
+            t_mpo = mpo.tensors[0]
+            if block_start == 1:
+                # MPS: (down, phys), MPO: (down, R, L)
+                t_mps.indices = ["T1_DOWN", "TO_CONTRACT"]
+                t_mpo.indices = ["T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
+            elif block_start == n:
+                # MPS: (up, phys), MPO: (up, R, L)
+                t_mps.indices = ["T1_UP", "TO_CONTRACT"]
+                t_mpo.indices = ["T2_UP", "T2_RIGHT", "TO_CONTRACT"]
+            else:
+                # MPS: (up, down, phys), MPO: (up, down, R, L)
+                t_mps.indices = ["T1_UP", "T1_DOWN", "TO_CONTRACT"]
+                t_mpo.indices = ["T2_UP", "T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
+            tn = TensorNetwork([t_mps, t_mpo])
+            tn.contract_index("TO_CONTRACT")
+            tensor = Tensor(
+                tn.tensors[0].data, tn.get_all_indices(), tn.get_all_labels()
+            )
+            if block_start == 1:
+                tensor.combine_indices(["T1_DOWN", "T2_DOWN"], new_index_name="DOWN")
+                tensor.reorder_indices(["DOWN", "T2_RIGHT"])
+            elif block_start == n:
+                tensor.combine_indices(["T1_UP", "T2_UP"], new_index_name="UP")
+                tensor.reorder_indices(["UP", "T2_RIGHT"])
+            else:
+                tensor.combine_indices(["T1_UP", "T2_UP"], new_index_name="UP")
+                tensor.combine_indices(["T1_DOWN", "T2_DOWN"], new_index_name="DOWN")
+                tensor.reorder_indices(["UP", "DOWN", "T2_RIGHT"])
+            mps.tensors[block_start - 1].data = tensor.data
+            mps.tensors[block_start - 1].dimensions = tensor.data.shape
+
+        else:
+            arrays_sub = []
+
+            # First site of the block
+            t1 = mps.tensors[block_start - 1]
+            t2 = mpo.tensors[0]
+            if block_start == 1:
+                # MPS rank-2 (down, phys), MPO rank-3 (down, R, L)
+                t1.indices = ["T1_DOWN", "TO_CONTRACT"]
+                t2.indices = ["T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
+                tn = TensorNetwork([t1, t2])
+                tn.contract_index("TO_CONTRACT")
+                tensor = Tensor(
+                    tn.tensors[0].data, tn.get_all_indices(), tn.get_all_labels()
+                )
+                tensor.combine_indices(["T1_DOWN", "T2_DOWN"], new_index_name="DOWN")
+                tensor.reorder_indices(["DOWN", "T2_RIGHT"])
+            else:
+                # MPS rank-3 (up, down, phys), MPO rank-3 (down, R, L)
+                t1.indices = ["T1_UP", "T1_DOWN", "TO_CONTRACT"]
+                t2.indices = ["T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
+                tn = TensorNetwork([t1, t2])
+                tn.contract_index("TO_CONTRACT")
+                tensor = Tensor(
+                    tn.tensors[0].data, tn.get_all_indices(), tn.get_all_labels()
+                )
+                tensor.combine_indices(["T1_DOWN", "T2_DOWN"], new_index_name="DOWN")
+                tensor.reorder_indices(["T1_UP", "DOWN", "T2_RIGHT"])
+            arrays_sub.append(tensor.data)
+
+            # Interior sites of the block
+            for i in range(1, n_sub - 1):
+                t1 = mps.tensors[block_start + i - 1]
+                t2 = mpo.tensors[i]
+                # MPS rank-3 (up, down, phys), MPO rank-4 (up, down, R, L)
+                t1.indices = ["T1_UP", "T1_DOWN", "TO_CONTRACT"]
+                t2.indices = ["T2_UP", "T2_DOWN", "T2_RIGHT", "TO_CONTRACT"]
+                tn = TensorNetwork([t1, t2])
+                tn.contract_index("TO_CONTRACT")
+                tensor = Tensor(
+                    tn.tensors[0].data, tn.get_all_indices(), tn.get_all_labels()
+                )
+                tensor.combine_indices(["T1_UP", "T2_UP"], new_index_name="UP")
+                tensor.combine_indices(["T1_DOWN", "T2_DOWN"], new_index_name="DOWN")
+                tensor.reorder_indices(["UP", "DOWN", "T2_RIGHT"])
+                arrays_sub.append(tensor.data)
+
+            # Last site of the block
+            t1 = mps.tensors[block_start + n_sub - 2]
+            t2 = mpo.tensors[-1]
+            block_end = block_start + n_sub - 1
+            if block_end == n:
+                # MPS rank-2 (up, phys), MPO rank-3 (up, R, L)
+                t1.indices = ["T1_UP", "TO_CONTRACT"]
+                t2.indices = ["T2_UP", "T2_RIGHT", "TO_CONTRACT"]
+                tn = TensorNetwork([t1, t2])
+                tn.contract_index("TO_CONTRACT")
+                tensor = Tensor(
+                    tn.tensors[0].data, tn.get_all_indices(), tn.get_all_labels()
+                )
+                tensor.combine_indices(["T1_UP", "T2_UP"], new_index_name="UP")
+                tensor.reorder_indices(["UP", "T2_RIGHT"])
+            else:
+                # MPS rank-3 (up, down, phys), MPO rank-3 (up, R, L)
+                t1.indices = ["T1_UP", "T1_DOWN", "TO_CONTRACT"]
+                t2.indices = ["T2_UP", "T2_RIGHT", "TO_CONTRACT"]
+                tn = TensorNetwork([t1, t2])
+                tn.contract_index("TO_CONTRACT")
+                tensor = Tensor(
+                    tn.tensors[0].data, tn.get_all_indices(), tn.get_all_labels()
+                )
+                tensor.combine_indices(["T1_UP", "T2_UP"], new_index_name="UP")
+                tensor.reorder_indices(["UP", "T1_DOWN", "T2_RIGHT"])
+            arrays_sub.append(tensor.data)
+
+            # Write the contracted block back into the MPS tensors
+            for i, arr in enumerate(arrays_sub):
+                mps.tensors[block_start + i - 1].data = arr
+                mps.tensors[block_start + i - 1].dimensions = arr.shape
+
+        # SWAP non-contiguous sites back to their original positions
+        for i in range(n_sub - 2, -1, -1):
+            target = sorted_sites[i + 1] if i + 1 < n_sub else None
+            if target is not None:
+                while current_positions[i + 1] < sorted_sites[i + 1]:
+                    swap_site = current_positions[i + 1]
+                    mps._apply_swap(swap_site, max_bond)
+                    current_positions[i + 1] += 1
+
+        arrays = [t.data for t in mps.tensors]
+        result_mps = MatrixProductState.from_arrays(arrays)
+
+        if max_bond and result_mps.bond_dimension > max_bond:
+            result_mps.compress(max_bond)
+
+        return result_mps
+
+    def contract_sub_mps(
+        self,
+        other: "MatrixProductState",
+        sites: list[int],
+    ) -> "MatrixProductState":
+        """
+        Contract the MPS with a smaller MPS on the given sites,
+        using a SWAP network to bring non-contiguous sites together.
+
+        Args:
+            other: The smaller MPS to contract with.
+            sites: The list of site indices where the smaller MPS acts.
+
+        Returns:
+            A smaller MPS that is the output of the partial inner product.
+        """
+        mps1 = copy.deepcopy(self)
+        mps2 = copy.deepcopy(other)
+        mps1.set_default_indices()
+        mps2.set_default_indices()
+        mps2.dagger()
+        mps1.reshape()
+        mps2.reshape()
+
+        sorted_sites = sorted(sites)
+        n_sub = len(sorted_sites)
+        n = mps1.num_sites
+
+        # SWAP non-contiguous sites into a contiguous block
+        current_positions = list(sorted_sites)
+        for i in range(n_sub - 1):
+            target = current_positions[i] + 1
+            while current_positions[i + 1] > target:
+                swap_site = current_positions[i + 1] - 1
+                mps1._apply_swap(swap_site)
+                current_positions[i + 1] -= 1
+
+        block_start = current_positions[0]
+        block_end = current_positions[-1]
+
+        # Rename mps2 virtual bonds to avoid clashes
+        for tidx in range(mps2.num_sites):
+            t = mps2.tensors[tidx]
+            t.indices = [x if x[0] == "P" else x + "_" for x in t.indices]
+
+        # Contract mps2 into the block site by site
+        # After contraction of physical legs and virtual bonds within the block,
+        # we are left with a matrix/vector connecting the dangling bonds
+        # at the block boundaries
+
+        all_tensors = mps1.tensors[block_start - 1 : block_end] + mps2.tensors
+        tn = TensorNetwork(all_tensors)
+
+        # Contract physical legs and internal virtual bonds
+        for i in range(n_sub):
+            tn.contract_index(f"P{block_start + i}")
+        for i in range(n_sub - 1):
+            tn.contract_index(f"B{block_start + i}")
+            tn.combine_indices(
+                [f"B{block_start + i + 1}", f"B{block_start + i + 1}_"],
+                new_index_name=f"B{block_start + i + 1}",
+            )
+
+        # The result is a matrix/vector connecting the left and right
+        # dangling bonds of the block. Absorb into the neighbouring site.
+        # The remaining tensor in tn connects B{block_start-1} (if exists)
+        # and B{block_end+1} (if exists) — i.e. it is rank-0, rank-1, or rank-2.
+        result_data = tn.tensors[0].data
+        result_data = _as_dense(result_data)
+
+        # Remove the block tensors from mps1
+        for _ in range(n_sub):
+            mps1.tensors.pop(block_start - 1)
+        mps1.num_sites -= n_sub
+
+        if result_data.ndim == 0:
+            # Scalar: multiply into left neighbour if exists, else right
+            if block_start > 1:
+                neighbour = mps1.tensors[block_start - 2]
+                neighbour.data = _as_dense(neighbour.data) * result_data
+            else:
+                neighbour = mps1.tensors[0]
+                neighbour.data = _as_dense(neighbour.data) * result_data
+
+        elif result_data.ndim == 1:
+            # Vector: one dangling bond. Contract into the appropriate neighbour.
+            if block_start > 1 and block_end < n:
+                # Shouldn't happen for a proper contiguous block — both ends open
+                raise ValueError("Unexpected rank-1 result with two open boundaries.")
+            elif block_start == 1:
+                # Block was at the left end: dangling bond points right to site block_end+1
+                # which is now site 1 of the remaining MPS
+                neighbour = mps1.tensors[0]
+                nb_data = _as_dense(neighbour.data)
+                # neighbour is new left boundary: rank-2 (down, phys)
+                # result_data has index B{block_end+1}
+                neighbour.data = np.einsum("a,ab->b", result_data, nb_data)
+            else:
+                # Block was at the right end: dangling bond points left
+                neighbour = mps1.tensors[block_start - 2]
+                nb_data = _as_dense(neighbour.data)
+                # neighbour is new right boundary: rank-2 (up, phys)
+                neighbour.data = np.einsum("ab,b->a", nb_data, result_data)
+            neighbour.dimensions = neighbour.data.shape
+
+        else:
+            # Matrix: two dangling bonds. Absorb into the right neighbour
+            # (the site immediately after the block, now at index block_start-1)
+            if block_start > 1 and block_end < n:
+                # General middle case: absorb into right neighbour
+                neighbour = mps1.tensors[block_start - 1]
+                nb_data = _as_dense(neighbour.data)
+                # result_data: (B{block_start-1}, B{block_end+1})
+                # neighbour (right of block): rank-3 (up, down, phys) or rank-2 (up, phys)
+                # Its up bond = B{block_end+1} contracts with result's second index
+                # result's first index B{block_start-1} fuses with left neighbour's down bond
+                # We absorb result into right neighbour, giving it an extra left bond
+                if block_end + 1 == n:
+                    # right neighbour is right boundary: rank-2 (up, phys)
+                    neighbour.data = np.einsum("ab,bc->ac", result_data, nb_data)
+                else:
+                    # right neighbour is interior: rank-3 (up, down, phys)
+                    neighbour.data = np.einsum("ab,bcd->acd", result_data, nb_data)
+                neighbour.dimensions = neighbour.data.shape
+            else:
+                raise ValueError("Unexpected matrix result at MPS boundary.")
+
+        arrays = [_as_dense(t.data) for t in mps1.tensors]
+        result_mps = MatrixProductState.from_arrays(arrays)
+
+        if result_mps.bond_dimension and self.bond_dimension:
+            if result_mps.bond_dimension > self.bond_dimension:
+                result_mps.compress(self.bond_dimension)
+
+        return result_mps
 
     def set_default_indices(
         self,
@@ -842,9 +1304,7 @@ class MatrixProductState(TensorNetwork):
 
         return val
 
-    def compute_expectation_value(
-        self, mpo: MatrixProductOperator, optimisation_method: str = "auto"
-    ) -> complex:
+    def compute_expectation_value(self, mpo: MatrixProductOperator) -> complex:
         """
         Calculate an expectation value of the form <MPS | MPO | MPS>.
 
@@ -873,7 +1333,7 @@ class MatrixProductState(TensorNetwork):
         mps_bra.set_default_indices(internal_prefix="E", external_prefix="D")
 
         tn = TensorNetwork(mps_bra.tensors + mpo_op.tensors + mps_ket.tensors)
-        val = tn.contract_entire_network(optimisation_method)
+        val = tn.contract_entire_network()
 
         return complex(val)
 
@@ -888,71 +1348,87 @@ class MatrixProductState(TensorNetwork):
         Returns:
             |self><other| as a MPO
         """
+        assert self.num_sites == other.num_sites
+
         if self.num_sites == 1:
             ket = self.to_dense_array()
             bra = other.to_dense_array()
-            prod = np.outer(ket, bra)
-            return MatrixProductOperator.from_arrays([prod])
+            return MatrixProductOperator.from_arrays([np.outer(ket, bra)])
+
         ket = copy.deepcopy(self)
         bra = copy.deepcopy(other)
         bra.dagger()
 
+        self_sparse = all(isinstance(t.data, SparseArray) for t in ket.tensors)
+        other_sparse = all(isinstance(t.data, SparseArray) for t in bra.tensors)
+        result_sparse = self_sparse and other_sparse
+
         arrays = []
-        ket_tensors = [t.data for t in ket.tensors]
-        bra_tensors = [t.data for t in bra.tensors]
-        for A_ket, A_bra in zip(ket_tensors, bra_tensors):
-            if A_ket.ndim == 2:
-                D_ket, d = A_ket.shape
-                D_bra, d = A_bra.shape
-                coords = []
-                data = []
 
-                for s in range(d):
-                    for sp in range(d):
-                        ket_s = A_ket[:, s]
-                        bra_sp = A_bra[:, sp]
-                        kron = sparse.kron(ket_s, bra_sp)
+        for A_ket, A_bra in zip(ket.tensors, bra.tensors):
+            A_k = A_ket.data
+            A_b = A_bra.data
 
-                        for idx, val in zip(kron.coords[0], kron.data):
-                            coords.append((idx, s, sp))
-                            data.append(val)
+            if result_sparse:
+                A_k = _as_sparse(A_k)
+                A_b = _as_sparse(A_b)
 
-                shape = (D_ket * D_bra, d, d)
-                array = sparse.COO(
-                    coords=np.array(coords).T, data=np.array(data), shape=shape
-                )
-                arrays.append(array)
-                continue
+                if A_k.ndim == 2:
+                    # (D, d)
+                    Dk, d = A_k.shape
+                    Db, _ = A_b.shape
 
-            Dl_ket, Dr_ket, d = A_ket.shape
-            Dl_bra, Dr_bra, d = A_bra.shape
+                    # reshape to (D,1,d) for uniform handling
+                    A_k = A_k.reshape((Dk, 1, d))
+                    A_b = A_b.reshape((Db, 1, d))
 
-            coords = []
-            data = []
+                    boundary = True
+                else:
+                    boundary = False
 
-            for s in range(d):
-                for sp in range(d):
-                    ket_s = A_ket[:, :, s]
-                    bra_sp = A_bra[:, :, sp]
+                Dl_k, Dr_k, d = A_k.shape
+                Dl_b, Dr_b, _ = A_b.shape
 
-                    kron = sparse.kron(ket_s, bra_sp)
-                    kron = kron.reshape((Dl_ket, Dl_bra, Dr_ket, Dr_bra))
+                # broadcast outer product over physical indices
+                # result: (Dl_k, Dl_b, Dr_k, Dr_b, d, d)
+                W = sparse.einsum("a b s, c d t -> a c b d s t", A_k, A_b)
 
-                    for (i, j, k, l), val in zip(zip(*kron.coords), kron.data):
-                        left_index = i * Dl_ket + j
-                        right_index = k * Dr_bra + l
-                        coords.append((left_index, right_index, s, sp))
-                        data.append(val)
+                # reshape bonds
+                W = W.reshape((Dl_k * Dl_b, Dr_k * Dr_b, d, d))
 
-            shape = (Dl_ket * Dl_bra, Dr_ket * Dr_bra, d, d)
-            array = sparse.COO(
-                coords=np.array(coords).T, data=np.array(data), shape=shape
-            )
-            arrays.append(array)
+                if boundary:
+                    W = W.reshape((Dl_k * Dl_b, d, d))
 
-        mpdo = MatrixProductOperator.from_arrays(arrays)
+            else:
+                A_k = _as_dense(A_k)
+                A_b = _as_dense(A_b)
 
-        return mpdo
+                if A_k.ndim == 2:
+                    Dk, d = A_k.shape
+                    Db, _ = A_b.shape
+
+                    A_k = A_k.reshape((Dk, 1, d))
+                    A_b = A_b.reshape((Db, 1, d))
+
+                    boundary = True
+                else:
+                    boundary = False
+
+                Dl_k, Dr_k, d = A_k.shape
+                Dl_b, Dr_b, _ = A_b.shape
+
+                W = np.einsum("a b s, c d t -> a c b d s t", A_k, A_b)
+
+                W = W.reshape((Dl_k * Dl_b, Dr_k * Dr_b, d, d))
+
+                if boundary:
+                    W = W.reshape((Dl_k * Dl_b, d, d))
+
+            arrays.append(W)
+
+        sh = StorageHint.SPARSE if result_sparse else StorageHint.DENSE
+
+        return MatrixProductOperator.from_arrays(arrays, storage_hint=sh)
 
     def form_density_operator(self) -> MatrixProductOperator:
         """
@@ -978,7 +1454,7 @@ class MatrixProductState(TensorNetwork):
         """
         mps = copy.deepcopy(self)
         mpdo = mps.form_density_operator()
-        return mpdo.partial_trace(sites, matrix, True)
+        return mpdo.partial_trace(sites, matrix)
 
     def normalise(self, value: float = 1.0) -> None:
         """
@@ -1046,209 +1522,77 @@ class MatrixProductState(TensorNetwork):
         """
         draw_mps(self.tensors, node_size, x_len, y_len)
 
-    def swap_neighbouring_sites(self, idx: int) -> None:
-        """
-        Swap two neighbouring sites of the MPS.
+    # def contract_sub_mps(
+    #     self,
+    #     other: "MatrixProductState",
+    #     sites: list[int],
+    #     set_default_indices: bool = False,
+    # ) -> "MatrixProductState":
+    #     """
+    #     Contract the MPS with a smaller MPS on the given sites
 
-        Args:
-            idx: The index of the first site
-        """
-        if idx == self.num_sites:
-            return
+    #     Args:
+    #         sites: The list of sites where the smaller MPS acts
+    #         set_default_indices: Whether or not to reset the index labels to default
 
-        self.reshape()
+    #     Returns:
+    #         A smaller MPS that is the output of the partial inner product
+    #     """
 
-        if self.num_sites == 2:
-            bond = self.tensors[0].indices[0]
-            phys_idx1 = self.tensors[0].indices[1]
-            phys_idx2 = self.tensors[1].indices[1]
-            self.contract_index(bond)
-            self.svd(
-                self.tensors[0],
-                [phys_idx2],
-                [phys_idx1],
-                max_bond=None,
-                new_index_name=bond,
-                tol=1e-12,
-            )
-            self.tensors[0].reorder_indices([bond, phys_idx2])
-            self.tensors[1].reorder_indices([bond, phys_idx1])
-            return
+    #     mps1 = copy.deepcopy(self)
+    #     mps2 = copy.deepcopy(other)
+    #     mps1.set_default_indices()
+    #     mps2.set_default_indices()
+    #     mps2.dagger()
 
-        if idx == 1:
-            bond = self.tensors[0].indices[0]
-            phys_idx1 = self.tensors[0].indices[1]
-            phys_idx2 = self.tensors[1].indices[2]
-        elif idx == self.num_sites - 1:
-            bond = self.tensors[idx - 1].indices[1]
-            phys_idx1 = self.tensors[idx - 1].indices[2]
-            phys_idx2 = self.tensors[idx].indices[1]
-        else:
-            bond = self.tensors[idx - 1].indices[1]
-            phys_idx1 = self.tensors[idx - 1].indices[2]
-            phys_idx2 = self.tensors[idx].indices[2]
+    #     mps1.reshape()
+    #     mps2.reshape()
 
-        input_inds = copy.deepcopy(self.tensors[idx - 1].indices)
-        input_inds.remove(bond)
-        input_inds.remove(phys_idx1)
-        input_inds.append(phys_idx2)
-        output_inds = copy.deepcopy(self.tensors[idx].indices)
-        output_inds.remove(bond)
-        output_inds.remove(phys_idx2)
-        output_inds.append(phys_idx1)
-        self.contract_index(bond)
-        self.svd(
-            self.tensors[idx - 1],
-            input_inds,
-            output_inds,
-            max_bond=None,
-            new_index_name=bond,
-            tol=1e-12,
-        )
+    #     all_sites = list(range(1, self.num_sites + 1))
+    #     target_site_ordering = [0] * self.num_sites
+    #     for idx in sites:
+    #         target_site_ordering[idx - 1] = sites.index(idx) + 1
+    #         all_sites.remove(sites.index(idx) + 1)
+    #     for site in all_sites:
+    #         target_site_ordering[target_site_ordering.index(0)] = site
 
-        if idx == 1:
-            self.tensors[idx - 1].reorder_indices([bond] + input_inds)
-        else:
-            self.tensors[idx - 1].reorder_indices(
-                [input_inds[0]] + [bond] + [input_inds[1]]
-            )
-        self.tensors[idx].reorder_indices([bond] + output_inds)
+    #     mps1.reorder_sites(target_site_ordering, set_default_indices=True)
 
-        return
+    #     output_indices = []
+    #     for site_idx in range(len(sites), self.num_sites):
+    #         t = self.tensors[site_idx]
+    #         output_indices.append(t.indices)
 
-    def swap_sites(self, idx1: int, idx2: int) -> None:
-        """
-        Swap two sites of the MPS.
+    #     for tidx in range(mps2.num_sites):
+    #         t = mps2.tensors[tidx]
+    #         current_indices = t.indices
+    #         new_indices = [x if x[0] == "P" else x + "_" for x in current_indices]
+    #         t.indices = new_indices
+    #     all_tensors = mps1.tensors + mps2.tensors
 
-        Args:
-            idx1: The index of the first site
-            idx2: The index of the second site
-        """
-        if idx1 == idx2:
-            return
+    #     tn = TensorNetwork(all_tensors, "TotalTN")
+    #     for n in range(len(sites) - 1):
+    #         tn.contract_index(f"P{n + 1}")
+    #         tn.contract_index(f"B{n + 1}")
+    #         tn.combine_indices([f"P{n + 2}", f"B{n + 2}_"], new_index_name=f"P{n + 2}")
+    #     tn.contract_index(f"P{len(sites)}")
+    #     tn.contract_index(f"B{len(sites)}")
 
-        self.reshape()
-        if idx1 < idx2:
-            first_idx = idx1
-            second_idx = idx2
-        else:
-            first_idx = idx2
-            second_idx = idx1
+    #     mps = MatrixProductState(tn.tensors)
+    #     for t_idx in range(mps.num_sites):
+    #         t = mps.tensors[t_idx]
+    #         t.indices = (
+    #             output_indices[t_idx][1:] if t_idx == 0 else output_indices[t_idx]
+    #         )
 
-        for idx in range(first_idx, second_idx):
-            self.swap_neighbouring_sites(idx)
-        for idx in list(range(first_idx, second_idx - 1))[::-1]:
-            self.swap_neighbouring_sites(idx)
-        return
+    #     if set_default_indices:
+    #         self.set_default_indices()
 
-    def reorder_sites(
-        self, site_mapping: list[int], set_default_indices: bool = False
-    ) -> None:
-        """
-        Reorder the sites of the MPS without changing the state.
+    #     if mps.bond_dimension and self.bond_dimension:
+    #         if mps.bond_dimension > self.bond_dimension:
+    #             mps.compress(self.bond_dimension)
 
-        Args:
-            site_mapping: A list of the target ordering of sites
-        """
-
-        target_pos = [i - 1 for i in site_mapping]
-
-        visited = [False] * self.num_sites
-
-        for i in range(self.num_sites):
-            if visited[i] or target_pos[i] == i:
-                continue
-
-            j = i
-            cycle = []
-
-            while not visited[j]:
-                visited[j] = True
-                cycle.append(j)
-                j = target_pos[j]
-
-            for k in range(len(cycle) - 1, 0, -1):
-                # Apply swaps on logical site indices (1-based)
-                a = cycle[k - 1] + 1
-                b = cycle[k] + 1
-                self.swap_sites(a, b)
-
-        if set_default_indices:
-            self.set_default_indices()
-
-        return
-
-    def contract_sub_mps(
-        self,
-        other: "MatrixProductState",
-        sites: list[int],
-        set_default_indices: bool = False,
-    ) -> "MatrixProductState":
-        """
-        Contract the MPS with a smaller MPS on the given sites
-
-        Args:
-            sites: The list of sites where the smaller MPS acts
-            set_default_indices: Whether or not to reset the index labels to default
-
-        Returns:
-            A smaller MPS that is the output of the partial inner product
-        """
-
-        mps1 = copy.deepcopy(self)
-        mps2 = copy.deepcopy(other)
-        mps1.set_default_indices()
-        mps2.set_default_indices()
-        mps2.dagger()
-
-        mps1.reshape()
-        mps2.reshape()
-
-        all_sites = list(range(1, self.num_sites + 1))
-        target_site_ordering = [0] * self.num_sites
-        for idx in sites:
-            target_site_ordering[idx - 1] = sites.index(idx) + 1
-            all_sites.remove(sites.index(idx) + 1)
-        for site in all_sites:
-            target_site_ordering[target_site_ordering.index(0)] = site
-
-        mps1.reorder_sites(target_site_ordering, set_default_indices=True)
-
-        output_indices = []
-        for site_idx in range(len(sites), self.num_sites):
-            t = self.tensors[site_idx]
-            output_indices.append(t.indices)
-
-        for tidx in range(mps2.num_sites):
-            t = mps2.tensors[tidx]
-            current_indices = t.indices
-            new_indices = [x if x[0] == "P" else x + "_" for x in current_indices]
-            t.indices = new_indices
-        all_tensors = mps1.tensors + mps2.tensors
-
-        tn = TensorNetwork(all_tensors, "TotalTN")
-        for n in range(len(sites) - 1):
-            tn.contract_index(f"P{n + 1}")
-            tn.contract_index(f"B{n + 1}")
-            tn.combine_indices([f"P{n + 2}", f"B{n + 2}_"], new_index_name=f"P{n + 2}")
-        tn.contract_index(f"P{len(sites)}")
-        tn.contract_index(f"B{len(sites)}")
-
-        mps = MatrixProductState(tn.tensors)
-        for t_idx in range(mps.num_sites):
-            t = mps.tensors[t_idx]
-            t.indices = (
-                output_indices[t_idx][1:] if t_idx == 0 else output_indices[t_idx]
-            )
-
-        if set_default_indices:
-            self.set_default_indices()
-
-        if mps.bond_dimension and self.bond_dimension:
-            if mps.bond_dimension > self.bond_dimension:
-                mps.compress(self.bond_dimension)
-
-        return mps
+    #     return mps
 
     def get_probability_distribution(self) -> dict[str, float]:
         """
@@ -1298,12 +1642,12 @@ class MatrixProductState(TensorNetwork):
         """
         mps = copy.deepcopy(self)
 
-        def _dense(tensor) -> np.ndarray:
+        def _dense(tensor: Tensor) -> np.ndarray:
             """Return tensor data as a dense numpy array."""
-            arr = tensor.data.todense()
+            arr = tensor.to_dense()
             return np.asarray(arr)
 
-        def _site_tensor(mps, site: int) -> np.ndarray:
+        def _site_tensor(mps: "MatrixProductState", site: int) -> np.ndarray:
             """
             Return the dense array for the 1-indexed site.
             Index layout:

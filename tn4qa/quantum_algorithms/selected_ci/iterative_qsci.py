@@ -169,18 +169,18 @@ class IterativeQSCI(QuantumAlgorithm):
             bitstring = MatrixProductState.from_bitstring(subspace[idx])
             d = self.calculate_discovery_coefficient(bitstring)
             discovery_coeffs.append(d)
-        total_d = sum([d**2 for d in discovery_coeffs])
-        if total_d != 0:
-            normalised_discovery_coeffs = [
-                d / np.sqrt(total_d) for d in discovery_coeffs
-            ]
-        else:
-            normalised_discovery_coeffs = discovery_coeffs
+        # total_d = sum([d**2 for d in discovery_coeffs])
+        # if total_d != 0:
+        #     normalised_discovery_coeffs = [
+        #         d / np.sqrt(total_d) for d in discovery_coeffs
+        #     ]
+        # else:
+        #     normalised_discovery_coeffs = discovery_coeffs
 
         scores = []
         for idx in range(len(subspace)):
             f = self.calculate_scoring_function(
-                iteration_number, gs[idx], normalised_discovery_coeffs[idx]
+                iteration_number, gs[idx], discovery_coeffs[idx]
             )
             scores.append(f)
 
@@ -192,8 +192,8 @@ class IterativeQSCI(QuantumAlgorithm):
 
         d = {subspace[idx]: weights[idx] for idx in range(len(subspace))}
 
-        reference_state = MatrixProductState.from_bitstring_dict(d, 2)
-        reference_state.compress(2)
+        reference_state = MatrixProductState.from_bitstring_dict(d, 8)
+        # reference_state.compress(2)
         reference_state.normalise()
 
         return reference_state

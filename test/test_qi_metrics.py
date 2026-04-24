@@ -25,7 +25,13 @@ h2_ham = h2_data.qubit_hamiltonian
 
 h2_dmrg = DMRG(h2_ham, 8)
 _, h2_mps = h2_dmrg.run(20)
-# h2_mps = h2_dmrg.mps
+
+lih_file = "molecules/LiH.json"
+lih_data = ReadMoleculeData(lih_file)
+lih_ham = lih_data.qubit_hamiltonian
+
+lih_dmrg = DMRG(lih_ham, 8)
+_, lih_mps = lih_dmrg.run(20)
 
 
 def test_rdm1():
@@ -44,20 +50,19 @@ def test_rdm2():
     assert np.allclose(h2_rdm2, h2_rdm2_dmrg, atol=0.01)
 
 
-def test_mutual_information(water_DMRG):
-    print(water_DMRG)
+def test_mutual_information():
     assert np.isclose(
-        get_mutual_information(water_DMRG, [1, 1]),
-        get_one_orbital_entropy(water_DMRG, 1),
+        get_mutual_information(lih_mps, [1, 1]),
+        get_one_orbital_entropy(lih_mps, 1),
         atol=1e-4,
     )
 
 
-def test_get_all_mutual_information(water_DMRG):
-    water_mi = get_all_mutual_information(water_DMRG)
+def test_get_all_mutual_information():
+    water_mi = get_all_mutual_information(lih_mps)
     assert np.allclose(
         [
-            get_one_orbital_entropy(water_DMRG, i + 1)
+            get_one_orbital_entropy(lih_mps, i + 1)
             for i in range(np.diag(water_mi).size)
         ],
         np.diag(water_mi),

@@ -191,7 +191,6 @@ def get_one_orbital_rdm(
         spin_orbitals_to_remove.remove(2 * orbital_idx - 1)
         spin_orbitals_to_remove.remove(2 * orbital_idx)
         rdm = mps.partial_trace(spin_orbitals_to_remove, matrix=True)
-        rdm = rdm.data.todense()
         if enforce_symmetry:
             for j in range(4):
                 for i in range(j):
@@ -297,7 +296,6 @@ def get_two_orbital_rdm(
         spin_orbitals_to_remove.remove(2 * sites[1] - 1)
         spin_orbitals_to_remove.remove(2 * sites[1])
         rdm = mps.partial_trace(spin_orbitals_to_remove, matrix=True)
-        rdm = rdm.data.todense()
         if enforce_symmetry:
             for i in range(16):
                 for j in range(16):

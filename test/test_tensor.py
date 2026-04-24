@@ -6,7 +6,6 @@ from numpy import ndarray
 # Qiskit Imports
 from qiskit.circuit.library import CXGate, HGate, XGate
 from qiskit.quantum_info import Operator
-from sparse import SparseArray
 
 from tn4qa.tensor import Tensor
 
@@ -26,9 +25,9 @@ def test_constructor_sparse():
     )
 
     # Test all properties have been passed on appropriately
-    assert np.allclose(TEST_ARRAY, tensor.data.todense()), (
-        "Tensor data does not match input array."
-    )
+    assert np.allclose(
+        TEST_ARRAY, tensor.to_dense()
+    ), "Tensor data does not match input array."
     assert (
         tensor.indices[0] == "INDEX_1"
         and tensor.indices[1] == "INDEX_2"
@@ -52,9 +51,9 @@ def test_constructor_numpy():
     tensor = Tensor(x_mat, ["INDEX_1", "INDEX_2", "INDEX_3", "INDEX_4"], ["LABEL_1"])
 
     # Test all properties have been passed on appropriately
-    assert np.allclose(TEST_ARRAY, tensor.data.todense()), (
-        "Tensor data does not match input array."
-    )
+    assert np.allclose(
+        TEST_ARRAY, tensor.to_dense()
+    ), "Tensor data does not match input array."
     assert (
         tensor.indices[0] == "INDEX_1"
         and tensor.indices[1] == "INDEX_2"
@@ -79,9 +78,7 @@ def test_from_array_numpy_3D():
     tensor_3d = Tensor.from_array(
         numpy_array_3d, indices=["H1", "H2", "H3"], labels=["L1", "L2", "L3"]
     )
-    assert isinstance(tensor_3d.data.todense(), ndarray), (
-        "Data should be a NumPy ndarray"
-    )
+    assert isinstance(tensor_3d.to_dense(), ndarray), "Data should be a NumPy ndarray"
     assert tensor_3d.indices == [
         "H1",
         "H2",
@@ -98,39 +95,17 @@ def test_from_array_numpy_empty():
     # Empty NumPy array
     empty_numpy_array = np.array([])
     tensor_empty_numpy = Tensor.from_array(empty_numpy_array)
-    print(tensor_empty_numpy.indices)
     assert tensor_empty_numpy.indices == [], "Indices should be empty for empty array"
     assert tensor_empty_numpy.labels == ["T1"], "Labels should default to ['T1']"
-
-
-def test_from_array_sparse_3D():
-    # High-dimensional Sparse array
-    sparse_array_3d = sparse.COO(np.random.randint(0, 2, size=(2, 3, 4)))
-    tensor_sparse_3d = Tensor.from_array(
-        sparse_array_3d, indices=["S1", "S2", "S3"], labels=["L1", "L2", "L3"]
-    )
-    assert isinstance(tensor_sparse_3d.data, SparseArray), (
-        "Data should be a SparseArray"
-    )
-    assert tensor_sparse_3d.indices == [
-        "S1",
-        "S2",
-        "S3",
-    ], "Indices should match the array dimensions"
-    assert tensor_sparse_3d.labels == [
-        "L1",
-        "L2",
-        "L3",
-    ], "Labels should match the given labels"
 
 
 def test_from_array_sparse_empty():
     # Empty Sparse array
     empty_sparse_array = sparse.COO(np.array([]))
     tensor_empty_sparse = Tensor.from_array(empty_sparse_array)
-    assert tensor_empty_sparse.indices == [], (
-        "Indices should be empty for empty Sparse array"
-    )
+    assert (
+        tensor_empty_sparse.indices == []
+    ), "Indices should be empty for empty Sparse array"
     assert tensor_empty_sparse.labels == ["T1"], "Labels should default to ['T1']"
 
 
@@ -148,9 +123,9 @@ def test_from_array_large():
     # Large arrays
     large_array = np.random.rand(1000, 1000)
     tensor_large = Tensor.from_array(large_array)
-    assert len(tensor_large.indices) == 2, (
-        "Indices should match the number of dimensions"
-    )
+    assert (
+        len(tensor_large.indices) == 2
+    ), "Indices should match the number of dimensions"
     assert tensor_large.data.shape == (
         1000,
         1000,
@@ -226,9 +201,7 @@ def test_rank_3_copy():
     expected_labels = ["T1", "copy3"]
 
     # Test properties
-    assert (tensor.data.todense() == expected_data).all(), (
-        "Data does not match expected"
-    )
+    assert (tensor.to_dense() == expected_data).all(), "Data does not match expected"
     assert tensor.dimensions == expected_shape, " Invalid shape"
     assert tensor.rank == expected_rank, " Validate the rank"
     assert tensor.indices == expected_indices, "Indices do not match expected"
@@ -249,9 +222,7 @@ def test_rank_4_copy():
     expected_labels = ["T1", "copy4"]
 
     # Test properties
-    assert (tensor.data.todense() == expected_data).all(), (
-        "Data does not match expected"
-    )
+    assert (tensor.to_dense() == expected_data).all(), "Data does not match expected"
     assert tensor.dimensions == expected_shape, " Invalid shape"
     assert tensor.rank == expected_rank, " Incorrect rank"
     assert tensor.indices == expected_indices, "Indices do not match expected"
@@ -271,9 +242,7 @@ def test_rank_3_copy_open():
     expected_labels = ["T1", "copy3open"]
 
     # Test properties
-    assert (tensor.data.todense() == expected_data).all(), (
-        "Data does not match expected"
-    )
+    assert (tensor.to_dense() == expected_data).all(), "Data does not match expected"
     assert tensor.dimensions == expected_shape, " Invalid shape"
     assert tensor.rank == expected_rank, " Incorrect rank"
     assert tensor.indices == expected_indices, "Indices do not match expected"
@@ -294,9 +263,7 @@ def test_rank_4_copy_open():
     expected_labels = ["T1", "copy4open"]
 
     # Test properties
-    assert (tensor.data.todense() == expected_data).all(), (
-        "Data does not match expected"
-    )
+    assert (tensor.to_dense() == expected_data).all(), "Data does not match expected"
     assert tensor.dimensions == expected_shape, " Invalid shape"
     assert tensor.rank == expected_rank, " Incorrect rank"
     assert tensor.indices == expected_indices, "Indices do not match expected"
@@ -315,9 +282,7 @@ def test_rank_3_qiskit_gate():
     ).reshape(2, 2, 2)
 
     # Test properties
-    assert np.allclose(tensor.data.todense(), expected_data), (
-        "Data does not match expected"
-    )
+    assert np.allclose(tensor.to_dense(), expected_data), "Data does not match expected"
     assert tensor.indices == ["B1", "R1", "L1"], "Indices do not match expected"
     assert tensor.labels == ["T1", "rank3h"], "Labels do not match expected"
 
@@ -335,9 +300,7 @@ def test_rank_4_qiskit_gate():
     ).reshape(2, 2, 2, 2)
 
     # Test properties
-    assert np.allclose(tensor.data.todense(), expected_data), (
-        "Data does not match expected"
-    )
+    assert np.allclose(tensor.to_dense(), expected_data), "Data does not match expected"
     assert tensor.indices == ["B1", "B2", "R1", "L1"], "Indices do not match expected"
     assert tensor.labels == ["T1", "rank4h"], "Labels do not match expected"
     assert tensor.dimensions == (2, 2, 2, 2), "Dimensions do not match expected"
@@ -357,15 +320,15 @@ def test_reorder_indices():
         TEST_ARRAY.shape[0],
         TEST_ARRAY.shape[1],
     )
-    assert tensor.dimensions == expected_shape, (
-        "Shape not updated correctly after reordering"
-    )
+    assert (
+        tensor.dimensions == expected_shape
+    ), "Shape not updated correctly after reordering"
 
     # Check data manipulation
     expected_data = sparse.moveaxis(TEST_ARRAY, [0, 1, 2, 3], [2, 3, 0, 1])
-    assert np.allclose(tensor.data.todense(), expected_data), (
-        "Data not moved correctly (sparse array)"
-    )
+    assert np.allclose(
+        tensor.to_dense(), expected_data
+    ), "Data not moved correctly (sparse array)"
 
 
 def test_new_index_name():
@@ -386,9 +349,9 @@ def test_get_total_dimension_of_indices():
     tensor = Tensor(TEST_ARRAY, ["I1", "I2", "I3", "I4"], ["Label1"])
     total_dim = tensor.get_total_dimension_of_indices(["I1", "I2"])
 
-    assert total_dim == TEST_ARRAY.shape[0] * TEST_ARRAY.shape[1], (
-        "Total dimenions of indices incorrect."
-    )
+    assert (
+        total_dim == TEST_ARRAY.shape[0] * TEST_ARRAY.shape[1]
+    ), "Total dimenions of indices incorrect."
 
 
 def test_combine_indices():
@@ -402,9 +365,9 @@ def test_combine_indices():
     # Check shape
     combined_dim = TEST_ARRAY.shape[0] * TEST_ARRAY.shape[1]
     expected_shape = (combined_dim,) + TEST_ARRAY.shape[2:]
-    assert tensor.dimensions == expected_shape, (
-        "Shape not updated correctly after combining indices"
-    )
+    assert (
+        tensor.dimensions == expected_shape
+    ), "Shape not updated correctly after combining indices"
 
     # Check data manipulation
     reshaped_data = TEST_ARRAY.reshape(expected_shape)
@@ -430,7 +393,7 @@ def test_tensor_to_matrix():
     # Check data manipulation
     reshaped_data = np.moveaxis(TEST_ARRAY, [0, 1], [2, 3])
     reshaped_data = reshaped_data.reshape(expected_shape)
-    tensor_data = tensor.data.todense()
+    tensor_data = tensor.to_dense()
     assert np.allclose(tensor_data, reshaped_data), "Data not reshaped correctly"
 
 
@@ -438,6 +401,6 @@ def test_multiply_by_constant():
     tensor = Tensor(TEST_ARRAY, ["I1", "I2", "I3", "I4"], ["Label1"])
     tensor.multiply_by_constant(2)
 
-    assert np.allclose(tensor.data.todense(), TEST_ARRAY * 2), (
-        "Multiply by constant incorrect."
-    )
+    assert np.allclose(
+        tensor.to_dense(), TEST_ARRAY * 2
+    ), "Multiply by constant incorrect."

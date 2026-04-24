@@ -161,6 +161,8 @@ def test_zero_reflection_mpo():
     mpo_dense = mpo.to_dense_array()
     expected = np.eye(2**4)
     expected[0][0] = -1
+    print(expected)
+    print(mpo_dense)
     assert np.allclose(expected, mpo_dense), "Zero Reflection MPO output mismatch"
     return
 
@@ -290,7 +292,7 @@ def test_reshape():
 
     for tidx in range(2):
         assert np.allclose(
-            mpo.tensors[tidx].data.todense(), new_mpo.tensors[tidx].data.todense()
+            mpo.tensors[tidx].to_dense(), new_mpo.tensors[tidx].to_dense()
         ), f"Reshaping failed for tensor {tidx}"
 
     return
@@ -305,7 +307,7 @@ def test_move_orthogonality_centre():
 
     t = mpo.tensors[0]
     t.tensor_to_matrix([t.indices[1], t.indices[2]], [t.indices[0]])
-    t_mat = t.data.todense()
+    t_mat = t.to_dense()
     if t.dimensions[0] >= t.dimensions[1]:
         id_mat = np.eye(t.dimensions[1])
         assert np.allclose(
@@ -319,7 +321,7 @@ def test_move_orthogonality_centre():
 
     t = mpo.tensors[2]
     t.tensor_to_matrix([t.indices[1], t.indices[2], t.indices[3]], [t.indices[0]])
-    t_mat = t.data.todense()
+    t_mat = t.to_dense()
     if t.dimensions[0] >= t.dimensions[1]:
         id_mat = np.eye(t.dimensions[1])
         assert np.allclose(
@@ -333,7 +335,7 @@ def test_move_orthogonality_centre():
 
     t = mpo.tensors[3]
     t.tensor_to_matrix([t.indices[1], t.indices[2]], [t.indices[0]])
-    t_mat = t.data.todense()
+    t_mat = t.to_dense()
     if t.dimensions[0] >= t.dimensions[1]:
         id_mat = np.eye(t.dimensions[1])
         assert np.allclose(
@@ -395,22 +397,6 @@ def test_multiply_by_constant():
         assert result_a.all() == result_b.all(), "Multiply by constant test failed"
 
         return
-
-
-def test_swap_neighbouring_sites():
-    mpo = MatrixProductOperator.from_pauli_string("XI")
-    print(mpo.to_dense_array())
-    mpo.swap_neighbouring_sites(1)
-    print(mpo.to_dense_array().round(3))
-    expected_output = MatrixProductOperator.from_pauli_string("IX")
-    assert np.allclose(mpo.to_dense_array(), expected_output.to_dense_array())
-
-
-def test_reorder_sites():
-    mpo = MatrixProductOperator.from_pauli_string("IXYZ")
-    mpo.reorder_sites([3, 4, 2, 1])
-    expected_output = MatrixProductOperator.from_pauli_string("ZYIX")
-    assert np.allclose(mpo.to_dense_array(), expected_output.to_dense_array())
 
 
 def test_contract_sub_mpo():

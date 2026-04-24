@@ -163,7 +163,7 @@ class MPSOptimiser:
         env_copy = copy.deepcopy(env_tensor)
         output_inds = popped_t[0].indices
         env_copy.combine_indices(output_inds)
-        env_vec = env_copy.data.todense()
+        env_vec = env_copy.to_dense()
         return env_vec
 
     def get_closest_unitary(self, mat: ndarray) -> ndarray:
@@ -297,24 +297,24 @@ class MPSAnalyticDecomposition:
         if position == "first":
             if not reverse_direction:
                 data.reorder_indices([data.indices[1], data.indices[0]])
-            matrix = data.data.todense().reshape((4, 1))
+            matrix = data.to_dense().reshape((4, 1))
         elif position == "last":
             data.reorder_indices([data.indices[1], data.indices[0]])
-            matrix = data.data.todense().reshape((2, 2))
+            matrix = data.to_dense().reshape((2, 2))
         elif position == "middle":
             data.reorder_indices([data.indices[0], data.indices[2], data.indices[1]])
-            matrix = data.data.todense().reshape((8, 1))
+            matrix = data.to_dense().reshape((8, 1))
         else:
             if reverse_direction:
                 data.reorder_indices(
                     [data.indices[0], data.indices[2], data.indices[1]]
                 )
-                matrix = data.data.todense().reshape((4, 2))
+                matrix = data.to_dense().reshape((4, 2))
             else:
                 data.reorder_indices(
                     [data.indices[2], data.indices[1], data.indices[0]]
                 )
-                matrix = data.data.todense().reshape((4, 2))
+                matrix = data.to_dense().reshape((4, 2))
 
         shape = matrix.shape
 
@@ -354,7 +354,7 @@ class MPSAnalyticDecomposition:
         for i in range(len(bond_dim_1_idxs) - 1):
             separate_mps_arrays.append(
                 [
-                    mps.tensors[idx].data.todense()
+                    mps.tensors[idx].to_dense()
                     for idx in list(range(mps.num_sites))[
                         bond_dim_1_idxs[i] : bond_dim_1_idxs[i + 1]
                     ]
@@ -405,7 +405,7 @@ class MPSAnalyticDecomposition:
         qidxs = []
         for sub_mps in separate_mps:
             if sub_mps.num_sites == 1:
-                v = sub_mps.tensors[0].data.todense().reshape((2,))
+                v = sub_mps.tensors[0].to_dense().reshape((2,))
                 a, b = v
                 v_perp = np.array([-np.conj(b), np.conj(a)])
                 unitary = np.column_stack((v, v_perp))
@@ -502,7 +502,7 @@ class MPSAnalyticDecomposition:
         for i in range(len(bond_dim_1_idxs) - 1):
             separate_mps_arrays.append(
                 [
-                    mps.tensors[idx].data.todense()
+                    mps.tensors[idx].to_dense()
                     for idx in list(range(mps.num_sites))[
                         bond_dim_1_idxs[i] : bond_dim_1_idxs[i + 1]
                     ]
@@ -556,7 +556,7 @@ class MPSAnalyticDecomposition:
                 mps.move_orthogonality_centre(int(n // 2 + 1))
             # single-site: just make a single-qubit unitary mapping |0> -> v
             if n == 1:
-                v = sub_mps.tensors[0].data.todense().reshape((2,))
+                v = sub_mps.tensors[0].to_dense().reshape((2,))
                 a, b = v
                 v_perp = np.array([-np.conj(b), np.conj(a)])
                 unitary = np.column_stack((v, v_perp))
@@ -1089,7 +1089,7 @@ def build_unitaries(mps: MatrixProductState, max_dim: int | None = None):
                     new_t_inds = ["up", "down", f"p{i+1}"]
                     boundary = False
                 combined_tensor_data = np.einsum(
-                    contraction, tensor0.data.todense(), tensor1.data.todense()
+                    contraction, tensor0.to_dense(), tensor1.to_dense()
                 )
                 shape = combined_tensor_data.shape
                 if boundary:
@@ -1137,8 +1137,8 @@ def build_unitaries(mps: MatrixProductState, max_dim: int | None = None):
     last_contraction = "ab,ac->bc"
     last_data = np.einsum(
         last_contraction,
-        next_layer_tensors[0].data.todense(),
-        next_layer_tensors[1].data.todense(),
+        next_layer_tensors[0].to_dense(),
+        next_layer_tensors[1].to_dense(),
     )
     size = last_data.shape[0] * last_data.shape[1]
     vec = np.reshape(last_data, (size,))

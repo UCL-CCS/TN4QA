@@ -206,7 +206,7 @@ class MPOOptimiser:
         env_copy = copy.deepcopy(env_tensor)
         output_inds = popped_t[0].indices
         env_copy.combine_indices(output_inds)
-        env_vec = env_copy.data.todense()
+        env_vec = env_copy.to_dense()
         return env_vec
 
     def get_closest_unitary(self, mat: ndarray) -> ndarray:
@@ -403,7 +403,7 @@ class MPOAnalyticDecomposition:
                         boundary = False
 
                     combined_tensor_data = np.einsum(
-                        contraction, tensor0.data.todense(), tensor1.data.todense()
+                        contraction, tensor0.to_dense(), tensor1.to_dense()
                     )
                     shape = combined_tensor_data.shape
                     if boundary:
@@ -453,8 +453,8 @@ class MPOAnalyticDecomposition:
         last_contraction = "abc,ade->bdce"
         last_data = np.einsum(
             last_contraction,
-            next_layer_tensors[0].data.todense(),
-            next_layer_tensors[1].data.todense(),
+            next_layer_tensors[0].to_dense(),
+            next_layer_tensors[1].to_dense(),
         )
         # matrix = np.moveaxis(last_data, [0,1,2,3], [1,0,3,2])
         matrix = np.reshape(last_data, (4, 4))
