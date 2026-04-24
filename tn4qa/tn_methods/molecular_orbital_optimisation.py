@@ -68,9 +68,6 @@ class MolecularOrbitalOptimisation:
             cost_function [Callable]: The cost function to use for orbital optimisation
             kwargs: Valid arguments to provide -
                 dmrg_max_mps_bond [int]: maximum bond dimension for DMRG, default 8
-                dmrg_method [str]: either "one-site" or "two-site", default "two-site"
-                dmrg_convergence_threshold [float]: convergence threshold for DMRG, default 1e-9
-                dmrg_initial_state [MatrixProductState]: an initial MPS state for DMRG, default random MPS
                 dmrg_maxiter: maximum number of sweeps to perform in DMRG, default 10
                 cost_function_decay_power [float]: Required parameter for cost_mutual_info_decay, default 2.0
                 cost_function_max_bond [int]: Maximum bond dimension for cost function MPO
@@ -97,16 +94,10 @@ class MolecularOrbitalOptimisation:
         # Write the Hamiltonian and perfrom DMRG to get the initial state |psi>_C
         print("Start DMRG")
         max_mps_bond = function_args.get("dmrg_max_mps_bond", 2)
-        method = function_args.get("dmrg_method", "two-site")
-        convergence_threshold = function_args.get("dmrg_convergence_threshold", 1e-9)
-        initial_state = function_args.get("dmrg_initial_state", None)
         maxiter = function_args.get("dmrg_maxiter", 10)
         psi_C = self.run_dmrg(
             hamiltonian=self.hamiltonian,
             max_mps_bond=max_mps_bond,
-            method=method,
-            convergence_threshold=convergence_threshold,
-            initial_state=initial_state,
             maxiter=maxiter,
         )
 
