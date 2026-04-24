@@ -1611,6 +1611,20 @@ class MatrixProductOperator(TensorNetwork):
         return mpo
 
     @classmethod
+    def swap_mpo(cls, num_sites: int, target_sites: list[int]):
+        """
+        Qubit SWAP MPO with bond dimension 2.
+
+        Args:
+            num_sites: Total length of MPO
+            target_sites: 1-indexed, sites to swap
+        """
+        qc = QuantumCircuit(num_sites)
+        qc.swap(target_sites[0] - 1, target_sites[1] - 1)
+        mpo = cls.from_qiskit_circuit(qc)
+        return mpo
+
+    @classmethod
     def purity_mpo(
         cls,
         num_sites: int,
@@ -1628,23 +1642,13 @@ class MatrixProductOperator(TensorNetwork):
         Returns:
             An MPO representing the purity measurement circuit
         """
-        # Start with identity MPO on 2*num_sites qubits
         mpo = cls.identity_mpo(2 * num_sites)
 
-        # Apply SWAP gates between target sites and their corresponding mirror sites
         for idx in target_sites:
-            # Create SWAP gate matrix
-            swap_matrix = np.array(
-                [[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=complex
-            )
-            swap_sparse = sparse.COO.from_numpy(swap_matrix)
-
-            # Apply the SWAP gate
-            mpo = mpo.apply_nonlocal_two_qubit_gate(
-                swap_sparse,
-                [idx, num_sites + idx],
-                max_bond=max_bond,
-            )
+            qc = QuantumCircuit(2 * num_sites)
+            qc.swap(idx - 1, num_sites + idx - 1)
+            qc_mpo = cls.from_qiskit_circuit(qc)
+            mpo = mpo.multiply_and_compress(qc_mpo, max_bond)
 
         return mpo
 
