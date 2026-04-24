@@ -1522,78 +1522,6 @@ class MatrixProductState(TensorNetwork):
         """
         draw_mps(self.tensors, node_size, x_len, y_len)
 
-    # def contract_sub_mps(
-    #     self,
-    #     other: "MatrixProductState",
-    #     sites: list[int],
-    #     set_default_indices: bool = False,
-    # ) -> "MatrixProductState":
-    #     """
-    #     Contract the MPS with a smaller MPS on the given sites
-
-    #     Args:
-    #         sites: The list of sites where the smaller MPS acts
-    #         set_default_indices: Whether or not to reset the index labels to default
-
-    #     Returns:
-    #         A smaller MPS that is the output of the partial inner product
-    #     """
-
-    #     mps1 = copy.deepcopy(self)
-    #     mps2 = copy.deepcopy(other)
-    #     mps1.set_default_indices()
-    #     mps2.set_default_indices()
-    #     mps2.dagger()
-
-    #     mps1.reshape()
-    #     mps2.reshape()
-
-    #     all_sites = list(range(1, self.num_sites + 1))
-    #     target_site_ordering = [0] * self.num_sites
-    #     for idx in sites:
-    #         target_site_ordering[idx - 1] = sites.index(idx) + 1
-    #         all_sites.remove(sites.index(idx) + 1)
-    #     for site in all_sites:
-    #         target_site_ordering[target_site_ordering.index(0)] = site
-
-    #     mps1.reorder_sites(target_site_ordering, set_default_indices=True)
-
-    #     output_indices = []
-    #     for site_idx in range(len(sites), self.num_sites):
-    #         t = self.tensors[site_idx]
-    #         output_indices.append(t.indices)
-
-    #     for tidx in range(mps2.num_sites):
-    #         t = mps2.tensors[tidx]
-    #         current_indices = t.indices
-    #         new_indices = [x if x[0] == "P" else x + "_" for x in current_indices]
-    #         t.indices = new_indices
-    #     all_tensors = mps1.tensors + mps2.tensors
-
-    #     tn = TensorNetwork(all_tensors, "TotalTN")
-    #     for n in range(len(sites) - 1):
-    #         tn.contract_index(f"P{n + 1}")
-    #         tn.contract_index(f"B{n + 1}")
-    #         tn.combine_indices([f"P{n + 2}", f"B{n + 2}_"], new_index_name=f"P{n + 2}")
-    #     tn.contract_index(f"P{len(sites)}")
-    #     tn.contract_index(f"B{len(sites)}")
-
-    #     mps = MatrixProductState(tn.tensors)
-    #     for t_idx in range(mps.num_sites):
-    #         t = mps.tensors[t_idx]
-    #         t.indices = (
-    #             output_indices[t_idx][1:] if t_idx == 0 else output_indices[t_idx]
-    #         )
-
-    #     if set_default_indices:
-    #         self.set_default_indices()
-
-    #     if mps.bond_dimension and self.bond_dimension:
-    #         if mps.bond_dimension > self.bond_dimension:
-    #             mps.compress(self.bond_dimension)
-
-    #     return mps
-
     def get_probability_distribution(self) -> dict[str, float]:
         """
         Compute the probability distribution of an MPS.
@@ -1751,19 +1679,34 @@ class MatrixProductState(TensorNetwork):
 
     def to_two_copy_mps(self) -> "MatrixProductState":
         """Build the MPS representation of |psi>|psi>"""
+        all_sparse = all(isinstance(t.data, SparseArray) for t in self.tensors)
+
+        def reshape(x, shape):
+            if isinstance(x, SparseArray):
+                return sparse.reshape(x, shape)
+            else:
+                return np.reshape(x, shape)
+
         doubled_mps_arrays = []
         for idx in range(self.num_sites):
             array = copy.deepcopy(self.tensors[idx].data)
+
             if idx == self.num_sites - 1:
-                array = sparse.reshape(array, (array.shape[0], 1, array.shape[1]))
+                array = reshape(array, (array.shape[0], 1, array.shape[1]))
+
             doubled_mps_arrays.append(array)
+
         for idx in range(self.num_sites):
             array = copy.deepcopy(self.tensors[idx].data)
+
             if idx == 0:
-                array = sparse.reshape(array, (1, array.shape[0], array.shape[1]))
+                array = reshape(array, (1, array.shape[0], array.shape[1]))
+
             doubled_mps_arrays.append(array)
-        doubled_mps = MatrixProductState.from_arrays(doubled_mps_arrays)
-        return doubled_mps
+
+        sh = StorageHint.SPARSE if all_sparse else StorageHint.DENSE
+
+        return MatrixProductState.from_arrays(doubled_mps_arrays, storage_hint=sh)
 
     def householder_map(self, other: "MatrixProductState") -> MatrixProductOperator:
         """
