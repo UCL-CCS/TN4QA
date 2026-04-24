@@ -122,3 +122,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Minor necessary bug fix in MOO class
+
+## [0.0.15] - 2026-04-24
+
+### Changed
+- Minor necessary bug fix in MOO class
