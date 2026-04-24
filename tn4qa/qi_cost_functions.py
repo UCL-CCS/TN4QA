@@ -227,7 +227,9 @@ def cost_function_dict_to_purity_mpo(
             orbital_idx = int(s_split[1])
             spin_orbitals = [2 * orbital_idx - 1, 2 * orbital_idx]
             id_mpo = MatrixProductOperator.identity_mpo(2 * num_sites)
-            temp_mpo = MatrixProductOperator.purity_mpo(num_sites, spin_orbitals)
+            temp_mpo = MatrixProductOperator.purity_mpo(
+                num_sites, spin_orbitals, max_bond=max_bond
+            )
             diff = id_mpo - temp_mpo
             diff.multiply_by_constant(weight)
             mpos.append(diff)
@@ -241,7 +243,9 @@ def cost_function_dict_to_purity_mpo(
                 2 * orbital_idx2,
             ]
             id_mpo = MatrixProductOperator.identity_mpo(2 * num_sites)
-            temp_mpo = MatrixProductOperator.purity_mpo(num_sites, spin_orbitals)
+            temp_mpo = MatrixProductOperator.purity_mpo(
+                num_sites, spin_orbitals, max_bond=max_bond
+            )
             diff = id_mpo - temp_mpo
             diff.multiply_by_constant(weight)
             mpos.append(diff)
