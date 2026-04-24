@@ -106,3 +106,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - TN4QA_DMRG and fermionic DMRG handling removed, replaced by DMRG class which wraps block2
+
+## [0.0.12] - 2026-04-24
+
+### Changed
+- Minor necessary bug fix in MOO class

@@ -1,6 +1,6 @@
 [project]
 name = "tn4qa"
-version = "0.0.11"
+version = "0.0.12"
 description = "A Python package to integrate tensor network methods with quantum algorithms."
 authors = [
     {name="Angus Mingare",  email="angus.mingare.22@ucl.ac.uk"},
