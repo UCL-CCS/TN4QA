@@ -98,3 +98,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Noise modelling functionality
 - Error mitigation functionality
 - TNQEM method
+
+## [0.0.11] - 2026-04-24
+
+### Changed
+- Modified correct handling of sparse vs. dense tensors throughout
+
+### Removed
+- TN4QA_DMRG and fermionic DMRG handling removed, replaced by DMRG class which wraps block2
