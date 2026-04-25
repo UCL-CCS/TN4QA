@@ -22,7 +22,6 @@ class MolecularOrbitalOptimisation:
     def __init__(
         self,
         hamiltonian: dict[str, complex],
-        nelec: int,
         coeff_matrix: ndarray,
         restricted: bool = True,
     ):
@@ -33,7 +32,6 @@ class MolecularOrbitalOptimisation:
             coeff_matrix: HF coefficient matrix of shape (N,N) if restricted, and (2,N,N) if unrestricted
         """
         self.hamiltonian = hamiltonian
-        self.nelec = nelec
         self.num_spin_orbitals = int(2 * coeff_matrix.shape[1])
         self.num_orbitals = int(self.num_spin_orbitals / 2)
         self.all_costs = []
@@ -99,7 +97,6 @@ class MolecularOrbitalOptimisation:
         maxiter = function_args.get("dmrg_maxiter", 10)
         psi_C = self.run_dmrg(
             hamiltonian=self.hamiltonian,
-            nelec=self.nelec,
             max_mps_bond=max_mps_bond,
             maxiter=maxiter,
         )
@@ -192,19 +189,13 @@ class MolecularOrbitalOptimisation:
     def run_dmrg(
         self,
         hamiltonian: dict[str, complex],
-        nelec: int,
         max_mps_bond: int | None,
         maxiter: int,
     ) -> MatrixProductState:
         """Run DMRG to get an approximate groundstate in the initial MO basis"""
-        hf_mps = MatrixProductState.from_hf_state(self.num_spin_orbitals, nelec)
-        contains_hf = False
-        while not contains_hf:
-            dmrg = DMRG(hamiltonian, max_mps_bond=max_mps_bond)
-            _, psi = dmrg.run(nsweeps=maxiter)
-            ip = psi.compute_inner_product(hf_mps)
-            if np.abs(ip) ** 2 > 1e-2:
-                contains_hf = True
+        dmrg = DMRG(hamiltonian, max_mps_bond=max_mps_bond)
+        _, psi = dmrg.run(nsweeps=maxiter)
+        psi.compress(2)
         return psi
 
     def build_cost_function_mpo(
