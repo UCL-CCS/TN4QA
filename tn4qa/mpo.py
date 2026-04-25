@@ -1645,10 +1645,10 @@ class MatrixProductOperator(TensorNetwork):
         mpo = cls.identity_mpo(2 * num_sites)
 
         for idx in target_sites:
-            qc = QuantumCircuit(2 * num_sites)
-            qc.swap(idx - 1, num_sites + idx - 1)
-            qc_mpo = cls.from_qiskit_circuit(qc)
-            mpo = mpo.multiply_and_compress(qc_mpo, max_bond)
+            swap_mpo = MatrixProductOperator.swap_mpo(
+                2 * num_sites, [idx, idx + num_sites]
+            )
+            mpo = mpo.multiply_and_compress(swap_mpo, max_bond)
 
         return mpo
 
