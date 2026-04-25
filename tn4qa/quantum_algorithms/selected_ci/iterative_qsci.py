@@ -22,7 +22,7 @@ class IterativeQSCI(QuantumAlgorithm):
         niters: int,
         method: str,
         method_args: dict,
-        num_electrons: int | None = None,
+        num_electrons: int,
         dmrg_max_bond: int = 2,
         dmrg_maxiter: int = 10,
         scoring_function: Callable | None = None,

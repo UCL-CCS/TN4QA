@@ -67,9 +67,10 @@ class DMRG:
             ]
         if not noises:
             noises = (
-                [1e-2] * max(1, nsweeps // 3)
-                + [1e-4] * max(1, nsweeps // 3)
-                + [1e-6] * max(1, nsweeps - 2 * (nsweeps // 3) - 1)
+                [1e-1] * max(1, nsweeps // 4)
+                + [1e-2] * max(1, nsweeps // 4)
+                + [1e-4] * max(1, nsweeps // 4)
+                + [1e-6] * max(1, nsweeps - 3 * (nsweeps // 4) - 1)
                 + [0]
             )
         if not thrds:

@@ -23,14 +23,14 @@ h2_file = "molecules/H2.json"
 h2_data = ReadMoleculeData(h2_file)
 h2_ham = h2_data.qubit_hamiltonian
 
-h2_dmrg = DMRG(h2_ham, 8)
+h2_dmrg = DMRG(h2_ham, 16)
 _, h2_mps = h2_dmrg.run(20)
 
 lih_file = "molecules/LiH.json"
 lih_data = ReadMoleculeData(lih_file)
 lih_ham = lih_data.qubit_hamiltonian
 
-lih_dmrg = DMRG(lih_ham, 8)
+lih_dmrg = DMRG(lih_ham, 16)
 _, lih_mps = lih_dmrg.run(20)
 
 
