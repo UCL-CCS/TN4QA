@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-from numpy import ndarray
 from pyblock2.algebra.io import MPSTools
 from pyblock2.driver.core import DMRGDriver, SymmetryTypes
 
@@ -13,6 +12,7 @@ class DMRG:
         self,
         hamiltonian: dict[str, complex],
         max_mps_bond: int = 16,
+        initial_mps: MatrixProductState | None = None,
     ) -> DMRG:
         self.hamiltonian = hamiltonian
         pauli = {
@@ -27,7 +27,14 @@ class DMRG:
 
         self.driver = self.set_driver()
         self.mpo = self.set_mpo()
-        self.ket = self.set_initial_state()
+
+        if initial_mps.bond_dimension == 1:
+            input_mps = initial_mps.expand_bond_dimension_list(
+                1, list(range(1, initial_mps.num_sites))
+            )
+        else:
+            input_mps = initial_mps
+        self.ket = self.set_initial_state(input_mps)
 
         self.energy = None
         self.mps = None
@@ -48,9 +55,24 @@ class DMRG:
         mpo = self.driver.get_mpo_any_pauli(self.pauli_terms)
         return mpo
 
-    def set_initial_state(self):
-        ket = self.driver.get_random_mps(tag="GS", bond_dim=2, nroots=1)
-        ket = self.driver.get_random_mps(tag="GS", bond_dim=2, nroots=1)
+    def set_initial_state(self, initial_mps: MatrixProductState | None):
+        if not initial_mps:
+            ket = self.driver.get_random_mps(tag="GS", bond_dim=2, nroots=1)
+            ket = self.driver.get_random_mps(tag="GS", bond_dim=2, nroots=1)
+        else:
+            initial_mps.move_orthogonality_centre(1)
+            initial_mps.reshape("upd")
+            tensor_list = [
+                initial_mps.tensors[i].to_dense() for i in range(initial_mps.num_sites)
+            ]
+            tensor_list[0] = np.expand_dims(tensor_list[0], axis=0)
+            tensor_list[-1] = np.expand_dims(tensor_list[-1], axis=2)
+            ket = get_mps_from_tensors(
+                self.driver,
+                tag="GS",
+                tensors=tensor_list,
+                bond_dim=initial_mps.bond_dimension,
+            )
         return ket
 
     def run(
@@ -99,88 +121,51 @@ class DMRG:
         return mps
 
 
-# ---------------------------------------------------------------------------
-# LinearOperator factory
-# ---------------------------------------------------------------------------
-
-
-def _make_matvec(left, mpo, right):
-    # left[χ_bra_l, χ_mpo_l, χ_ket_l]  — all 'up' indices of site
-    # mpo[χ_mpo_up=χ_mpo_l, χ_mpo_down=χ_mpo_r, d_out, d_in]
-    # right[χ_bra_r, χ_mpo_r, χ_ket_r] — all 'down' indices of site
-    # state v[χ_ket_l, d_in, χ_ket_r]
-    # result[χ_bra_l, d_out, χ_bra_r]
-
-    # Pre-contract: H[χ_bra_l, d_out, χ_bra_r, χ_ket_l, d_in, χ_ket_r]
-    #   = Σ_{χ_mpo_l, χ_mpo_r} left[χ_bra_l, χ_mpo_l, χ_ket_l]
-    #                          * mpo[χ_mpo_l, χ_mpo_r, d_out, d_in]
-    #                          * right[χ_bra_r, χ_mpo_r, χ_ket_r]
-    H = np.einsum(
-        "ijk,jlmn,plk->imponk",  # WRONG — fix:
-        left,
-        mpo,
-        right,
-    )
-    # Correct:
-    # left: (a=χ_bra_l, b=χ_mpo_l, c=χ_ket_l)
-    # mpo:  (b=χ_mpo_l, d=χ_mpo_r, e=d_out,   f=d_in)
-    # right:(g=χ_bra_r, d=χ_mpo_r, h=χ_ket_r)
-    H = np.einsum("abc,bdef,gdb->aegcfh", left, mpo, right, optimize="optimal")
-    # H: (χ_bra_l, d_out, χ_bra_r, χ_ket_l, d_in, χ_ket_r)
-    chi_l = left.shape[0]
-    chi_r = right.shape[0]
-    d = mpo.shape[2]
-    dim = chi_l * d * chi_r
-    H_mat = H.reshape(dim, dim)
-
-    def matvec(v_flat):
-        return H_mat @ v_flat
-
-    return matvec, dim
-
-
-def _make_matvec_sparse_mpo(left: ndarray, mpo_coo, right: ndarray):
+def get_mps_from_tensors(
+    self, tag, tensors, bond_dim=None, center=0, dot=2, target=None, orig_dot=False
+):
     """
-    Matvec for large sparse MPO tensors (quantum chemistry regime).
+    Initialize an MPS from a list of explicit dense numpy tensors.
 
-    Instead of converting the MPO to dense, we iterate over the d² physical
-    index pairs and use scipy sparse matrix-vector products for the bond part.
+    Args:
+        tensors : list[np.ndarray]
+            List of n_sites tensors, each of shape (left_bond, phys_dim, right_bond).
+            Boundary tensors should have a dummy size-1 index on the open boundary side,
+            i.e. site 0 has shape (1, phys, right) and site n-1 has shape (left, phys, 1).
     """
-    import scipy.sparse as scs
+    bw = self.bw
 
-    chi_l = left.shape[0]
-    chi_r = right.shape[0]
-    chi_ml = mpo_coo.shape[0]
-    chi_mr = mpo_coo.shape[1]
-    d = mpo_coo.shape[2]
+    if target is None:
+        target = self.target
 
-    coords = mpo_coo.coords  # (4, nnz)
-    vals = mpo_coo.data
+    max_bd = bond_dim or max(t.shape[2] for t in tensors[:-1])
 
-    # Pre-build sparse W matrix per (σ, σ') pair — done once per site
-    W_slices = {}
-    for sig in range(d):
-        for sigp in range(d):
-            mask = (coords[2] == sig) & (coords[3] == sigp)
-            if not mask.any():
-                continue
-            W_slices[(sig, sigp)] = scs.csr_matrix(
-                (vals[mask], (coords[0][mask], coords[1][mask])),
-                shape=(chi_ml, chi_mr),
-            )
+    mps_info = bw.brs.MPSInfo(self.n_sites, self.vacuum, target, self.ghamil.basis)
+    mps_info.tag = tag
+    mps_info.set_bond_dimension_full_fci(self.left_vacuum, self.vacuum)
+    mps_info.set_bond_dimension(max_bd)
+    mps_info.bond_dim = max_bd
 
-    dim = chi_l * d * chi_r
+    mps = bw.bs.MPS(self.n_sites, center, 1)
+    mps.initialize(mps_info)
+    mps.random_canonicalize()
 
-    def matvec(v_flat: ndarray) -> ndarray:
-        v = v_flat.reshape(chi_l, d, chi_r)
-        result = np.zeros_like(v)
-        for (sig, sigp), W in W_slices.items():
-            # Contract: left[i,k,i2] @ v[i2, sig, j2] → lv[i, k, j2]
-            lv = np.einsum("ijk,jl->ikl", left, v[:, sig, :])  # (χ_l, χ_ml, χ_r)
-            # Apply W along mpo bond: lv[i, k, j2] @ W[k, m] → lvW[i, m, j2]
-            lvW = np.einsum("ikj,km->imj", lv, W.toarray())  # dense for now
-            # Contract with right: lvW[i, m, j2] @ right[j, m, j2] → res[i, j]
-            result[:, sigp, :] += np.einsum("imj,jmk->ik", lvW, right)
-        return result.ravel()
+    for i in range(self.n_sites):
+        ts = mps.tensors[i]
+        left, phys, right = tensors[i].shape
+        data = tensors[i].transpose(1, 0, 2).reshape(phys, left * right).ravel()
+        ts[0] = data
 
-    return matvec, dim
+    mps.save_mutable()
+    mps.save_data()
+
+    mps.tensors[mps.center].normalize()
+    mps.save_mutable()
+    mps_info.save_mutable()
+    mps.save_data()
+    mps_info.save_data(self.scratch + "/%s-mps_info.bin" % tag)
+
+    if dot != 1 and not orig_dot:
+        mps = self.adjust_mps(mps, dot=dot)[0]
+
+    return mps

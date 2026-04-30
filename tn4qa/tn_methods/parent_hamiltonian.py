@@ -1,13 +1,12 @@
-"""
-Computes the parent Hamiltonian of an MPS in the Pauli-string basis,
-and optionally builds the corresponding MPO.
-"""
-
 from collections import defaultdict
 from itertools import product as iproduct
 from typing import Optional
 
 import numpy as np
+from qiskit import QuantumCircuit, transpile
+from qiskit.circuit.library import CXGate, UnitaryGate
+from qiskit.quantum_info import Operator
+from qiskit.synthesis import TwoQubitBasisDecomposer
 
 from tn4qa.mpo import MatrixProductOperator
 from tn4qa.mps import MatrixProductState
@@ -21,6 +20,9 @@ _PAULI_MATS = {
     "Y": np.array([[0, -1j], [1j, 0]], dtype=complex),
     "Z": np.array([[1, 0], [0, -1]], dtype=complex),
 }
+
+# Instantiate the KAK decomposer once (uses CX as the entangling gate)
+_KAK_DECOMPOSER = TwoQubitBasisDecomposer(CXGate(), euler_basis="ZYZ")
 
 
 # ── ParentHamiltonian class ────────────────────────────────────────────────────
@@ -126,6 +128,211 @@ class ParentHamiltonian:
         for pstr, w in self.hamiltonian.items():
             H += w * self._pauli_string_matrix(pstr)
         return H
+
+    # ── public: Trotter circuit methods ────────────────────────────────────────
+
+    def trotter_circuit(
+        self,
+        t: float,
+        n_steps: int,
+        basis_gates: Optional[list] = None,
+        optimization_level: int = 3,
+        barrier: bool = True,
+    ) -> QuantumCircuit:
+        """
+        First-order Trotter circuit for e^{iHt}.
+
+        One Trotter step applies `block_size` layers of gates. Each layer
+        contains disjoint blocks, so terms within a layer commute exactly
+        and contribute zero Trotter error. Trotter error arises only between
+        layers.
+
+        Gates are compiled once per block (for time slice dt = t / n_steps)
+        and reused across all steps.
+
+        Parameters
+        ----------
+        t                 : total evolution time
+        n_steps           : number of Trotter steps
+        basis_gates       : target gate set for the transpiler when block_size > 2
+                            (default: ['cx', 'u']). Ignored for block_size = 2,
+                            which always uses KAK decomposition.
+        optimization_level: Qiskit transpiler optimisation level 0–3
+                            (block_size > 2 only).
+        barrier           : insert barriers between Trotter steps.
+
+        Returns
+        -------
+        QuantumCircuit
+        """
+        dt = t / n_steps
+        layers = self._partition_layers()
+
+        compiled_gates = self._compile_block_gates(
+            dt, layers, basis_gates, optimization_level
+        )
+
+        qc = QuantumCircuit(self.N)
+        for _ in range(n_steps):
+            for layer in layers:
+                for qubits in layer:
+                    qc.compose(
+                        compiled_gates[tuple(qubits)], qubits=qubits, inplace=True
+                    )
+            if barrier:
+                qc.barrier()
+
+        # Remove the trailing barrier after the last step
+        if barrier:
+            qc.data.pop()
+
+        return qc
+
+    def trotter_circuit_order2(
+        self,
+        t: float,
+        n_steps: int,
+        basis_gates: Optional[list] = None,
+        optimization_level: int = 3,
+        barrier: bool = True,
+    ) -> QuantumCircuit:
+        """
+        Second-order (Suzuki) Trotter circuit for e^{iHt}.
+
+        Each step applies all block gates forward with dt/2, then in reverse
+        with dt/2, giving O(dt^3) error per step at the cost of doubling the
+        gate count relative to first-order.
+
+        Parameters
+        ----------
+        t                 : total evolution time
+        n_steps           : number of Trotter steps
+        basis_gates       : target gate set (block_size > 2 only)
+        optimization_level: Qiskit transpiler optimisation level (block_size > 2 only)
+        barrier           : insert barriers between Trotter steps.
+
+        Returns
+        -------
+        QuantumCircuit
+        """
+        dt = t / n_steps
+        layers = self._partition_layers()
+
+        compiled_half = self._compile_block_gates(
+            dt / 2, layers, basis_gates, optimization_level
+        )
+
+        all_blocks = [qubits for layer in layers for qubits in layer]
+
+        qc = QuantumCircuit(self.N)
+        for _ in range(n_steps):
+            for qubits in all_blocks:
+                qc.compose(compiled_half[tuple(qubits)], qubits=qubits, inplace=True)
+            for qubits in reversed(all_blocks):
+                qc.compose(compiled_half[tuple(qubits)], qubits=qubits, inplace=True)
+            if barrier:
+                qc.barrier()
+
+        if barrier:
+            qc.data.pop()
+
+        return qc
+
+    def block_unitary(self, qubits: list, t: float) -> np.ndarray:
+        """
+        Compute U = exp(i * H_block * t) for a contiguous block of sites.
+
+        Parameters
+        ----------
+        qubits : ordered list of site indices, e.g. [2, 3]
+        t      : time
+
+        Returns
+        -------
+        U : complex numpy array of shape (2^k, 2^k)
+        """
+        k = len(qubits)
+        dim = 2**k
+        H_block = np.zeros((dim, dim), dtype=complex)
+
+        for pstr, coeff in self.hamiltonian.items():
+            local = "".join(pstr[q] for q in qubits)
+            if all(c == "I" for c in local):
+                H_block += coeff * np.eye(dim, dtype=complex)
+            else:
+                H_block += coeff * self._pauli_string_matrix(local)
+
+        eigvals, eigvecs = np.linalg.eigh(H_block)
+        U = eigvecs @ np.diag(np.exp(1j * eigvals * t)) @ eigvecs.conj().T
+        return U
+
+    # ── private: Trotter helpers ───────────────────────────────────────────────
+
+    def _partition_layers(self) -> list:
+        """
+        Partition all contiguous block_size-site blocks into block_size layers
+        of disjoint blocks.
+
+        Layer l contains blocks starting at sites l, l+k, l+2k, ...
+        Terms within a layer act on disjoint qubits and commute exactly.
+
+        Returns
+        -------
+        layers : list of lists of qubit-index lists
+                 e.g. for N=6, block_size=2:
+                   layer 0: [[0,1], [2,3], [4,5]]
+                   layer 1: [[1,2], [3,4]]
+        """
+        k = self.block_size
+        layers = []
+        for l in range(k):
+            layer = []
+            start = l
+            while start + k - 1 < self.N:
+                layer.append(list(range(start, start + k)))
+                start += k
+            if layer:
+                layers.append(layer)
+        return layers
+
+    def _compile_block_gates(
+        self,
+        dt: float,
+        layers: list,
+        basis_gates: Optional[list],
+        optimization_level: int,
+    ) -> dict:
+        """
+        Pre-compile one gate per block for time slice dt.
+
+        Returns
+        -------
+        compiled : dict mapping tuple(qubits) → QuantumCircuit
+        """
+        compiled = {}
+        for layer in layers:
+            for qubits in layer:
+                key = tuple(qubits)
+                U = self.block_unitary(qubits, dt)
+                label = f"U_{''.join(str(q) for q in qubits)}"
+
+                if self.block_size == 2:
+                    qc_gate = _KAK_DECOMPOSER(Operator(U))
+                    qc_gate.name = label
+                else:
+                    qc_gate = QuantumCircuit(self.block_size, name=label)
+                    qc_gate.append(
+                        UnitaryGate(U, label=label), list(range(self.block_size))
+                    )
+                    bg = basis_gates if basis_gates is not None else ["cx", "u"]
+                    qc_gate = transpile(
+                        qc_gate,
+                        basis_gates=bg,
+                        optimization_level=optimization_level,
+                    )
+
+                compiled[key] = qc_gate
+        return compiled
 
     # ── private: MPS utilities ─────────────────────────────────────────────────
 
