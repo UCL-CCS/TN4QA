@@ -685,6 +685,8 @@ class MolecularOrbitalOptimisation:
         cost_tol: float = 1e-12,
         only_real_params: bool = True,
         energy_minimisation: bool = False,
+        max_norm: float = 0.5,
+        min_lr: float = 1e-10,
     ) -> np.ndarray:
         """
         Gradient descent loop with adaptive step size, momentum, and relative cost convergence.
@@ -740,7 +742,7 @@ class MolecularOrbitalOptimisation:
                 grad_array[k] = v
             return grad_array[allowed]
 
-        # ----- Initialize theta and momentum -----
+        # ----- Initialise theta and momentum -----
         theta_opt = theta[allowed]
 
         self.all_costs = []
@@ -758,37 +760,48 @@ class MolecularOrbitalOptimisation:
                 print(f"[Converged] Iter {iter}, grad_norm={grad_norm:.3e}")
                 break
 
+            if grad_norm > max_norm:
+                g = g * (max_norm / grad_norm)
             theta_trial = theta_opt - lr_current * g
             cost_old = prev_cost
             cost_new = cost(theta_trial)
 
-            if iter > 1:
+            if iter >= 0:  # changed this from iter > 1
                 if cost_new < cost_old:
                     # Accept step
                     theta_opt = theta_trial
                     prev_cost = cost_new
                     lr_current *= 1.05  # grow slightly
+                    step_accepted = True
                 else:
                     # Reject step
                     lr_current *= 0.5  # shrink
-                    continue
+                    step_accepted = False
             else:
-                # Always accept first step
                 theta_opt = theta_trial
                 prev_cost = cost_new
+                step_accepted = True
 
             self.all_costs.append(prev_cost)
 
-            cost_diff = abs(cost_old - cost_new)
-
+            status = "ACCEPT" if step_accepted else "REJECT"
             print(
                 f"Iter {iter:3d} | grad_norm={grad_norm:.3e} | cost={cost_new:.6e} "
-                f"| lr={lr_current:.3e}"
+                f"| lr={lr_current:.3e} | {status}"
             )
 
-            if cost_diff < cost_tol and iter > 5:
-                print(f"[Converged] Iter {iter}, relative cost change={cost_diff:.3e}")
-                break
+            if step_accepted:
+                cost_diff = abs(cost_old - cost_new)
+                if cost_diff < cost_tol and iter > 5:
+                    print(
+                        f"[Converged] Iter {iter}, relative cost change={cost_diff:.3e}"
+                    )
+                    break
+
+            if lr_current < min_lr:
+                print("LR too small. Resetting")
+                theta_opt += np.random.normal(0, 1e-4, size=theta_opt.shape)
+                lr_current = lr * 0.5
 
         # Expand back to full theta array
         new_theta = expand_theta(theta_opt)
