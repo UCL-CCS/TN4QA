@@ -1642,13 +1642,10 @@ class MatrixProductOperator(TensorNetwork):
         Returns:
             An MPO representing the purity measurement circuit
         """
-        mpo = cls.identity_mpo(2 * num_sites)
-
+        qc = QuantumCircuit(2 * num_sites)
         for idx in target_sites:
-            swap_mpo = MatrixProductOperator.swap_mpo(
-                2 * num_sites, [idx, idx + num_sites]
-            )
-            mpo = mpo.multiply_and_compress(swap_mpo, max_bond)
+            qc.swap(idx - 1, idx + num_sites - 1)
+        mpo = cls.from_qiskit_circuit(qc, max_bond=max_bond)
 
         return mpo
 
