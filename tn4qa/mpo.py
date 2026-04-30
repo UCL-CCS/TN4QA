@@ -1626,26 +1626,15 @@ class MatrixProductOperator(TensorNetwork):
 
     @classmethod
     def purity_mpo(
-        cls,
-        num_sites: int,
-        target_sites: list[int],
-        max_bond: int | None = None,
-    ) -> "MatrixProductOperator":
-        """Build an MPO that calculates the purity of a RDM for an MPS.
+        cls, num_sites: int, target_sites: list[int], max_bond: int | None = None
+    ):
+        mpo = MatrixProductOperator.identity_mpo(2 * num_sites)
 
-        Constructs the MPO by directly applying SWAP gates between specified sites.
-
-        Args:
-            num_sites: The number of sites for the target MPS
-            target_sites: The sites corresponding to the RDM whose purity we want to calculate (1-indexed)
-
-        Returns:
-            An MPO representing the purity measurement circuit
-        """
-        qc = QuantumCircuit(2 * num_sites)
         for idx in target_sites:
-            qc.swap(idx - 1, idx + num_sites - 1)
-        mpo = cls.from_qiskit_circuit(qc, max_bond=max_bond)
+            swap_mpo = MatrixProductOperator.swap_mpo(
+                2 * num_sites, [idx, num_sites + idx]
+            )
+            mpo = mpo.multiply_and_compress(swap_mpo, max_bond)
 
         return mpo
 

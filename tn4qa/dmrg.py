@@ -28,10 +28,11 @@ class DMRG:
         self.driver = self.set_driver()
         self.mpo = self.set_mpo()
 
-        if initial_mps.bond_dimension == 1:
-            input_mps = initial_mps.expand_bond_dimension_list(
-                1, list(range(1, initial_mps.num_sites))
-            )
+        if initial_mps:
+            if initial_mps.bond_dimension == 1:
+                input_mps = initial_mps.expand_bond_dimension_list(
+                    1, list(range(1, initial_mps.num_sites))
+                )
         else:
             input_mps = initial_mps
         self.ket = self.set_initial_state(input_mps)

@@ -421,4 +421,6 @@ def test_purity_mpo():
         qc.swap(idx - 1, num_sites + idx - 1)
     qiskit_mpo = MatrixProductOperator.from_qiskit_circuit(qc)
     test_purity_mpo = MatrixProductOperator.purity_mpo(num_sites, target_sites)
+    print(qiskit_mpo.to_dense_array())
+    print(test_purity_mpo.to_dense_array())
     assert np.allclose(qiskit_mpo.to_dense_array(), test_purity_mpo.to_dense_array())
