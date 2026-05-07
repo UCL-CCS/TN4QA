@@ -137,3 +137,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Minor necessary bug fix in MOO class
+
+## [0.0.18] - 2026-04-30
+
+### Changed
+- Update grad descent loop in MO optimisation
+- Enable arbitrary initial state in DMRG
