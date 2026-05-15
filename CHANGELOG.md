@@ -143,3 +143,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Update grad descent loop in MO optimisation
 - Enable arbitrary initial state in DMRG
+
+## [0.0.19] - 2026-05-14
+
+### Changed
+- Initialise DMRG with HF state in TNMOO
