@@ -24,12 +24,15 @@ class MolecularOrbitalOptimisation:
         hamiltonian: dict[str, complex],
         coeff_matrix: ndarray,
         restricted: bool = True,
+        nelec: int | None = None,
     ):
         """Constructor
 
         Args:
             hamiltonian: System Hamiltonian
             coeff_matrix: HF coefficient matrix of shape (N,N) if restricted, and (2,N,N) if unrestricted
+            restricted: If true assumes RHF coeff matrix, else UHF
+            nelec: Number of electrons in the system, used to initialise DMRG with HF state
         """
         self.hamiltonian = hamiltonian
         self.num_spin_orbitals = int(2 * coeff_matrix.shape[1])
@@ -39,6 +42,7 @@ class MolecularOrbitalOptimisation:
         self.cost_function_callable = None
         self.restricted = restricted
         self.energy_minimisation = False
+        self.nelec = nelec
 
         def interleave_spin_blocks(A, B):
             N = A.shape[0]
@@ -193,7 +197,13 @@ class MolecularOrbitalOptimisation:
         maxiter: int,
     ) -> MatrixProductState:
         """Run DMRG to get an approximate groundstate in the initial MO basis"""
-        dmrg = DMRG(hamiltonian, max_mps_bond=max_mps_bond)
+        if self.nelec:
+            initial_mps = MatrixProductState.from_hf_state(
+                self.num_spin_orbitals, self.nelec
+            )
+        else:
+            initial_mps = None
+        dmrg = DMRG(hamiltonian, max_mps_bond=max_mps_bond, initial_mps=initial_mps)
         _, psi = dmrg.run(nsweeps=maxiter)
         psi.compress(2)
         return psi
