@@ -5,7 +5,7 @@ from tn4qa.mps import MatrixProductState
 Benchmark: Active Space Selection Methods
 """
 
-def autocas_selection_ranked_entropy_threshold(mps: MatrixProductState, n_sites: int, threshold: float) -> list:
+def autocas_selection_ranked_entropy_threshold(mps: MatrixProductState, n_sites: int) -> list:
     """
     Select active space orbitals based on AUTOCAS method.
 
