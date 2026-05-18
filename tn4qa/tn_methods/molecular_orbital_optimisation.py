@@ -201,6 +201,9 @@ class MolecularOrbitalOptimisation:
             initial_mps = MatrixProductState.from_hf_state(
                 self.num_spin_orbitals, self.nelec
             )
+            initial_mps.expand_bond_dimension_list(
+                1, list(range(1, initial_mps.num_sites))
+            )
         else:
             initial_mps = None
         dmrg = DMRG(hamiltonian, max_mps_bond=max_mps_bond, initial_mps=initial_mps)
