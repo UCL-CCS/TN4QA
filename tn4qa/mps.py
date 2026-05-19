@@ -1373,14 +1373,20 @@ class MatrixProductState(TensorNetwork):
                 A_k = _as_sparse(A_k)
                 A_b = _as_sparse(A_b)
 
-                if A_k.ndim == 2:
-                    # (D, d)
-                    Dk, d = A_k.shape
-                    Db, _ = A_b.shape
+                if A_k.ndim == 2 or (A_k.ndim == 3 and A_k.shape[-1] == 1):
+                    if A_k.ndim == 2:
+                        Dk, d = A_k.shape
+                        A_k = A_k.reshape((Dk, 1, d))
+                    else:
+                        Dl_k, d, Dr_k = A_k.shape
+                        A_k = A_k.reshape((Dl_k, 1, d))
 
-                    # reshape to (D,1,d) for uniform handling
-                    A_k = A_k.reshape((Dk, 1, d))
-                    A_b = A_b.reshape((Db, 1, d))
+                    if A_b.ndim == 2:
+                        Db, _ = A_b.shape
+                        A_b = A_b.reshape((Db, 1, d))
+                    else:
+                        Dl_b, d_b, Dr_b = A_b.shape
+                        A_b = A_b.reshape((Dl_b, 1, d_b))
 
                     boundary = True
                 else:
@@ -1403,12 +1409,20 @@ class MatrixProductState(TensorNetwork):
                 A_k = _as_dense(A_k)
                 A_b = _as_dense(A_b)
 
-                if A_k.ndim == 2:
-                    Dk, d = A_k.shape
-                    Db, _ = A_b.shape
+                if A_k.ndim == 2 or (A_k.ndim == 3 and A_k.shape[-1] == 1):
+                    if A_k.ndim == 2:
+                        Dk, d = A_k.shape
+                        A_k = A_k.reshape((Dk, 1, d))
+                    else:
+                        Dl_k, d, Dr_k = A_k.shape
+                        A_k = A_k.reshape((Dl_k, 1, d))
 
-                    A_k = A_k.reshape((Dk, 1, d))
-                    A_b = A_b.reshape((Db, 1, d))
+                    if A_b.ndim == 2:
+                        Db, _ = A_b.shape
+                        A_b = A_b.reshape((Db, 1, d))
+                    else:
+                        Dl_b, d_b, Dr_b = A_b.shape
+                        A_b = A_b.reshape((Dl_b, 1, d_b))
 
                     boundary = True
                 else:

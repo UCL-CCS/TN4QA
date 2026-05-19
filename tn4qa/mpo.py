@@ -2518,12 +2518,14 @@ class MatrixProductOperator(TensorNetwork):
                 if tensor.storage_hint == StorageHint.SPARSE
                 else np.einsum
             )
-            if site_idx == 1:
+            if tensor.data.ndim == 3:
                 tensor.data = einsum_fn("acc->a", tensor.data)
-            elif site_idx == n:
-                tensor.data = einsum_fn("acc->a", tensor.data)
-            else:
+            elif tensor.data.ndim == 4:
                 tensor.data = einsum_fn("abcc->ab", tensor.data)
+            else:
+                raise ValueError(
+                    f"Unsupported tensor rank {tensor.data.ndim} during partial trace"
+                )
 
         # Step 2: Find contiguous runs of traced sites
         sorted_sites = sorted(traced_sites)

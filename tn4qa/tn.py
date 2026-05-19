@@ -529,13 +529,19 @@ class TensorNetwork:
         else:
             max_bond = min(max_bond, rows, cols)
 
-        sparse_req = max_bond < min([rows, cols]) - 1
-        if sh == StorageHint.SPARSE and sparse_req:
-            u, s, vh = svds(data, k=max_bond)
-            idx = np.argsort(s)[::-1]
-            s = s[idx]
-            u = u[:, idx]
-            vh = vh[idx, :]
+        use_truncated = max_bond < min(rows, cols) - 1
+        if use_truncated:
+            try:
+                svd_input = data if sh == StorageHint.SPARSE else tmp.to_dense()
+                u, s, vh = svds(svd_input, k=max_bond)
+                idx = np.argsort(s)[::-1]
+                s = s[idx]
+                u = u[:, idx]
+                vh = vh[idx, :]
+            except Exception:
+                u, s, vh = scipy.linalg.svd(
+                    tmp.to_dense(), full_matrices=False, check_finite=False
+                )
         else:
             u, s, vh = scipy.linalg.svd(
                 tmp.to_dense(), full_matrices=False, check_finite=False
