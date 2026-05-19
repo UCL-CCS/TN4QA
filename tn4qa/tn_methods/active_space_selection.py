@@ -5,83 +5,96 @@ from tn4qa.mps import MatrixProductState
 Benchmark: Active Space Selection Methods
 """
 
-def autocas_selection_ranked_entropy_threshold(mps: MatrixProductState, n_sites: int) -> list:
+
+def _orbital_entropies(mps: MatrixProductState, n_sites: int) -> list[float]:
+    """Compute one-orbital entropies for orbitals 1..n_sites."""
+    return [get_one_orbital_entropy(mps, i) for i in range(1, n_sites + 1)]
+
+
+def autocas_selection_ranked_entropy_threshold(mps: MatrixProductState, n_sites: int) -> list[int]:
     """
-    Select active space orbitals based on AUTOCAS method.
+    Select orbital indices whose one-orbital entropy is at least 10% of the
+    maximum orbital entropy.
 
     Parameters:
-    mps (MatrixProductState): The matrix product state.
-    n_sites (int): The number of sites (sites are 1-indexed).
+        mps: MatrixProductState
+        n_sites: int
+            Number of spatial orbitals.
 
     Returns:
-    list: Indices of selected active orbitals.
+        list[int]: Selected orbital indices in 0-based notation.
     """
-    # Calculate one-orbital entropy for each orbital
-    entropies = []
-    for i in range(1, n_sites + 1):
-        entropy = get_one_orbital_entropy(mps, i)
-        entropies.append(entropy)
-
-    # Select top only orbitals whose entropy is at least 10% of the maximum value (AUTOCAS criterion)
+    entropies = _orbital_entropies(mps, n_sites)
     max_entropy = max(entropies)
-    top_orbitals = [i for i, entropy in enumerate(entropies) if entropy >= 0.1 * max_entropy]
 
-    return top_orbitals
+    if max_entropy <= 0:
+        return []
+
+    return [idx for idx, entropy in enumerate(entropies) if entropy >= 0.1 * max_entropy]
 
 
-def autocas_selection_ranked_fixed_number(mps: MatrixProductState, n_sites: int, active_orbitals: int) -> list:
+def autocas_selection_ranked_fixed_number(
+    mps: MatrixProductState, n_sites: int, active_orbitals: int
+) -> list[int]:
     """
-    Select active space orbitals based on AUTOCAS method with fixed number of orbitals.
+    Select the top N orbitals by one-orbital entropy.
 
     Parameters:
-    mps (MatrixProductState): The matrix product state.
-    n_sites (int): The number of sites (sites are 1-indexed).
-    active_orbitals (int): The number of top orbitals to select.
+        mps: MatrixProductState
+        n_sites: int
+            Number of spatial orbitals.
+        active_orbitals: int
+            Number of orbitals to select.
 
     Returns:
-    list: Indices of selected active orbitals.
+        list[int]: Selected orbital indices in 0-based notation.
     """
-    # Calculate one-orbital entropy for each orbital
-    entropies = []
-    for i in range(1, n_sites + 1):
-        entropy = get_one_orbital_entropy(mps, i)
-        entropies.append(entropy)
+    if active_orbitals <= 0:
+        return []
 
-    # Select top N orbitals based on entropy
-    top_orbitals = sorted(range(len(entropies)), key=lambda i: entropies[i], reverse=True)[:active_orbitals]
+    entropies = _orbital_entropies(mps, n_sites)
+    active_orbitals = min(active_orbitals, len(entropies))
 
-    return top_orbitals
+    return sorted(range(len(entropies)), key=lambda i: entropies[i], reverse=True)[:active_orbitals]
 
 
-def autocas_selection_total_entropy(mps: MatrixProductState, n_sites: int, threshold: float) -> list:
+def autocas_selection_total_entropy(
+    mps: MatrixProductState, n_sites: int, threshold: float
+) -> list[int]:
     """
-    Select active space orbitals based on AUTOCAS method with fixed total entropy threshold.
+    Select orbitals until the cumulative entropy reaches the requested threshold
+    fraction of the total entropy.
 
     Parameters:
-    mps (MatrixProductState): The matrix product state.
-    n_sites (int): The number of sites (sites are 1-indexed).
-    threshold (float): The entropy threshold for selection.
+        mps: MatrixProductState
+        n_sites: int
+            Number of spatial orbitals.
+        threshold: float
+            Fraction of total entropy to capture.
 
     Returns:
-    list: Indices of selected active orbitals.
+        list[int]: Selected orbital indices in 0-based notation.
     """
-    # Calculate one-orbital entropy for each orbital
-    entropies = []
-    for i in range(1, n_sites + 1):
-        entropy = get_one_orbital_entropy(mps, i)
-        entropies.append(entropy)
+    if threshold <= 0:
+        return []
+    if threshold >= 1:
+        return list(range(n_sites))
 
+    entropies = _orbital_entropies(mps, n_sites)
     total_entropy = sum(entropies)
-    ranked_orbitals = sorted(range(len(entropies)), key=lambda i: entropies[i], reverse=True)
-    desired_entropy = threshold * total_entropy
 
-    top_orbitals = []
-    current_entropy = 0
-    for i in ranked_orbitals:
-        if current_entropy + entropies[i] <= desired_entropy:
-            top_orbitals.append(i)
-            current_entropy += entropies[i]
-        else:
+    if total_entropy <= 0:
+        return []
+
+    desired_entropy = threshold * total_entropy
+    ranked_orbitals = sorted(range(len(entropies)), key=lambda i: entropies[i], reverse=True)
+
+    selected_orbitals = []
+    current_entropy = 0.0
+    for idx in ranked_orbitals:
+        selected_orbitals.append(idx)
+        current_entropy += entropies[idx]
+        if current_entropy >= desired_entropy:
             break
 
-    return top_orbitals
+    return selected_orbitals

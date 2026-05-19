@@ -13,9 +13,13 @@ def build_entanglement_feature(mps: MPS) -> MPS:
     Returns EF as an MPS
     """
     ef_arrays = []
-
+    x = mps.bond_dimension
+    for tidx in range(1, mps.num_sites):
+        t = mps.tensors[tidx]
+        bond_size = t.data.shape[0]
+        if bond_size < x:
+            mps = mps.expand_bond_dimension(x-bond_size, tidx)
     for A in mps.tensors:
-        print("Building EF tensor for MPS tensor with shape:", A.data.shape)
         if A.data.ndim == 2:
             x, p = A.data.shape  # A shape (x,2)
             print("Bond dim:", x, "Physical dim:", p)
@@ -164,9 +168,7 @@ def contract_ef_bitstring(ef_mps: MPS, bitstring: list[int]) -> float:
     bitstring: list of 0/1 of length N
     Returns: Renyi-2 value (float)
     """
-    print("EF MPS has shape:", [t.data.shape for t in ef_mps.tensors])
     bit_mps = MPS.from_bitstring(bitstring)
-    print("Bitstring MPS has shape:", [t.data.shape for t in bit_mps.tensors])
     a = ef_mps.compute_inner_product(bit_mps)
     R2 = a.real
     return R2

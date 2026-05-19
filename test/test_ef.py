@@ -1,6 +1,10 @@
 import numpy as np
+import pytest
+import os
 
 from tn4qa.mps import MatrixProductState as MPS
+from tn4qa.qi_metrics import get_one_orbital_entropy
+from test.test_active_space import build_mps_from_molecule
 from tn4qa.tn_methods.entanglement_feature import (
     build_entanglement_feature,
     contract_ef_bitstring,
@@ -78,6 +82,31 @@ def test_best_cut_on_random_mps():
     assert 1 <= cut < num_qubits
     print("best_cut_on_random_mps: PASSED")
 
+MOLECULE_FILES = ["H2.json", "LiH.json", "N2.json"]
+
+@pytest.mark.parametrize("molecule_file", MOLECULE_FILES)
+def test_bitstrings_with_one_one(molecule_file):
+    mol_data, mps = build_mps_from_molecule(molecule_file)
+
+    n_sites = mps.num_sites
+    n_orbitals = mol_data.num_spin_orbs // 2
+
+    # Calculate one-orbital entropy for each orbital
+    entropies = []
+    for i in range(1, n_orbitals + 1):
+        entropy = get_one_orbital_entropy(mps, i)
+        entropies.append(entropy)
+
+    # Build EF from DMRG solution
+    ef_mps = build_entanglement_feature(mps)
+
+    # contract EF with bitstrings with exactly one '1'
+    for i in range(n_sites):
+        bitstring = [0] * n_sites
+        bitstring[i] = 1
+        R2 = contract_ef_bitstring(ef_mps, bitstring)
+        assert R2 > 0
+        print(f"Orbital {i+1} entropy: {entropies[i]:.4f}, R2: {R2:.4f}")
 
 # if __name__ == "__main__":
 #     test_build_entanglement_feature_shapes()
