@@ -13,8 +13,8 @@ from tn4qa.tn_methods.entanglement_feature import (
 )
 
 TEST_ARRAYS = [
-    np.random.rand(2, 2),
-    np.random.rand(2, 2, 2),
+    np.random.rand(4, 2),
+    np.random.rand(4, 2, 2),
     np.random.rand(2, 2),
 ]
 
@@ -25,9 +25,9 @@ ef_mps = build_entanglement_feature(mps)
 def test_build_entanglement_feature_shapes():
     for A in ef_mps.tensors:
         if A.data.ndim == 2:
-            assert A.data.shape == (16, 2)
+            assert A.data.shape == (256, 2)
         elif A.data.ndim == 3:
-            assert A.data.shape == (16, 16, 2)
+            assert A.data.shape == (256, 256, 2)
     print("build_entanglement_feature_shapes: PASSED")
 
 
