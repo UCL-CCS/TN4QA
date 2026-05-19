@@ -117,6 +117,11 @@ class DMRG:
         arrays = []
         for tensor in pyket.tensors:
             arrays.append(np.array(tensor.blocks[0].reduced))
+        first_array, last_array = arrays[0], arrays[-1]
+        if first_array.ndim != 2:
+            arrays[0] = first_array[0, :, :]
+        if last_array.ndim != 2:
+            arrays[-1] = last_array[:, :, 0]
         mps = MatrixProductState.from_arrays(arrays, shape="upd")
         mps.reshape()
         return mps
