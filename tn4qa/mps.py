@@ -1487,17 +1487,22 @@ class MatrixProductState(TensorNetwork):
             bond_idx: The bond to expand
         """
         arrays = [t.data for t in self.tensors]
+        all_sparse = all(isinstance(t.data, SparseArray) for t in self.tensors)
+        if all_sparse:
+            pad_fn = sparse.pad
+        else:
+            pad_fn = np.pad
         self.reshape("udp")
         if bond_idx - 1 == 0:
-            arrays[bond_idx - 1] = sparse.pad(arrays[bond_idx - 1], ((0, diff), (0, 0)))
+            arrays[bond_idx - 1] = pad_fn(arrays[bond_idx - 1], ((0, diff), (0, 0)))
         else:
-            arrays[bond_idx - 1] = sparse.pad(
+            arrays[bond_idx - 1] = pad_fn(
                 arrays[bond_idx - 1], ((0, 0), (0, diff), (0, 0))
             )
         if bond_idx == self.num_sites - 1:
-            arrays[bond_idx] = sparse.pad(arrays[bond_idx], ((0, diff), (0, 0)))
+            arrays[bond_idx] = pad_fn(arrays[bond_idx], ((0, diff), (0, 0)))
         else:
-            arrays[bond_idx] = sparse.pad(arrays[bond_idx], ((0, diff), (0, 0), (0, 0)))
+            arrays[bond_idx] = pad_fn(arrays[bond_idx], ((0, diff), (0, 0), (0, 0)))
         mps = MatrixProductState.from_arrays(arrays)
 
         return mps
