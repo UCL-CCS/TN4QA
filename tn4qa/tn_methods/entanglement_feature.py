@@ -44,31 +44,19 @@ def build_entanglement_feature(mps: MPS) -> MPS:
             D_conj = copy.deepcopy(D)
             D_conj.dagger()
             # Make two tensor networks: one for identity and one for swap
-            D_conj.indices = ["e", "c", "d"]
-            tn_id = TN([D, D_conj])  # identity
+            D_conj_id = copy.deepcopy(D_conj)
+            D_conj_sw = copy.deepcopy(D_conj)
+            D_conj_id.indices = ["e", "c", "d"]
+            tn_id = TN([D, D_conj_id])  # identity
             print("TN identity tensors:", [t.indices for t in tn_id.tensors])
 
-            D_conj.indices = ["e", "d", "c"]
-            tn_sw = TN([D, D_conj])  # swap
+            D_conj_sw.indices = ["e", "d", "c"]
+            tn_sw = TN([D, D_conj_sw])  # swap
 
             # Contract c and d, combine a,e and b,f
             # to get final tensor network of one tensor of shape (x^4, x^4)
             tn_id.contract_indices(["c", "d"])
-            print(
-                "After contracting, TN identity tensors:",
-                [t.indices for t in tn_id.tensors],
-            )
-            print(
-                "Before combining, TN identity tensors:",
-                [t.indices for t in tn_id.tensors],
-            )
             tn_id.tensors[0].combine_indices(["a", "e"], "up")
-            print(
-                "After combining, TN identity tensors:",
-                [t.indices for t in tn_id.tensors],
-            )
-            print("TN Identity tensor shape:", tn_id.tensors[0].data.shape)
-
             tn_sw.contract_indices(["c", "d"])
             tn_sw.tensors[0].combine_indices(["a", "e"], "up")
             print("TN Swap tensor shape:", tn_sw.tensors[0].data.shape)
@@ -113,26 +101,20 @@ def build_entanglement_feature(mps: MPS) -> MPS:
             D_conj.dagger()
 
             # Make two tensor networks: one for identity and one for swap
-            D_conj.indices = ["e", "f", "c", "d"]
-            tn_id = TN([D, D_conj])  # identity
+            D_conj_id = copy.deepcopy(D_conj)
+            D_conj_sw = copy.deepcopy(D_conj)
+            D_conj_id.indices = ["e", "f", "c", "d"]
+            tn_id = TN([D, D_conj_id])  # identity
             print("TN identity tensors:", [t.indices for t in tn_id.tensors])
 
-            D_conj.indices = ["e", "f", "d", "c"]
-            tn_sw = TN([D, D_conj])  # swap
+            D_conj_sw.indices = ["e", "f", "d", "c"]
+            tn_sw = TN([D, D_conj_sw])  # swap
 
             # Contract c and d, combine a,e and b,f
             # to get final tensor network of one tensor of shape (x^4, x^4)
             tn_id.contract_indices(["c", "d"])
-            print(
-                "After contracting, TN identity tensors:",
-                [t.indices for t in tn_id.tensors],
-            )
-            print(
-                "Before combining, TN identity tensors:",
-                [t.indices for t in tn_id.tensors],
-            )
-            tn_id.tensors[0].combine_indices(["a", "e"], "up")
             tn_id.tensors[0].combine_indices(["b", "f"], "down")
+            tn_id.tensors[0].combine_indices(["a", "e"], "up")
             print(
                 "After combining, TN identity tensors:",
                 [t.indices for t in tn_id.tensors],
@@ -140,8 +122,8 @@ def build_entanglement_feature(mps: MPS) -> MPS:
             print("TN Identity tensor shape:", tn_id.tensors[0].data.shape)
 
             tn_sw.contract_indices(["c", "d"])
-            tn_sw.tensors[0].combine_indices(["a", "e"], "up")
             tn_sw.tensors[0].combine_indices(["b", "f"], "down")
+            tn_sw.tensors[0].combine_indices(["a", "e"], "up")
             print("TN Swap tensor shape:", tn_sw.tensors[0].data.shape)
 
             # Make an array with the tensors
@@ -169,7 +151,7 @@ def contract_ef_bitstring(ef_mps: MPS, bitstring: list[int]) -> float:
     bitstring: list of 0/1 of length N
     Returns: Renyi-2 value (float)
     """
-    bit_mps = MPS.from_bitstring(bitstring)
+    bit_mps = MPS.from_bitstring("".join(str(b) for b in bitstring))
     a = ef_mps.compute_inner_product(bit_mps)
     R2 = a.real
     return R2
