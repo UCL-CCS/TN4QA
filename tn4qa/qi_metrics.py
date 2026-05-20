@@ -329,12 +329,13 @@ def get_two_orbital_rdm(
         return rdm
 
 
-def get_one_orbital_entropy(mps: MatrixProductState, site: int) -> float:
+def get_one_orbital_entropy(mps: MatrixProductState, site: int, alpha: float = 1.0) -> float:
     """Calculate the one orbital entropy.
 
     Args:
         mps (MatrixProductState): A matrix product state.
         site (int): The index of the orbital (1-indexed).
+        alpha (float): The Renyi entropy parameter.
     Returns:
         float: The one orbital entropy.
 
@@ -347,18 +348,23 @@ def get_one_orbital_entropy(mps: MatrixProductState, site: int) -> float:
     # Calculate eigenvalues
     eigvals = np.linalg.eigvalsh(rdm1)
     # Calculate entropy
-    entropy = -np.sum(
-        eigvals * np.log2(eigvals + 1e-12)
-    )  # Add small value to avoid log(0)
+    if alpha == 1.0:
+        entropy = -np.sum(
+            eigvals * np.log2(eigvals + 1e-12)
+        )  # Add small value to avoid log(0)
+    else:
+        entropy = (1 / (1 - alpha)) * np.log2(np.sum(eigvals ** alpha))
+
     return entropy
 
 
-def get_two_orbital_entropy(mps: MatrixProductState, sites: list[int]) -> float:
+def get_two_orbital_entropy(mps: MatrixProductState, sites: list[int], alpha: float = 1.0) -> float:
     """Calculate the two orbital entropy.
 
     Args:
         mps (MatrixProductState): A matrix product state.
         sites (list[int]): A list of two orbital indices (1-indexed).
+        alpha (float): The Renyi entropy parameter.
     Returns:
         float: The two orbital entropy.
 
@@ -369,15 +375,18 @@ def get_two_orbital_entropy(mps: MatrixProductState, sites: list[int]) -> float:
     """
     match n_sites := len(set(sites)):
         case 1:
-            return get_one_orbital_entropy(mps, sites[0])
+            return get_one_orbital_entropy(mps, sites[0], alpha)
         case 2:
             rdm2 = get_two_orbital_rdm(mps, sites, direct=True, enforce_symmetry=False)
             # Calculate eigenvalues
             eigvals = np.linalg.eigvalsh(rdm2)
             # Calculate entropy
-            entropy = -np.sum(
-                eigvals * np.log2(eigvals + 1e-12)
-            )  # Add small value to avoid log(0)
+            if alpha == 1.0:
+                entropy = -np.sum(
+                    eigvals * np.log2(eigvals + 1e-12)
+                )  # Add small value to avoid log(0)
+            else:
+                entropy = (1 / (1 - alpha)) * np.log2(np.sum(eigvals ** alpha))
             return entropy
         case _:
             raise ValueError(

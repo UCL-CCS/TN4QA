@@ -90,6 +90,7 @@ def test_bitstrings_with_one_one(molecule_file):
 
     n_sites = mps.num_sites
     n_orbitals = mol_data.num_spin_orbs // 2
+    print(f"Testing molecule {molecule_file} with {n_sites} sites and {n_orbitals} orbitals") 
 
     # Calculate one-orbital entropy for each orbital
     entropies = []
@@ -101,9 +102,10 @@ def test_bitstrings_with_one_one(molecule_file):
     ef_mps = build_entanglement_feature(mps)
 
     # contract EF with bitstrings with exactly one '1'
-    for i in range(n_sites):
+    for i in range(n_orbitals):
         bitstring = [0] * n_sites
-        bitstring[i] = 1
+        bitstring[2 * i] = 1
+        bitstring[2 * i + 1] = 1
         R2 = contract_ef_bitstring(ef_mps, bitstring)
         assert R2 > 0
         print(f"Orbital {i+1} entropy: {entropies[i]:.4f}, R2: {R2:.4f}")
