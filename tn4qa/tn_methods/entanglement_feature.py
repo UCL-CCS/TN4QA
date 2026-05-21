@@ -19,11 +19,11 @@ def build_entanglement_feature(mps: MPS) -> MPS:
         bond_size = t.data.shape[0]
         if bond_size < x:
             mps = mps.expand_bond_dimension(x-bond_size, tidx)
-    print(mps)
+    #print(mps)
     for A in mps.tensors:
         if A.data.ndim == 2:
             x, p = A.data.shape  # A shape (x,2)
-            print("Bond dim:", x, "Physical dim:", p)
+            # print("Bond dim:", x, "Physical dim:", p)
             assert p == 2, "Physical dimension must be 2"
             A1 = copy.deepcopy(A)  # shape (x,2)
             A2 = copy.deepcopy(A)  # shape (x,2)
@@ -37,9 +37,6 @@ def build_entanglement_feature(mps: MPS) -> MPS:
             D[:, 0, 1] = np.kron(A1.data[:, 0], A2.data[:, 1])
             D[:, 1, 0] = np.kron(A1.data[:, 1], A2.data[:, 0])
             D = Tensor(D, indices=["a", "c", "d"], labels=["Double_Tensor"])
-            print("Shape of D tensor:", D.data.shape)
-            print("Labels of D:", D.labels)
-            print("Indices of D:", D.indices)
 
             D_conj = copy.deepcopy(D)
             D_conj.dagger()
@@ -48,7 +45,7 @@ def build_entanglement_feature(mps: MPS) -> MPS:
             D_conj_sw = copy.deepcopy(D_conj)
             D_conj_id.indices = ["e", "c", "d"]
             tn_id = TN([D, D_conj_id])  # identity
-            print("TN identity tensors:", [t.indices for t in tn_id.tensors])
+            # print("TN identity tensors:", [t.indices for t in tn_id.tensors])
 
             D_conj_sw.indices = ["e", "d", "c"]
             tn_sw = TN([D, D_conj_sw])  # swap
@@ -59,7 +56,7 @@ def build_entanglement_feature(mps: MPS) -> MPS:
             tn_id.tensors[0].combine_indices(["a", "e"], "up")
             tn_sw.contract_indices(["c", "d"])
             tn_sw.tensors[0].combine_indices(["a", "e"], "up")
-            print("TN Swap tensor shape:", tn_sw.tensors[0].data.shape)
+            # print("TN Swap tensor shape:", tn_sw.tensors[0].data.shape)
 
             # Make an array with the tensors
             T = np.zeros((x**4, 2))
@@ -77,7 +74,7 @@ def build_entanglement_feature(mps: MPS) -> MPS:
 
         elif A.data.ndim == 3:
             x, x, p = A.data.shape  # A shape (x,x,2)
-            print("Bond dim:", x, "Physical dim:", p)
+            # print("Bond dim:", x, "Physical dim:", p)
             assert p == 2, "Physical dimension must be 2"
             A1 = copy.deepcopy(A)  # shape (x,x,2)
             A2 = copy.deepcopy(A)  # shape (x,x,2)
@@ -93,9 +90,9 @@ def build_entanglement_feature(mps: MPS) -> MPS:
             D[:, :, 0, 1] = np.kron(A1.data[:, :, 0], A2.data[:, :, 1])
             D[:, :, 1, 0] = np.kron(A1.data[:, :, 1], A2.data[:, :, 0])
             D = Tensor(D, indices=["a", "b", "c", "d"], labels=["Double_Tensor"])
-            print("Shape of D tensor:", D.data.shape)
-            print("Labels of D:", D.labels)
-            print("Indices of D:", D.indices)
+            # print("Shape of D tensor:", D.data.shape)
+            # print("Labels of D:", D.labels)
+            # print("Indices of D:", D.indices)
 
             D_conj = copy.deepcopy(D)
             D_conj.dagger()
@@ -105,7 +102,7 @@ def build_entanglement_feature(mps: MPS) -> MPS:
             D_conj_sw = copy.deepcopy(D_conj)
             D_conj_id.indices = ["e", "f", "c", "d"]
             tn_id = TN([D, D_conj_id])  # identity
-            print("TN identity tensors:", [t.indices for t in tn_id.tensors])
+            # print("TN identity tensors:", [t.indices for t in tn_id.tensors])
 
             D_conj_sw.indices = ["e", "f", "d", "c"]
             tn_sw = TN([D, D_conj_sw])  # swap
@@ -115,16 +112,16 @@ def build_entanglement_feature(mps: MPS) -> MPS:
             tn_id.contract_indices(["c", "d"])
             tn_id.tensors[0].combine_indices(["b", "f"], "down")
             tn_id.tensors[0].combine_indices(["a", "e"], "up")
-            print(
-                "After combining, TN identity tensors:",
-                [t.indices for t in tn_id.tensors],
-            )
-            print("TN Identity tensor shape:", tn_id.tensors[0].data.shape)
+            # print(
+            #     "After combining, TN identity tensors:",
+            #     [t.indices for t in tn_id.tensors],
+            # )
+            # print("TN Identity tensor shape:", tn_id.tensors[0].data.shape)
 
             tn_sw.contract_indices(["c", "d"])
             tn_sw.tensors[0].combine_indices(["b", "f"], "down")
             tn_sw.tensors[0].combine_indices(["a", "e"], "up")
-            print("TN Swap tensor shape:", tn_sw.tensors[0].data.shape)
+            # print("TN Swap tensor shape:", tn_sw.tensors[0].data.shape)
 
             # Make an array with the tensors
             T = np.zeros((x**4, x**4, 2))
@@ -163,7 +160,7 @@ def ef_best_cut(ef_mps: MPS) -> int:
     Return the cut index i that minimises the Renyi-2 across bitstrings
     """
     N = len(ef_mps.tensors)
-    print("Calculating best cut for MPS with", N, "tensors")
+    # print("Calculating best cut for MPS with", N, "tensors")
     costs = []
     for i in range(1, N):
         bitstring = [1] * i + [0] * (N - i)

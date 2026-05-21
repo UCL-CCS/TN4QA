@@ -1,5 +1,10 @@
+import itertools
+
 from tn4qa.qi_metrics import get_one_orbital_entropy
 from tn4qa.mps import MatrixProductState
+from tn4qa.tn_methods.entanglement_feature import build_entanglement_feature, contract_ef_bitstring
+import numpy as np
+
 
 """
 Benchmark: Active Space Selection Methods
@@ -98,3 +103,48 @@ def autocas_selection_total_entropy(
             break
 
     return selected_orbitals
+
+def ef_subset_entropy(mps: MatrixProductState, subset: list[int]) -> float:
+    """
+    Compute the Renyi-2 entropy between a subset of orbitals and the rest using the entanglement feature.
+    subset: list of orbital indices (1-based)
+    Returns: Renyi-2 entropy (float)
+    """
+    ef_mps = build_entanglement_feature(mps)
+    n_sites = ef_mps.num_sites
+    # contract EF with bitstrings
+    bitstring = [0] * n_sites
+    for i in subset:
+        bitstring[2 * i] = 1
+        bitstring[2 * i + 1] = 1
+    
+    R2 = contract_ef_bitstring(ef_mps, bitstring)
+    ef_entropy = -np.log2(R2)
+    return ef_entropy
+
+def ef_active_space(mps: MatrixProductState, n_sites: int) -> list[int]:
+    """
+    Select active space based on the entanglement feature.
+    For each subset of n_sites orbitals, compute the Renyi-2 entropy using the entanglement feature,
+    and select orbitals with entropy above a certain threshold.
+    Parameters:
+        mps: MatrixProductState
+        n_sites: int
+            Number of spatial orbitals.
+
+    Returns:
+        list[int]: Selected orbital indices in 0-based notation.
+    """
+    # Select subsets of orbitals with n_sites orbitals
+    total_orbitals = mps.num_sites // 2
+    subsets = itertools.combinations(range(total_orbitals), n_sites)
+    subset_entropies = []
+    for subset in subsets:
+        entropy = ef_subset_entropy(mps, subset)
+        subset_entropies.append((subset, entropy))
+
+    # Select subset with highest entropy
+    subset_entropies.sort(key=lambda x: x[1], reverse=True)
+    best_subset = subset_entropies[0][0]
+    return list(best_subset)
+
