@@ -3,6 +3,7 @@ import os
 import numpy as np
 
 from tn4qa.dmrg import DMRG
+from tn4qa.mpo import MatrixProductOperator
 from tn4qa.mps import MatrixProductState
 from tn4qa.utils import ReadMoleculeData
 
@@ -42,5 +43,8 @@ def test_DMRG_hydrogen():
         mol_data.num_spin_orbs, mol_data.num_electrons
     )
     dmrg = DMRG(ham, 16, hf_mps)
-    energy, _ = dmrg.run(20)
+    energy, psi = dmrg.run(20)
+    ham_mpo = MatrixProductOperator.from_hamiltonian(ham)
+    ip = psi.compute_expectation_value(ham_mpo)
+    assert np.isclose(ip.real, -1.10115033023, atol=0.01)
     assert np.isclose(energy, -1.10115033023, atol=0.01)

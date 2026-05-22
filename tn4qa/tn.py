@@ -521,7 +521,7 @@ class TensorNetwork:
         tmp = copy.deepcopy(tensor)
         tmp.tensor_to_matrix(input_indices, output_indices)
         data = tmp.data
-        sh = tmp.storage_hint
+        # sh = tmp.storage_hint
 
         rows, cols = data.shape
         if max_bond is None:
@@ -530,28 +530,37 @@ class TensorNetwork:
             max_bond = min(max_bond, rows, cols)
 
         use_truncated = max_bond < min(rows, cols) - 1
-        if use_truncated:
-            try:
-                svd_input = data if sh == StorageHint.SPARSE else tmp.to_dense()
-                u, s, vh = svds(svd_input, k=max_bond)
-                idx = np.argsort(s)[::-1]
-                s = s[idx]
-                u = u[:, idx]
-                vh = vh[idx, :]
-            except Exception:
+        try:
+            if use_truncated:
                 u, s, vh = scipy.linalg.svd(
-                    tmp.to_dense(), full_matrices=False, check_finite=False
+                    tmp.to_dense(),
+                    full_matrices=False,
+                    check_finite=False,
+                    lapack_driver="gesdd",
                 )
-        else:
+            else:
+                u, s, vh = scipy.linalg.svd(
+                    tmp.to_dense(),
+                    full_matrices=False,
+                    check_finite=False,
+                    lapack_driver="gesdd",
+                )
+        except np.linalg.LinAlgError:
             u, s, vh = scipy.linalg.svd(
-                tmp.to_dense(), full_matrices=False, check_finite=False
+                tmp.to_dense(),
+                full_matrices=False,
+                check_finite=False,
+                lapack_driver="gesvd",
             )
 
         u = np.asarray(u)
         s = np.asarray(s)
         vh = np.asarray(vh)
 
-        s = s[s > 1e-14]
+        mask = s > 1e-14
+        s = s[mask]
+        u = u[:, mask]
+        vh = vh[mask, :]
         sq = s**2
         cumulative = np.cumsum(sq[::-1])[::-1]
         keep_dim = len(s)

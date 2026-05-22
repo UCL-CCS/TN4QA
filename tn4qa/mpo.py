@@ -1,4 +1,5 @@
 import copy
+from functools import lru_cache
 from itertools import islice
 from typing import List, TypeAlias, Union
 
@@ -1625,16 +1626,223 @@ class MatrixProductOperator(TensorNetwork):
         return mpo
 
     @classmethod
+    @lru_cache(maxsize=None)
+    def swap_mpo_cached(cls, num_sites: int, site_a: int, site_b: int):
+        qc = QuantumCircuit(num_sites)
+        qc.swap(site_a - 1, site_b - 1)
+        return cls.from_qiskit_circuit(qc)
+
+    @classmethod
+    @lru_cache(maxsize=None)
+    def swap_mpo_direct(
+        cls, num_sites: int, site_a: int, site_b: int
+    ) -> "MatrixProductOperator":
+        """
+        Build a SWAP MPO analytically between site_a and site_b (1-indexed).
+        SWAP = (1/2)(II + XX + YY + ZZ)
+
+        Index order per site:
+        - Interior: (up_virtual, down_virtual, phys_out, phys_in)  [rank 4]
+        - Top (site 1): (down_virtual, phys_out, phys_in)          [rank 3, no up]
+        - Bottom (site N): (up_virtual, phys_out, phys_in)         [rank 3, no down]
+        """
+        assert 1 <= site_a < site_b <= num_sites
+
+        I2 = np.eye(2, dtype=complex)
+        X = np.array([[0, 1], [1, 0]], dtype=complex)
+        Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+        Z = np.array([[1, 0], [0, -1]], dtype=complex)
+        paulis = [I2, X, Y, Z]
+        coeffs = [0.5, 0.5, 0.5, 0.5]
+
+        tensors = []
+        for site in range(1, num_sites + 1):
+            is_top = site == 1
+            is_bottom = site == num_sites
+
+            bond_up = 4 if site > site_a and site <= site_b else 1
+            bond_down = 4 if site >= site_a and site < site_b else 1
+
+            if site == site_a:
+                # Emit: up bond is 1 (or absent if top), down bond is 4
+                if is_top:
+                    # shape: (down=4, phys_out=2, phys_in=2)
+                    t = np.zeros((4, 2, 2), dtype=complex)
+                    for b, (P, c) in enumerate(zip(paulis, coeffs)):
+                        t[b, :, :] = c * P
+                else:
+                    # shape: (up=1, down=4, phys_out=2, phys_in=2)
+                    t = np.zeros((1, 4, 2, 2), dtype=complex)
+                    for b, (P, c) in enumerate(zip(paulis, coeffs)):
+                        t[0, b, :, :] = c * P
+
+            elif site == site_b:
+                # Close: up bond is 4, down bond is 1 (or absent if bottom)
+                if is_bottom:
+                    # shape: (up=4, phys_out=2, phys_in=2)
+                    t = np.zeros((4, 2, 2), dtype=complex)
+                    for b, P in enumerate(paulis):
+                        t[b, :, :] = P
+                else:
+                    # shape: (up=4, down=1, phys_out=2, phys_in=2)
+                    t = np.zeros((4, 1, 2, 2), dtype=complex)
+                    for b, P in enumerate(paulis):
+                        t[b, 0, :, :] = P
+
+            else:
+                # Identity passthrough
+                if is_top:
+                    # shape: (down=bond_down, phys_out=2, phys_in=2)
+                    t = np.zeros((bond_down, 2, 2), dtype=complex)
+                    for b in range(bond_down):
+                        t[b, :, :] = I2
+                elif is_bottom:
+                    # shape: (up=bond_up, phys_out=2, phys_in=2)
+                    t = np.zeros((bond_up, 2, 2), dtype=complex)
+                    for b in range(bond_up):
+                        t[b, :, :] = I2
+                else:
+                    # shape: (up=bond_up, down=bond_down, phys_out=2, phys_in=2)
+                    t = np.zeros((bond_up, bond_down, 2, 2), dtype=complex)
+                    for b in range(bond_up):
+                        t[b, b, :, :] = I2
+
+            tensors.append(t)
+
+        return cls.from_arrays(tensors)
+
+    @classmethod
     def purity_mpo(
         cls, num_sites: int, target_sites: list[int], max_bond: int | None = None
     ):
         mpo = MatrixProductOperator.identity_mpo(2 * num_sites)
 
         for idx in target_sites:
-            swap_mpo = MatrixProductOperator.swap_mpo(
-                2 * num_sites, [idx, num_sites + idx]
+            swap_mpo = MatrixProductOperator.swap_mpo_direct(
+                2 * num_sites, idx, num_sites + idx
             )
             mpo = mpo.multiply_and_compress(swap_mpo, max_bond)
+
+        return mpo
+
+    @classmethod
+    @lru_cache(maxsize=None)
+    def purity_mpo_cached(
+        cls, num_sites: int, target_sites: tuple[int, ...], max_bond: int | None = None
+    ):
+        # target_sites as tuple so it's hashable
+        mpo = MatrixProductOperator.identity_mpo(2 * num_sites)
+        for idx in target_sites:
+            swap_mpo = cls.swap_mpo_direct(2 * num_sites, idx, num_sites + idx)
+            mpo = mpo.multiply_and_compress(swap_mpo, max_bond)
+        return mpo
+
+    @classmethod
+    def purity_mpo_direct(
+        cls, num_sites: int, target_sites: tuple[int, ...], max_bond: int | None = None
+    ) -> "MatrixProductOperator":
+        I2 = np.eye(2, dtype=complex)
+        X = np.array([[0, 1], [1, 0]], dtype=complex)
+        Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+        Z = np.array([[1, 0], [0, -1]], dtype=complex)
+        paulis = [I2, X, Y, Z]
+
+        n = 2 * num_sites
+        swap_pairs = [(s, num_sites + s) for s in sorted(target_sites)]
+
+        def single_swap_tensor(site, left_site, right_site, is_top, is_bottom):
+            """
+            Rank-4 (or rank-3) tensor for one SWAP(left_site, right_site)
+            at the given site. Bond dim is 1 outside [left_site, right_site]
+            and 4 inside.
+            """
+            if site == left_site:
+                if is_top:
+                    t = np.zeros((4, 2, 2), dtype=complex)
+                    for b, P in enumerate(paulis):
+                        t[b] = 0.5 * P
+                else:
+                    t = np.zeros((1, 4, 2, 2), dtype=complex)
+                    for b, P in enumerate(paulis):
+                        t[0, b] = 0.5 * P
+
+            elif site == right_site:
+                if is_bottom:
+                    t = np.zeros((4, 2, 2), dtype=complex)
+                    for b, P in enumerate(paulis):
+                        t[b] = P
+                else:
+                    t = np.zeros((4, 1, 2, 2), dtype=complex)
+                    for b, P in enumerate(paulis):
+                        t[b, 0] = P
+
+            else:
+                # Identity passthrough - bond dim 4 if inside range, 1 otherwise
+                bd = 4 if left_site < site < right_site else 1
+                if is_top:
+                    t = np.zeros((bd, 2, 2), dtype=complex)
+                    for b in range(bd):
+                        t[b] = I2
+                elif is_bottom:
+                    t = np.zeros((bd, 2, 2), dtype=complex)
+                    for b in range(bd):
+                        t[b] = I2
+                else:
+                    t = np.zeros((bd, bd, 2, 2), dtype=complex)
+                    for b in range(bd):
+                        t[b, b] = I2
+
+            return t
+
+        def combine_swap_tensors(t1, t2, is_top, is_bottom):
+            if is_top:
+                # t1: (d1, 2, 2), t2: (d2, 2, 2) -> (d1*d2, 2, 2)
+                d1 = t1.shape[0]
+                d2 = t2.shape[0]
+                out = np.einsum("ipq,jqr->ijpr", t1, t2)
+                # shape: (d1, d2, 2, 2)
+                out = out.reshape(d1 * d2, 2, 2)
+
+            elif is_bottom:
+                # t1: (u1, 2, 2), t2: (u2, 2, 2) -> (u1*u2, 2, 2)
+                u1 = t1.shape[0]
+                u2 = t2.shape[0]
+                out = np.einsum("ipq,jqr->ijpr", t1, t2)
+                # shape: (u1, u2, 2, 2)
+                out = out.reshape(u1 * u2, 2, 2)
+
+            else:
+                # t1: (u1, d1, 2, 2), t2: (u2, d2, 2, 2) -> (u1*u2, d1*d2, 2, 2)
+                u1, d1 = t1.shape[0], t1.shape[1]
+                u2, d2 = t2.shape[0], t2.shape[1]
+                out = np.einsum("iIpq,jJqr->iIjJpr", t1, t2)
+                # shape: (u1, d1, u2, d2, 2, 2)
+                out = out.transpose(0, 2, 1, 3, 4, 5)
+                # shape: (u1, u2, d1, d2, 2, 2)
+                out = out.reshape(u1 * u2, d1 * d2, 2, 2)
+
+            return out
+
+        tensors = []
+        for site in range(1, n + 1):
+            is_top = site == 1
+            is_bottom = site == n
+
+            # Build individual SWAP tensors and combine via tensor product
+            site_tensors = [
+                single_swap_tensor(site, l, r, is_top, is_bottom) for l, r in swap_pairs
+            ]
+
+            # Combine all swap tensors at this site
+            combined = site_tensors[0]
+            for st in site_tensors[1:]:
+                combined = combine_swap_tensors(combined, st, is_top, is_bottom)
+
+            tensors.append(combined)
+
+        mpo = cls.from_arrays(tensors)
+        if max_bond is not None and mpo.bond_dimension > max_bond:
+            mpo.compress(max_bond)
 
         return mpo
 

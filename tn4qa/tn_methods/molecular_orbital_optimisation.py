@@ -209,6 +209,7 @@ class MolecularOrbitalOptimisation:
         dmrg = DMRG(hamiltonian, max_mps_bond=max_mps_bond, initial_mps=initial_mps)
         _, psi = dmrg.run(nsweeps=maxiter)
         psi.compress(2)
+
         return psi
 
     def build_cost_function_mpo(
@@ -685,6 +686,97 @@ class MolecularOrbitalOptimisation:
         # cost = self.cost_function_callable(rotated_state)
         return cost.real
 
+    def calculate_cost_direct(
+        self,
+        theta: ndarray,
+        pauli_lookup: dict,
+        mps: MatrixProductState,
+        mpo: MatrixProductOperator,
+        max_bond: int | None,
+    ) -> float:
+        """Optimisation cost function.
+
+        Args;
+            theta: Paramter list for K
+            mpo: QI cost function MPO
+            mps: Groundstate approximation from DMRG
+
+        Returns:
+            < MPS | (exp(Σ_{pq} K_{pq} a†_p a_q))† MPO exp(Σ_{pq} K_{pq} a†_p a_q) | MPS >
+        """
+        rotated_state = copy.deepcopy(mps)
+        for k in range(len(theta)):
+            pauli_dict = pauli_lookup[k]
+            for ps, val in pauli_dict.items():
+                coeff = theta[k] * val
+                if coeff != 0:
+                    temp_mpo = MatrixProductOperator.from_pauli_exponential(ps, coeff)
+                    rotated_state = rotated_state.apply_mpo(temp_mpo, max_bond=max_bond)
+        rotated_state.normalise()
+
+        # Calculate cost
+        # doubled_rotated_state = rotated_state.to_two_copy_mps()
+        # cost = doubled_rotated_state.compute_expectation_value(mpo)
+        cost = self.cost_function_callable(rotated_state)
+        return cost.real
+
+    def calculate_gradients_finite_difference(
+        self,
+        theta: np.ndarray,
+        mps: MatrixProductState,
+        pauli_lookup: dict,
+        max_bond: int,
+        diff: float = 1e-4,
+    ):
+        gradients = {}
+        for param_idx in range(len(theta)):
+            # param = theta[param_idx]
+
+            theta_plus = theta.copy()
+            theta_plus[param_idx] += diff
+            theta_minus = theta.copy()
+            theta_minus[param_idx] -= diff
+
+            rotated_state = copy.deepcopy(mps)
+            for k in range(len(theta_plus)):
+                pauli_dict = pauli_lookup[k]
+                for ps, val in pauli_dict.items():
+                    coeff = theta_plus[k] * val
+                    if coeff != 0:
+                        temp_mpo = MatrixProductOperator.from_pauli_exponential(
+                            ps, coeff
+                        )
+                        rotated_state = rotated_state.apply_mpo(
+                            temp_mpo, max_bond=max_bond
+                        )
+            rotated_state.normalise()
+
+            # Calculate cost
+            cost_plus = self.cost_function_callable(rotated_state)
+
+            rotated_state = copy.deepcopy(mps)
+            for k in range(len(theta_minus)):
+                pauli_dict = pauli_lookup[k]
+                for ps, val in pauli_dict.items():
+                    coeff = theta_minus[k] * val
+                    if coeff != 0:
+                        temp_mpo = MatrixProductOperator.from_pauli_exponential(
+                            ps, coeff
+                        )
+                        rotated_state = rotated_state.apply_mpo(
+                            temp_mpo, max_bond=max_bond
+                        )
+            rotated_state.normalise()
+
+            # Calculate cost
+            cost_minus = self.cost_function_callable(rotated_state)
+
+            # Gradient
+            grad = (cost_plus - cost_minus) / (2 * diff)
+            gradients[param_idx] = grad.real
+
+        return gradients
+
     def gradient_descent(
         self,
         theta_init: np.ndarray,
@@ -750,6 +842,10 @@ class MolecularOrbitalOptimisation:
                 grad_dict = self.calculate_gradients(
                     full_theta, pauli_lookup, mpo, mps, max_bond, only_real_params
                 )
+                # grad_dict = self.calculate_gradients_finite_difference(
+                #     full_theta, mps, pauli_lookup, max_bond, 1e-2
+                # )
+                # print(grad_dict)
             grad_array = np.zeros(num_params)
             for k, v in grad_dict.items():
                 grad_array[k] = v
@@ -757,6 +853,7 @@ class MolecularOrbitalOptimisation:
 
         # ----- Initialise theta and momentum -----
         theta_opt = theta[allowed]
+        theta_opt += np.random.normal(0, 1e-3, size=theta_opt.shape)
 
         self.all_costs = []
         prev_cost = cost(theta_opt)
@@ -892,26 +989,15 @@ class MolecularOrbitalOptimisation:
                 grad = self.calculate_gradients(
                     full_theta, pauli_lookup, mpo, mps, max_bond, only_real_params
                 )
+                # grad = self.calculate_gradients_finite_difference(
+                #     full_theta, mps, pauli_lookup, max_bond, 1e-6
+                # )
             grad_array = np.zeros(len(theta_init))
             for k, v in grad.items():
                 grad_array[k] = v
 
             grad = grad_array[allowed]
             return grad
-
-        # print("BEGIN")
-        # t_copy = theta_opt.copy()
-        # analytic_grads = grad(t_copy)
-        # eps = [1e-1, 1e-2, 1e-3, 1e-4, 1e-6, 1e-8, 1e-10, 1e-15, 1e-20, 1e-25]
-        # for ep in eps:
-        #     for i in range(len(theta_opt)):
-        #         g_analytic = analytic_grads[i]
-        #         t_copy[i] += ep
-        #         c_plus = cost(t_copy)
-        #         t_copy[i] -= 2*ep
-        #         c_minus = cost(t_copy)
-        #         g_fd = (c_plus - c_minus) / (2*ep)
-        #         print(i, ep, g_analytic, g_fd, g_analytic - g_fd)
 
         iteration = 0
 
@@ -928,15 +1014,22 @@ class MolecularOrbitalOptimisation:
                 g = self.calculate_gradients(
                     full_theta, pauli_lookup, mpo, mps, max_bond, only_real_params
                 )
+                direct_c = self.calculate_cost_direct(
+                    full_theta, pauli_lookup, mps, mpo, max_bond
+                )
             g = np.array(list(g.values()))[allowed]
             grad_norm = np.linalg.norm(g)
-            print(f"iter={iteration:3d} cost={c:.12f} |grad|={grad_norm:.6e}")
+            self.all_costs.append(c)
+            self.grad_norms.append(grad_norm)
+            print(
+                f"iter={iteration:3d} cost={c:.12f} direct cost={direct_c:.12f} |grad|={grad_norm:.6e}"
+            )
             iteration += 1
 
         num_active = np.sum(allowed)
         assert num_active > 0, "No parameters left to optimize!"
 
-        bounds = [(-0.5, 0.5)] * len(theta_opt)
+        bounds = [(-np.pi, np.pi)] * len(theta_opt)
         opt = scipy.optimize.minimize(
             cost,
             theta_opt,
@@ -978,5 +1071,6 @@ class MolecularOrbitalOptimisation:
         assert np.allclose(K + K.conj().T, 0), "K must be anti-Hermitian"
 
         U = scipy.linalg.expm(-1.0 * K)
+        U, _ = scipy.linalg.polar(U)
         assert np.allclose(U.conj().T @ U, np.eye(U.shape[0]))
         return U

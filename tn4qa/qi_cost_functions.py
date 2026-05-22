@@ -82,6 +82,102 @@ def cost_mutual_info_active_inactive_dict(
     return s
 
 
+def cost_mutual_info_active(mps: MatrixProductState, active_orbs: list[int]):
+    mi = 0
+    for i in range(len(active_orbs)):
+        for j in range(i + 1, len(active_orbs)):
+            mi -= get_mutual_information(mps, active_orbs[i], active_orbs[j])
+    return mi
+
+
+def cost_mutual_info_active_dict(num_orbs: int, active_orbs: list[int]) -> dict:
+    s = {}
+    for idx1 in range(len(active_orbs)):
+        for idx2 in range(idx1 + 1, len(active_orbs)):
+            i, j = active_orbs[idx1], active_orbs[idx2]
+            s[f"S1_{i}"] = s.get(f"S1_{i}", 0) - 1.0
+            s[f"S1_{j}"] = s.get(f"S1_{j}", 0) - 1.0
+            s[f"S2_{i}_{j}"] = s.get(f"S2_{i}_{j}", 0) + 1.0
+    return s
+
+
+def cost_entropy_active(mps: MatrixProductState, active_orbs: list[int]):
+    total = 0
+    for i in active_orbs:
+        e = get_one_orbital_entropy(mps, i)
+        total -= e
+    return total
+
+
+def cost_entropy_active_dict(num_orbs: int, active_orbs: list[int]) -> dict:
+    s = {}
+    for i in active_orbs:
+        s[f"S1_{i}"] = s.get(f"S1_{i}", 0) - 1.0
+
+    return s
+
+
+def cost_minimise_environment_entropy(
+    mps: MatrixProductState, active_orbs: list[int]
+) -> float:
+    num_orbs = mps.num_sites // 2
+    active_set = set(active_orbs)
+    inactive_orbs = [i for i in range(1, num_orbs + 1) if i not in active_set]
+    total = 0
+    for i in inactive_orbs:
+        e = get_one_orbital_entropy(mps, i)
+        total += e
+    return total
+
+
+def cost_minimise_environment_entropy_dict(
+    num_orbs: int, active_orbs: list[int]
+) -> float:
+    active_set = set(active_orbs)
+    inactive_orbs = [i for i in range(1, num_orbs + 1) if i not in active_set]
+    s = {}
+    for i in inactive_orbs:
+        s[f"S1_{i}"] = s.get(f"S1_{i}", 0) + 1.0
+
+    return s
+
+
+def cost_balanced(mps: MatrixProductState, active_orbs: list[int], alpha: float = 0.5):
+    n_orbs = mps.num_sites // 2  # Number of orbitals
+    active_set = set(active_orbs)
+    inactive_orbs = [
+        i for i in range(1, n_orbs + 1) if i not in active_set
+    ]  # Not sure whether to do it like this or to give inactive orbs as an arg
+    mi = 0
+    for i in active_orbs:
+        for j in inactive_orbs:
+            mi += get_mutual_information(mps, i, j)
+
+    e = 0
+    for i in inactive_orbs:
+        e += get_one_orbital_entropy(mps, i)
+
+    return mi + alpha * e
+
+
+def cost_balanced_dict(
+    num_orbs: int, active_orbs: list[int], alpha: float = 0.5
+) -> dict:
+    active_set = set(active_orbs)
+    inactive_orbs = [
+        i for i in range(1, num_orbs + 1) if i not in active_set
+    ]  # similar comment as above
+    s = {}
+    for i in active_orbs:
+        for j in inactive_orbs:
+            s[f"S1_{i}"] = s.get(f"S1_{i}", 0) + 1.0
+            s[f"S1_{j}"] = s.get(f"S1_{j}", 0) + 1.0
+            s[f"S2_{i}_{j}"] = s.get(f"S2_{i}_{j}", 0) - 1.0
+    for i in inactive_orbs:
+        s[f"S1_{i}"] = s.get(f"S1_{i}", 0) + alpha
+    return s
+
+
 def cost_mutual_info_decay(mps: MatrixProductState, decay_power: float = 2.0) -> float:
     """
     Cost function penalising long-range mutual information.
@@ -177,6 +273,31 @@ def cost_function_to_dict(cost_function: Callable, **kwargs) -> dict[str, float]
             return cost_mutual_info_active_inactive_dict(
                 num_orbs=num_orbitals, active_orbs=active_orbs
             )
+        case "cost_mutual_info_active":
+            num_orbitals = function_params["num_orbitals"]
+            active_orbs = function_params["active_orbs"]
+            # active_orbs = list(range(num_active))
+            return cost_mutual_info_active_dict(
+                num_orbs=num_orbitals, active_orbs=active_orbs
+            )
+        case "cost_entropy_active":
+            num_orbitals = function_params["num_orbitals"]
+            active_orbs = function_params["active_orbs"]
+            return cost_entropy_active_dict(
+                num_orbs=num_orbitals, active_orbs=active_orbs
+            )
+        case "cost_minimise_environment_entropy":
+            num_orbitals = function_params["num_orbitals"]
+            active_orbs = function_params["active_orbs"]
+            return cost_minimise_environment_entropy_dict(
+                num_orbs=num_orbitals, active_orbs=active_orbs
+            )
+        case "cost_balanced":
+            num_orbitals = function_params["num_orbitals"]
+            active_orbs = function_params["active_orbs"]
+            return cost_balanced_dict(
+                num_orbs=num_orbitals, active_orbs=active_orbs, alpha=0.5
+            )
         case _:
             raise ValueError
     return
@@ -200,16 +321,19 @@ def cost_function_dict_to_callable(
     def cost_function(mps: MatrixProductState):
         cost = 0.0
         for s, weight in cost_function_dict.items():
+            print(s, weight)
             s_split = s.split("_")
             if s_split[0] == "S1":
                 orbital_idx = int(s_split[1])
                 rdm1 = get_one_orbital_rdm(mps, orbital_idx)
                 cost += entropy_function(rdm1) * weight
+                print(entropy_function(rdm1) * weight)
             else:
                 orbital_idx1 = int(s_split[1])
                 orbital_idx2 = int(s_split[2])
                 rdm2 = get_two_orbital_rdm(mps, [orbital_idx1, orbital_idx2])
                 cost += entropy_function(rdm2) * weight
+                print(entropy_function(rdm2) * weight)
         return cost
 
     return cost_function
@@ -227,8 +351,8 @@ def cost_function_dict_to_purity_mpo(
             orbital_idx = int(s_split[1])
             spin_orbitals = [2 * orbital_idx - 1, 2 * orbital_idx]
             id_mpo = MatrixProductOperator.identity_mpo(2 * num_sites)
-            temp_mpo = MatrixProductOperator.purity_mpo(
-                num_sites, spin_orbitals, max_bond=max_bond
+            temp_mpo = MatrixProductOperator.purity_mpo_direct(
+                num_sites, tuple(spin_orbitals), max_bond=max_bond
             )
             diff = id_mpo - temp_mpo
             diff.multiply_by_constant(weight)
@@ -243,21 +367,30 @@ def cost_function_dict_to_purity_mpo(
                 2 * orbital_idx2,
             ]
             id_mpo = MatrixProductOperator.identity_mpo(2 * num_sites)
-            temp_mpo = MatrixProductOperator.purity_mpo(
-                num_sites, spin_orbitals, max_bond=max_bond
+            temp_mpo = MatrixProductOperator.purity_mpo_direct(
+                num_sites, tuple(spin_orbitals), max_bond=max_bond
             )
             diff = id_mpo - temp_mpo
             diff.multiply_by_constant(weight)
             mpos.append(diff)
 
-    mpo = mpos[0]
-    for next_mpo in mpos[1:]:
-        mpo = mpo + next_mpo
+    def _tree_sum_and_compress(mpos, max_bond):
+        """O(log n) depth rather than O(n), keeps intermediate bond dims small."""
+        while len(mpos) > 1:
+            next_level = []
+            for i in range(0, len(mpos), 2):
+                if i + 1 < len(mpos):
+                    combined = mpos[i] + mpos[i + 1]
+                    if combined.bond_dimension > max_bond:
+                        combined.compress(max_bond)
+                    next_level.append(combined)
+                else:
+                    next_level.append(mpos[i])
+            mpos = next_level
+        return mpos[0]
+
+    mpo = _tree_sum_and_compress(mpos, max_bond)
 
     final_mpo = MatrixProductOperator.from_arrays([m.data for m in mpo.tensors])
-
-    if max_bond:
-        if final_mpo.bond_dimension > max_bond:
-            final_mpo.compress(max_bond)
 
     return final_mpo
