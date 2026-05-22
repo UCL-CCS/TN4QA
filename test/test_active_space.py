@@ -12,7 +12,8 @@ from tn4qa.tn_methods.active_space_selection import (
     autocas_selection_ranked_entropy_threshold,
     autocas_selection_ranked_fixed_number,
     autocas_selection_total_entropy,
-    ef_active_space,
+    ef_active_space_brute_force,
+    ef_active_space_greedy,
 )
 from tn4qa.utils import ReadMoleculeData
 
@@ -48,7 +49,7 @@ def test_autocas_selection_ranked_fixed_number(molecule_file):
         mps, n_sites=n_sites, active_orbitals=active_orbitals
     )
 
-    print(f"Selected top {active_orbitals} orbitals for {molecule_file}: {top_orbitals}")
+    print(f"Selected top {active_orbitals} orbitals for {molecule_file}: {top_orbitals} using AUTOCAS ranked fixed number method")
 
     assert isinstance(top_orbitals, list)
     assert len(top_orbitals) == active_orbitals
@@ -88,18 +89,28 @@ def test_autocas_selection_ranked_entropy_threshold(molecule_file):
 
 
 @pytest.mark.parametrize("molecule_file", MOLECULE_FILES)
-def test_ef_active_space(molecule_file):
+def test_ef_active_space_brute_force(molecule_file):
     mol_data, mps = build_mps_from_molecule(molecule_file)
     n_orbs = mol_data.num_spin_orbs // 2
     n_sites = min(4, n_orbs)
 
-    active_orbitals = ef_active_space(mps, n_sites=n_sites)
+    active_orbitals = ef_active_space_brute_force(mps, n_sites=n_sites)
 
     assert isinstance(active_orbitals, list)
     assert all(isinstance(idx, int) for idx in active_orbitals)
-    print(f"Selected active orbitals for {molecule_file}: {active_orbitals}")
+    print(f"Selected active orbitals for {molecule_file}: {active_orbitals} using EF brute-force method")
 
+@pytest.mark.parametrize("molecule_file", MOLECULE_FILES)
+def test_ef_active_space_greedy(molecule_file):
+    mol_data, mps = build_mps_from_molecule(molecule_file)
+    n_orbs = mol_data.num_spin_orbs // 2
+    n_sites = min(4, n_orbs)
 
+    active_orbitals = ef_active_space_greedy(mps, n_sites=n_sites)
+
+    assert isinstance(active_orbitals, list)
+    assert all(isinstance(idx, int) for idx in active_orbitals)
+    print(f"Selected active orbitals for {molecule_file}: {active_orbitals} using EF greedy method")
 #-------------------------------------------------------------------------------
 
 # Run HF:
@@ -165,5 +176,6 @@ energy_selected = run_casci_selected(rhf_obj, active_space=[1, 3, 5, 10])
 energy_autocas = run_casci_selected(rhf_obj, active_space=[5, 6, 2, 3])
 print(f"Energy with auto-selected active space: {energy_auto}")
 print(f"Energy with AVAS-selected active space: {energy_avas}")
-print(f"Energy with your selected active space: {energy_selected}")
+print(f"Energy with brute-force selected active space: {energy_selected}")
 print(f"Energy with AutoCAS-selected active space: {energy_autocas}")
+#print(f"Energy with greedy EF-selected active space: {energy_greedy}")

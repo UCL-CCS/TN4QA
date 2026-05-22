@@ -122,7 +122,7 @@ def ef_subset_entropy(mps: MatrixProductState, subset: list[int]) -> float:
     ef_entropy = -np.log2(R2)
     return ef_entropy
 
-def ef_active_space(mps: MatrixProductState, n_sites: int) -> list[int]:
+def ef_active_space_brute_force(mps: MatrixProductState, n_sites: int) -> list[int]:
     """
     Select active space based on the entanglement feature.
     For each subset of n_sites orbitals, compute the Renyi-2 entropy using the entanglement feature,
@@ -148,3 +148,36 @@ def ef_active_space(mps: MatrixProductState, n_sites: int) -> list[int]:
     best_subset = subset_entropies[0][0]
     return list(best_subset)
 
+def ef_active_space_greedy(mps: MatrixProductState, n_sites: int) -> list[int]:
+    """
+    Greedy selection of active space based on the entanglement feature.
+    Start with an empty set and iteratively add the orbital that increases the Renyi-2 entropy the most until n_sites orbitals are selected.
+    Parameters:
+        mps: MatrixProductState
+        n_sites: int
+            Number of spatial orbitals.
+
+    Returns:
+        list[int]: Selected orbital indices in 0-based notation.
+    """
+    selected_orbitals = []
+    remaining_orbitals = set(range(mps.num_sites // 2))
+
+    while len(selected_orbitals) < n_sites and remaining_orbitals:
+        best_orbital = None
+        best_entropy = -float('inf')
+
+        for orbital in remaining_orbitals:
+            candidate_subset = selected_orbitals + [orbital]
+            entropy = ef_subset_entropy(mps, candidate_subset)
+            if entropy > best_entropy:
+                best_entropy = entropy
+                best_orbital = orbital
+
+        if best_orbital is not None:
+            selected_orbitals.append(best_orbital)
+            remaining_orbitals.remove(best_orbital)
+        else:
+            break
+
+    return selected_orbitals
