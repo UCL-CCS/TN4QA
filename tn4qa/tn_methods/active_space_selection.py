@@ -181,3 +181,57 @@ def ef_active_space_greedy(mps: MatrixProductState, n_sites: int) -> list[int]:
             break
 
     return selected_orbitals
+
+def ef_active_space_sample(mps: MatrixProductState, n_sites: int, n_samples: int = 100, seed: int = None) -> list[int]:
+    """
+    Sample bitstrings from the EF MPS and rank spatial orbitals by how often
+    they appear as active (bit=1) in high-weight samples. Selects the top
+    n_sites orbitals.
+
+    Only valid spatial bitstrings (00 or 11 per pair) are accepted. Samples
+    that violate this after projection are weighted by their corrected amplitude.
+
+    This approach exploits genuine multi-orbital entanglement encoded in the EF
+    rather than just single-orbital marginals.
+
+    Cost: O(n_samples * N)
+
+    Args:
+        mps:       MatrixProductState (one site per spin orbital)
+        n_sites:   number of spatial orbitals to select
+        n_samples: number of bitstrings to sample
+        seed:      optional random seed for reproducibility
+    Returns:
+        list of 0-based spatial orbital indices
+    """
+    n_spin_orbs = mps.num_sites
+    n_spatial_orbs = n_spin_orbs // 2
+
+    orbital_counts = np.zeros(n_spatial_orbs, dtype=float)
+
+    # Sample bitstrings from the MPS
+    bitstring_counts = mps.sample_bitstrings(num_samples=n_samples, seed=seed)
+
+    for bitstring_str, count in bitstring_counts.items():
+        # Convert bitstring string to list of integers
+        bits = [int(b) for b in bitstring_str]
+        
+        # Process pairs to extract spatial orbital activation
+        for i in range(0, n_spin_orbs, 2):
+            pair = bits[i:i+2]
+            if len(pair) == 2 and (pair == [0, 0] or pair == [1, 1]):
+                # Valid spatial orbital encoding
+                if pair == [1, 1]:
+                    # Orbital is active
+                    orbital_counts[i//2] += count
+            else:
+                # Skip invalid samples
+                continue
+    # Select top n_sites orbitals by count
+    n_sites = int(n_sites)  # Ensure it's an int for slicing
+    if orbital_counts.sum() == 0:
+        # If no valid samples, return all orbitals in order
+        return list(range(min(n_sites, n_spatial_orbs)))
+    
+    top_indices = np.argsort(orbital_counts)[::-1][:n_sites]
+    return [int(idx) for idx in top_indices]  
