@@ -158,3 +158,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Improvements to TNMOO
+
+## [0.0.22] - 2026-05-23
+
+### Changed
+- Fix Block2/TN4QA interoperability in DMRG
