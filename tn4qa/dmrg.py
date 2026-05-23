@@ -15,10 +15,12 @@ class DMRG:
         initial_mps: MatrixProductState | None = None,
     ) -> DMRG:
         self.hamiltonian = hamiltonian
+        for pauli, weight in hamiltonian.items():
+            num_y = pauli.count("Y")
+            new_weight = weight.real / (1 - num_y % 4)
+            hamiltonian[pauli] = new_weight
         pauli = {
-            key[::-1]: value
-            for key, value in hamiltonian.items()
-            if np.abs(value) > 0.0
+            key: value for key, value in hamiltonian.items() if np.abs(value) > 0.0
         }
         pauli = list(pauli.items())
         self.pauli_terms = pauli
@@ -27,15 +29,9 @@ class DMRG:
 
         self.driver = self.set_driver()
         self.mpo = self.set_mpo()
+        self.initial_state = initial_mps
 
-        if initial_mps:
-            if initial_mps.bond_dimension == 1:
-                input_mps = initial_mps.expand_bond_dimension_list(
-                    1, list(range(1, initial_mps.num_sites))
-                )
-        else:
-            input_mps = initial_mps
-        self.ket = self.set_initial_state(input_mps)
+        self.ket = self.set_initial_state(initial_mps)
 
         self.energy = None
         self.mps = None
@@ -61,12 +57,23 @@ class DMRG:
             ket = self.driver.get_random_mps(tag="GS", bond_dim=2, nroots=1)
             ket = self.driver.get_random_mps(tag="GS", bond_dim=2, nroots=1)
         else:
-            initial_mps.move_orthogonality_centre(1)
-            initial_mps.reshape("upd")
+            arrays = []
+            for t in initial_mps.tensors:
+                array = t.to_dense()
+                array[...] = array[..., ::-1]
+                arrays.append(array)
+            initial_mps = MatrixProductState.from_arrays(arrays)
+
+            for bidx in range(1, initial_mps.num_sites):
+                if initial_mps.tensors[bidx].data.shape[0] == 1:
+                    initial_mps = initial_mps.expand_bond_dimension(1, bidx)
+            initial_mps.update_bond_information()
+            self.initial_state = initial_mps
+            initial_mps.reshape("pud")
             tensor_list = [
                 initial_mps.tensors[i].to_dense() for i in range(initial_mps.num_sites)
             ]
-            tensor_list[0] = np.expand_dims(tensor_list[0], axis=0)
+            tensor_list[0] = np.expand_dims(tensor_list[0], axis=1)
             tensor_list[-1] = np.expand_dims(tensor_list[-1], axis=2)
             ket = get_mps_from_tensors(
                 self.driver,
@@ -105,6 +112,7 @@ class DMRG:
             bond_dims=bond_dims,
             noises=noises,
             thrds=thrds,
+            noise_type="Perturbative",
             iprint=0,
         )
         self.mps = self.ket_to_tn4qa_mps()
@@ -116,20 +124,27 @@ class DMRG:
 
         arrays = []
         for tensor in pyket.tensors:
-            arrays.append(np.array(tensor.blocks[0].reduced))
-        first_array, last_array = arrays[0], arrays[-1]
-        if first_array.ndim != 2:
-            arrays[0] = first_array[0, :, :]
-        if last_array.ndim != 2:
-            arrays[-1] = last_array[:, :, 0]
+            array = np.array(tensor.blocks[0].reduced)
+            arrays.append(array)
+
+        first, last = arrays[0], arrays[-1]
+        if first.ndim == 3:
+            arrays[0] = first[:, :, 0]
+        if last.ndim == 3:
+            arrays[-1] = last[0, :, :]
+
+        first[...] = first[::-1, ...]
+        last[...] = last[..., ::-1]
+        for a in arrays[1:-1]:
+            a[...] = a[:, ::-1, :]
+
         mps = MatrixProductState.from_arrays(arrays, shape="upd")
-        mps.reshape()
+        mps.normalise()
+
         return mps
 
 
-def get_mps_from_tensors(
-    self, tag, tensors, bond_dim=None, center=0, dot=2, target=None, orig_dot=False
-):
+def get_mps_from_tensors(self, tag, tensors, bond_dim=None, center=0, target=None):
     """
     Initialize an MPS from a list of explicit dense numpy tensors.
 
@@ -154,24 +169,18 @@ def get_mps_from_tensors(
 
     mps = bw.bs.MPS(self.n_sites, center, 1)
     mps.initialize(mps_info)
-    mps.random_canonicalize()
+    # No random_canonicalize here
 
     for i in range(self.n_sites):
         ts = mps.tensors[i]
-        left, phys, right = tensors[i].shape
+        phys, left, right = tensors[i].shape
         data = tensors[i].transpose(1, 0, 2).reshape(phys, left * right).ravel()
         ts[0] = data
 
     mps.save_mutable()
     mps.save_data()
-
-    mps.tensors[mps.center].normalize()
-    mps.save_mutable()
     mps_info.save_mutable()
-    mps.save_data()
     mps_info.save_data(self.scratch + "/%s-mps_info.bin" % tag)
 
-    if dot != 1 and not orig_dot:
-        mps = self.adjust_mps(mps, dot=dot)[0]
-
+    # No adjust_mps here — let the first DMRG sweep canonicalize it
     return mps
