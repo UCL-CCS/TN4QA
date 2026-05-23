@@ -18,9 +18,9 @@ def test_DMRG_nitrogen():
     hf_mps = MatrixProductState.from_hf_state(
         mol_data.num_spin_orbs, mol_data.num_electrons
     )
-    dmrg = DMRG(ham, 16, hf_mps)
-    energy, _ = dmrg.run(20)
-    assert np.isclose(energy, -107.65412244752251, atol=1.0)
+    dmrg = DMRG(ham, 32, hf_mps)
+    energy, _ = dmrg.run(30)
+    assert np.isclose(energy, -107.54930095790698, atol=0.01)
 
 
 def test_DMRG_LiH():
@@ -29,7 +29,7 @@ def test_DMRG_LiH():
     ham = mol_data.qubit_hamiltonian
     dmrg = DMRG(ham, 16, None)
     energy, _ = dmrg.run(20)
-    assert np.isclose(energy, -7.881571973351853, atol=0.1)
+    assert np.isclose(energy, -7.784460280031227, atol=0.01)
 
 
 def test_DMRG_hydrogen():

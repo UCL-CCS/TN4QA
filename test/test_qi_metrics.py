@@ -3,6 +3,7 @@ import json
 import numpy as np
 
 from tn4qa.dmrg import DMRG
+from tn4qa.mps import MatrixProductState
 from tn4qa.qi_metrics import (
     get_all_mutual_information,
     get_mutual_information,
@@ -23,13 +24,15 @@ h2_file = "molecules/H2.json"
 h2_data = ReadMoleculeData(h2_file)
 h2_ham = h2_data.qubit_hamiltonian
 
-h2_dmrg = DMRG(h2_ham, 16)
+hf_state = MatrixProductState.from_hf_state(4, 2)
+h2_dmrg = DMRG(h2_ham, 16, hf_state)
 _, h2_mps = h2_dmrg.run(20)
 
 lih_file = "molecules/LiH.json"
 lih_data = ReadMoleculeData(lih_file)
 lih_ham = lih_data.qubit_hamiltonian
 
+hf_state = MatrixProductState.from_hf_state(12, 4)
 lih_dmrg = DMRG(lih_ham, 16)
 _, lih_mps = lih_dmrg.run(20)
 

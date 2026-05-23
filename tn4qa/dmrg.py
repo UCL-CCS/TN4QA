@@ -15,10 +15,6 @@ class DMRG:
         initial_mps: MatrixProductState | None = None,
     ) -> DMRG:
         self.hamiltonian = hamiltonian
-        for pauli, weight in hamiltonian.items():
-            num_y = pauli.count("Y")
-            new_weight = weight.real / (1 - num_y % 4)
-            hamiltonian[pauli] = new_weight
         pauli = {
             key: value for key, value in hamiltonian.items() if np.abs(value) > 0.0
         }
@@ -30,6 +26,10 @@ class DMRG:
         self.driver = self.set_driver()
         self.mpo = self.set_mpo()
         self.initial_state = initial_mps
+        if initial_mps is not None:
+            self.noise_type = "Perturbative"
+        else:
+            self.noise_type = None
 
         self.ket = self.set_initial_state(initial_mps)
 
@@ -112,7 +112,7 @@ class DMRG:
             bond_dims=bond_dims,
             noises=noises,
             thrds=thrds,
-            noise_type="Perturbative",
+            noise_type=self.noise_type,
             iprint=0,
         )
         self.mps = self.ket_to_tn4qa_mps()
