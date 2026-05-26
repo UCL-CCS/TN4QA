@@ -163,3 +163,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Fix Block2/TN4QA interoperability in DMRG
+
+
+## [0.0.23] - 2026-05-26
+
+### Added
+- Proper entanglement feature construction
+- Active space selection methods based on entanglement feature
