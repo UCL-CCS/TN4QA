@@ -321,7 +321,7 @@ def cost_function_dict_to_callable(
     def cost_function(mps: MatrixProductState):
         cost = 0.0
         for s, weight in cost_function_dict.items():
-            print(s, weight)
+            # print(s, weight)
             s_split = s.split("_")
             if s_split[0] == "S1":
                 orbital_idx = int(s_split[1])
