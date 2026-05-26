@@ -1,10 +1,13 @@
 import itertools
 
-from tn4qa.qi_metrics import get_one_orbital_entropy
-from tn4qa.mps import MatrixProductState
-from tn4qa.tn_methods.entanglement_feature import build_entanglement_feature, contract_ef_bitstring
 import numpy as np
 
+from tn4qa.mps import MatrixProductState
+from tn4qa.qi_metrics import get_one_orbital_entropy
+from tn4qa.tn_methods.entanglement_feature import (
+    build_entanglement_feature,
+    contract_ef_bitstring,
+)
 
 """
 Benchmark: Active Space Selection Methods
@@ -16,7 +19,9 @@ def _orbital_entropies(mps: MatrixProductState, n_sites: int) -> list[float]:
     return [get_one_orbital_entropy(mps, i) for i in range(1, n_sites + 1)]
 
 
-def autocas_selection_ranked_entropy_threshold(mps: MatrixProductState, n_sites: int) -> list[int]:
+def autocas_selection_ranked_entropy_threshold(
+    mps: MatrixProductState, n_sites: int
+) -> list[int]:
     """
     Select orbital indices whose one-orbital entropy is at least 10% of the
     maximum orbital entropy.
@@ -35,7 +40,9 @@ def autocas_selection_ranked_entropy_threshold(mps: MatrixProductState, n_sites:
     if max_entropy <= 0:
         return []
 
-    return [idx for idx, entropy in enumerate(entropies) if entropy >= 0.1 * max_entropy]
+    return [
+        idx for idx, entropy in enumerate(entropies) if entropy >= 0.1 * max_entropy
+    ]
 
 
 def autocas_selection_ranked_fixed_number(
@@ -60,7 +67,9 @@ def autocas_selection_ranked_fixed_number(
     entropies = _orbital_entropies(mps, n_sites)
     active_orbitals = min(active_orbitals, len(entropies))
 
-    return sorted(range(len(entropies)), key=lambda i: entropies[i], reverse=True)[:active_orbitals]
+    return sorted(range(len(entropies)), key=lambda i: entropies[i], reverse=True)[
+        :active_orbitals
+    ]
 
 
 def autocas_selection_total_entropy(
@@ -92,7 +101,9 @@ def autocas_selection_total_entropy(
         return []
 
     desired_entropy = threshold * total_entropy
-    ranked_orbitals = sorted(range(len(entropies)), key=lambda i: entropies[i], reverse=True)
+    ranked_orbitals = sorted(
+        range(len(entropies)), key=lambda i: entropies[i], reverse=True
+    )
 
     selected_orbitals = []
     current_entropy = 0.0
@@ -103,6 +114,7 @@ def autocas_selection_total_entropy(
             break
 
     return selected_orbitals
+
 
 def ef_subset_entropy(mps: MatrixProductState, subset: list[int]) -> float:
     """
@@ -117,10 +129,11 @@ def ef_subset_entropy(mps: MatrixProductState, subset: list[int]) -> float:
     for i in subset:
         bitstring[2 * i] = 1
         bitstring[2 * i + 1] = 1
-    
+
     R2 = contract_ef_bitstring(ef_mps, bitstring)
     ef_entropy = -np.log2(R2)
     return ef_entropy
+
 
 def ef_active_space_brute_force(mps: MatrixProductState, n_sites: int) -> list[int]:
     """
@@ -148,6 +161,7 @@ def ef_active_space_brute_force(mps: MatrixProductState, n_sites: int) -> list[i
     best_subset = subset_entropies[0][0]
     return list(best_subset)
 
+
 def ef_active_space_greedy(mps: MatrixProductState, n_sites: int) -> list[int]:
     """
     Greedy selection of active space based on the entanglement feature.
@@ -165,7 +179,7 @@ def ef_active_space_greedy(mps: MatrixProductState, n_sites: int) -> list[int]:
 
     while len(selected_orbitals) < n_sites and remaining_orbitals:
         best_orbital = None
-        best_entropy = -float('inf')
+        best_entropy = -float("inf")
 
         for orbital in remaining_orbitals:
             candidate_subset = selected_orbitals + [orbital]
@@ -182,7 +196,10 @@ def ef_active_space_greedy(mps: MatrixProductState, n_sites: int) -> list[int]:
 
     return selected_orbitals
 
-def ef_active_space_sample(mps: MatrixProductState, n_sites: int, n_samples: int = 100, seed: int = None) -> list[int]:
+
+def ef_active_space_sample(
+    mps: MatrixProductState, n_sites: int, n_samples: int = 100, seed: int = None
+) -> list[int]:
     """
     Sample bitstrings from the EF MPS and rank spatial orbitals by how often
     they appear as active (bit=1) in high-weight samples. Selects the top
@@ -215,15 +232,15 @@ def ef_active_space_sample(mps: MatrixProductState, n_sites: int, n_samples: int
     for bitstring_str, count in bitstring_counts.items():
         # Convert bitstring string to list of integers
         bits = [int(b) for b in bitstring_str]
-        
+
         # Process pairs to extract spatial orbital activation
         for i in range(0, n_spin_orbs, 2):
-            pair = bits[i:i+2]
+            pair = bits[i : i + 2]
             if len(pair) == 2 and (pair == [0, 0] or pair == [1, 1]):
                 # Valid spatial orbital encoding
                 if pair == [1, 1]:
                     # Orbital is active
-                    orbital_counts[i//2] += count
+                    orbital_counts[i // 2] += count
             else:
                 # Skip invalid samples
                 continue
@@ -232,6 +249,6 @@ def ef_active_space_sample(mps: MatrixProductState, n_sites: int, n_samples: int
     if orbital_counts.sum() == 0:
         # If no valid samples, return all orbitals in order
         return list(range(min(n_sites, n_spatial_orbs)))
-    
+
     top_indices = np.argsort(orbital_counts)[::-1][:n_sites]
-    return [int(idx) for idx in top_indices]  
+    return [int(idx) for idx in top_indices]
