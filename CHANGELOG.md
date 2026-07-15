@@ -170,3 +170,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Proper entanglement feature construction
 - Active space selection methods based on entanglement feature
+
+## [0.0.24] - 2026-07-15
+
+### Changed
+- Improved active space selection methods based on entanglement feature
+
+### Fixed
+- Bug in fermion string MPO construction
