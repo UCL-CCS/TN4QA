@@ -27,7 +27,12 @@ dependencies = [
     "iqm-client>=22.4",
     "optuna>=4.8.0",
     "block2==0.5.3rc18",
+    "pandas",
+    "physics-tenpy @ git+https://github.com/tenpy/tenpy.git",
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.uv.sources]
 block2 = { index = "block2-preview" }

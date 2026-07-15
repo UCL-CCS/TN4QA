@@ -118,7 +118,7 @@ def get_one_particle_rdm(mps: MatrixProductState) -> ndarray:
     for j in range(mps.num_sites):
         for i in range(j + 1):
             op_list = [(f"{i}", "+"), (f"{j}", "-")]
-            mpo = MatrixProductOperator.from_fermionic_string(op_list)
+            mpo = MatrixProductOperator.from_fermionic_string(mps.num_sites, op_list)
             expval = mps.compute_expectation_value(mpo)
             rdm[i, j] = expval
             if i != j:
@@ -329,7 +329,9 @@ def get_two_orbital_rdm(
         return rdm
 
 
-def get_one_orbital_entropy(mps: MatrixProductState, site: int, alpha: float = 1.0) -> float:
+def get_one_orbital_entropy(
+    mps: MatrixProductState, site: int, alpha: float = 1.0
+) -> float:
     """Calculate the one orbital entropy.
 
     Args:
@@ -353,12 +355,14 @@ def get_one_orbital_entropy(mps: MatrixProductState, site: int, alpha: float = 1
             eigvals * np.log2(eigvals + 1e-12)
         )  # Add small value to avoid log(0)
     else:
-        entropy = (1 / (1 - alpha)) * np.log2(np.sum(eigvals ** alpha))
+        entropy = (1 / (1 - alpha)) * np.log2(np.sum(eigvals**alpha))
 
     return entropy
 
 
-def get_two_orbital_entropy(mps: MatrixProductState, sites: list[int], alpha: float = 1.0) -> float:
+def get_two_orbital_entropy(
+    mps: MatrixProductState, sites: list[int], alpha: float = 1.0
+) -> float:
     """Calculate the two orbital entropy.
 
     Args:
@@ -386,7 +390,7 @@ def get_two_orbital_entropy(mps: MatrixProductState, sites: list[int], alpha: fl
                     eigvals * np.log2(eigvals + 1e-12)
                 )  # Add small value to avoid log(0)
             else:
-                entropy = (1 / (1 - alpha)) * np.log2(np.sum(eigvals ** alpha))
+                entropy = (1 / (1 - alpha)) * np.log2(np.sum(eigvals**alpha))
             return entropy
         case _:
             raise ValueError(

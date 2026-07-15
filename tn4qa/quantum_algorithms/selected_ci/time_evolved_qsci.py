@@ -47,7 +47,6 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
         self.reference_state = reference_state
         self.reference_state_qc = self.create_reference_circuit()
         self.backend = self.set_backend(backend=backend)
-
         self.qdrift = qdrift
         self.num_qdrift_circuits = num_qdrift_circuits
         self.qdrift_error = qdrift_error
@@ -75,7 +74,7 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
 
     def create_reference_circuit(self) -> QuantumCircuit:
         """Create a circuit to prepare the reference state"""
-        if self.reference_state.bond_dimension <= 2:
+        if self.reference_state.bond_dimension == 1:
             mpstocirc = MPSAnalyticDecomposition(self.reference_state, 1, 1.0)
             qc = mpstocirc.bond_dim_2_to_qc_exact(self.reference_state)
         else:

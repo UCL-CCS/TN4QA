@@ -1103,11 +1103,11 @@ class MatrixProductOperator(TensorNetwork):
         for x in range(num_sites):
             total_op = identity_op.copy()
             for y in strings[x]:
-                if x == "Z":
+                if y == "Z":
                     total_op = total_op @ z_op
-                if x == "+":
+                if y == "+":
                     total_op = total_op @ creation_op
-                if x == "-":
+                if y == "-":
                     total_op = total_op @ annihilation_op
 
             arrays[x] = (

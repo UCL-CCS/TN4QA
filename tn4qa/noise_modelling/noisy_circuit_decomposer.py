@@ -74,7 +74,8 @@ def _kraus_to_ptm(kraus_ops: list[np.ndarray]) -> np.ndarray:
     for j, Pj in enumerate(basis):
         evolved = sum(K @ Pj @ K.conj().T for K in kraus_ops)
         for i, Pi in enumerate(basis):
-            ptm[i, j] = np.real(np.trace(Pi @ evolved)) / (2**n_qubits)
+            ptm[i, j] = np.real(np.trace(Pi @ evolved))
+            # ptm[i, j] = np.real(np.trace(Pi @ evolved)) / (2**n_qubits)
     return ptm
 
 
@@ -354,10 +355,10 @@ class NoisyCircuitDecomposer:
             "gate_label": gate_name,
             "ideal_liouville": ideal_liouville,
             "noise_liouville": noise_liouville,
-            "noisy_liouville": noise_liouville @ ideal_liouville,
+            "noisy_liouville": ideal_liouville @ noise_liouville,
             "ideal_ptm": ideal_ptm,
             "noise_ptm": noise_ptm,
-            "noisy_ptm": noise_ptm @ ideal_ptm,
+            "noisy_ptm": ideal_ptm @ noise_ptm,
         }
 
     def _get_noise_ptm(

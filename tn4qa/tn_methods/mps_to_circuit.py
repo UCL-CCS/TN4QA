@@ -1142,7 +1142,14 @@ def build_unitaries(mps: MatrixProductState, max_dim: int | None = None):
     )
     size = last_data.shape[0] * last_data.shape[1]
     vec = np.reshape(last_data, (size,))
-    vec = vec / np.linalg.norm(vec)
+    norm = np.linalg.norm(vec)
+    if norm < 1e-12:
+        # Truncation has collapsed the final state to near-zero.
+        # Fall back to a random unit vector
+        vec = np.random.randn(size) + 1j * np.random.randn(size)
+        vec /= np.linalg.norm(vec)
+    else:
+        vec /= norm
     X = np.random.randn(size, size - 1) + 1j * np.random.randn(size, size - 1)
     X = X - vec[:, None] * (vec.conj() @ X)
     Q2, _ = np.linalg.qr(X)

@@ -16,7 +16,7 @@ class DMRG:
     ) -> DMRG:
         self.hamiltonian = hamiltonian
         pauli = {
-            key: value for key, value in hamiltonian.items() if np.abs(value) > 0.0
+            key: value for key, value in hamiltonian.items() if np.abs(value) > 1e-12
         }
         pauli = list(pauli.items())
         self.pauli_terms = pauli
@@ -32,16 +32,12 @@ class DMRG:
             self.noise_type = None
 
         self.ket = self.set_initial_state(initial_mps)
-
         self.energy = None
         self.mps = None
         return
 
     def set_driver(self):
-        driver_obj = DMRGDriver(
-            symm_type=SymmetryTypes.SGB,
-            n_threads=4,
-        )
+        driver_obj = DMRGDriver(symm_type=SymmetryTypes.SGB, n_threads=4)
         driver_obj.initialize_system(
             n_sites=self.nqubits,
             pauli_mode=True,
@@ -49,6 +45,7 @@ class DMRG:
         return driver_obj
 
     def set_mpo(self):
+        print(self.pauli_terms)
         mpo = self.driver.get_mpo_any_pauli(self.pauli_terms)
         return mpo
 
@@ -91,8 +88,11 @@ class DMRG:
         thrds: list[int] | None = None,
     ):
         if not bond_dims:
+            start_bd = 2
+            if self.initial_state is not None:
+                start_bd = self.initial_state.bond_dimension
             bond_dims = [
-                round(2 + i * (self.max_bond - 2) / (nsweeps - 1))
+                round(start_bd + i * (self.max_bond - start_bd) / max(1, (nsweeps - 1)))
                 for i in range(nsweeps)
             ]
         if not noises:

@@ -37,7 +37,7 @@ class TNQuantumErrorMitigation:
             self.noise_data,
             twoq_gate_errors=True,
             oneq_gate_errors=True,
-            decoherence=False,
+            decoherence=True,
             readout_errors=False,
         ).build()
         self.noisy_circuit = NoisyCircuitDecomposer(
@@ -240,6 +240,15 @@ class TNQuantumErrorMitigation:
         return mpo
 
     def build_tnqem_mpo(self) -> MatrixProductOperator:
+        def regularised_inverse(
+            M: np.ndarray, sv_clip: float = 1.0, threshold: float = 1e-10
+        ) -> np.ndarray:
+            U, S, Vh = np.linalg.svd(M)
+            # Clip SVs to physical range before inverting
+            S_clipped = np.clip(S, 0, sv_clip)
+            S_inv = np.where(S_clipped > threshold, 1.0 / S_clipped, 0.0)
+            return (Vh.T * S_inv) @ U.T
+
         tnqem_mpo = self.build_identity_mpo()
         tnqem_mpo.move_orthogonality_centre(1)
         for data in self.noisy_circuit.values():
@@ -252,7 +261,8 @@ class TNQuantumErrorMitigation:
             else:
                 ideal_gate = data["ideal_ptm"]
                 noisy_gate = data["noisy_ptm"]
-            noisy_inverse = np.linalg.inv(noisy_gate)
+            # noisy_inverse = np.linalg.inv(noisy_gate)
+            noisy_inverse = regularised_inverse(noisy_gate)
             if len(qidxs) == 1:
                 self.apply_one_site_term(tnqem_mpo, ideal_gate, qidxs[0])
                 self.apply_one_site_term(tnqem_mpo, noisy_inverse, qidxs[0], left=True)
@@ -266,6 +276,7 @@ class TNQuantumErrorMitigation:
                 tnqem_mpo = tnqem_mpo.multiply_and_compress_three(
                     full_left_mpo, full_right_mpo, self.max_bond_dimension
                 )
+        # print(tnqem_mpo.to_dense_array())
         return tnqem_mpo
 
     def marginalise_to_qubit(
@@ -342,7 +353,7 @@ class TNQuantumErrorMitigation:
 
     def run_single_shot_tnqem(
         self, input_bitstring: str, num_samples: int = 1
-    ) -> list[str]:
+    ) -> dict[str, int]:
         """Perform single shot TNQEM"""
         input_mps = self.bitstring_to_vectorised_dm_mps(input_bitstring)
         output_mps = input_mps.apply_mpo(self.tnqem_mpo)
@@ -355,8 +366,14 @@ class TNQuantumErrorMitigation:
     def run_tnqem(self, counts: dict[str, int], samples_per_shot: int = 1):
         new_counts = {}
         for bitstring, count in counts.items():
+            if count == 0:
+                continue
             samples = self.run_single_shot_tnqem(bitstring, samples_per_shot * count)
-            for s, c in samples.items():
-                new_counts[s] = new_counts.get(s, 0) + c
+            best_sample = max(samples, key=samples.get)
+            print(bitstring, best_sample)
+            print(samples)
+            # for s, c in samples.items():
+            #     new_counts[s] = new_counts.get(s, 0) + c
+            new_counts[best_sample] = new_counts.get(best_sample, 0) + count
 
         return new_counts
