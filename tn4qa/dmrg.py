@@ -45,7 +45,6 @@ class DMRG:
         return driver_obj
 
     def set_mpo(self):
-        print(self.pauli_terms)
         mpo = self.driver.get_mpo_any_pauli(self.pauli_terms)
         return mpo
 

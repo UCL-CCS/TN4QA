@@ -178,3 +178,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Bug in fermion string MPO construction
+
+## [0.0.25] - 2026-07-16
+
+### Fixed
+- Removed print from dmrg
+- Resolved failing active space tests
