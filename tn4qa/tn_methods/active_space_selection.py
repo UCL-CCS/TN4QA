@@ -147,7 +147,7 @@ def ef_active_space_brute_force(mps: MatrixProductState, n_sites: int) -> list[i
 
     best_subset = max(
         itertools.combinations(range(total_orbitals), n_sites),
-        key=lambda subset: ef_subset_entropy(ef_mps, subset, n_spin_orbs=mps.num_sites),
+        key=lambda subset: ef_subset_entropy(mps, subset, ef_mps=ef_mps),
     )
     return list(best_subset)
 
@@ -241,7 +241,7 @@ def ef_active_space_sample(
     return [int(idx) for idx in top_indices]
 
 
-def ef_active_space_greedy_electic_boogaloo(
+def ef_active_space_greedy_electic_reset_k(
     mps: MatrixProductState, active_orbitals: int, k: int
 ) -> list[int]:
     """
