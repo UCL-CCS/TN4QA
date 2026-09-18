@@ -147,7 +147,7 @@ def ef_active_space_brute_force(mps: MatrixProductState, n_sites: int) -> list[i
 
     best_subset = max(
         itertools.combinations(range(total_orbitals), n_sites),
-        key=lambda subset: ef_subset_entropy(mps, subset, ef_mps=ef_mps),
+        key=lambda subset: ef_subset_entropy(ef_mps, subset, mps.num_sites),
     )
     return list(best_subset)
 
