@@ -46,7 +46,7 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
         self.hamiltonian = self.sanitize_dict(hamiltonian)
         self.reference_state = reference_state
         self.reference_state_qc = self.create_reference_circuit()
-        self.backend = self.set_backend(backend=backend)
+        self.set_backend(backend=backend)
         self.qdrift = qdrift
         self.num_qdrift_circuits = num_qdrift_circuits
         self.qdrift_error = qdrift_error
@@ -78,6 +78,7 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
             mpstocirc = MPSAnalyticDecomposition(self.reference_state, 1, 1.0)
             qc = mpstocirc.bond_dim_2_to_qc_exact(self.reference_state)
         else:
+            self.reference_state.compress(2)
             mpstocirc = MPSAnalyticDecomposition(self.reference_state, 1, 1.0)
             qc = mpstocirc.mps_to_qc_via_ttn(self.reference_state, 2)
         return qc

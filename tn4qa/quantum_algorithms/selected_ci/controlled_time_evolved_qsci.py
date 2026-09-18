@@ -85,7 +85,7 @@ class ControlledTimeEvolvedQSCI(QuantumAlgorithm):
     def rescale_hamiltonian(self, d: dict[str, float]) -> dict[str, float]:
         num_qubits = len(list(d.keys())[0])
         d["I" * num_qubits] = d.get("I" * num_qubits, 0) + 1.0
-        return {k: v * np.pi / 2 for k, v in d.items()}
+        return {k: v * 0.5 * np.pi / 2 for k, v in d.items()}
 
     def create_reference_circuit(self) -> QuantumCircuit:
         """Create a circuit to prepare the reference state"""
@@ -93,6 +93,7 @@ class ControlledTimeEvolvedQSCI(QuantumAlgorithm):
             mpstocirc = MPSAnalyticDecomposition(self.reference_state, 1, 1.0)
             qc = mpstocirc.bond_dim_2_to_qc_exact(self.reference_state)
         else:
+            self.reference_state.compress(2)
             mpstocirc = MPSAnalyticDecomposition(self.reference_state, 1, 1.0)
             qc = mpstocirc.mps_to_qc_via_ttn(self.reference_state, 2)
         return qc
@@ -186,7 +187,7 @@ class ControlledTimeEvolvedQSCI(QuantumAlgorithm):
         return new_counts
 
     def rescale_energy(self, energy_prime):
-        return self.norm * ((2 / np.pi) * energy_prime - 1)
+        return self.norm * ((2 / (0.5 * np.pi)) * energy_prime - 1)
 
     def run(self, num_shots: int, subspace_size: int) -> Result:
         """Run the full algorithm pipeline. Returns result object or final value."""
