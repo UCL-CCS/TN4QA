@@ -1,4 +1,5 @@
 import copy
+import math
 from functools import lru_cache
 from itertools import islice
 from typing import List, TypeAlias, Union
@@ -1879,80 +1880,13 @@ class MatrixProductOperator(TensorNetwork):
     def from_pauli_exponential(
         cls, pauli_string: str, x: float
     ) -> "MatrixProductOperator":
-        """Construct the MPO for exp(ixP) = cos(x)*I + i*sin(x)*P
+        id_mpo = MatrixProductOperator.identity_mpo(len(pauli_string))
+        id_mpo.multiply_by_constant(math.cos(x))
+        p_mpo = MatrixProductOperator.from_pauli_string(pauli_string)
+        p_mpo.multiply_by_constant(1j * math.sin(x))
 
-        Args:
-            pauli_string: The Pauli string P
-            x: The rotation coefficient x
-        """
-        num_sites = len(pauli_string)
-
-        first_coords = [[], [], []]
-        last_coords = [[], [], []]
-
-        middle_coords = [[[], [], [], []] for _ in range(num_sites - 2)]
-
-        first_data = []
-        last_data = []
-        middle_data = [[] for _ in range(num_sites - 2)]
-
-        c = np.cos(x)
-        s = 1j * np.sin(x)
-
-        for site, p in enumerate(pauli_string):
-            for s_idx in [0, 1]:
-                for t_idx in [0, 1]:
-                    # identity contribution always present
-                    val = c if s_idx == t_idx else 0.0
-
-                    # Pauli contribution
-                    if p == "I":
-                        val += s if s_idx == t_idx else 0.0
-                    elif p == "X":
-                        val += s if s_idx != t_idx else 0.0
-                    elif p == "Z":
-                        val += (
-                            s * (1 if s_idx == t_idx else 0) * (1 if s_idx == 0 else -1)
-                        )
-                    elif p == "Y":
-                        if s_idx == 0 and t_idx == 1:
-                            val += -s
-                        elif s_idx == 1 and t_idx == 0:
-                            val += s
-
-                    if site == 0:
-                        first_coords[0].append(0)
-                        first_coords[1].append(s_idx)
-                        first_coords[2].append(t_idx)
-                        first_data.append(val)
-
-                    elif site == num_sites - 1:
-                        last_coords[0].append(0)
-                        last_coords[1].append(s_idx)
-                        last_coords[2].append(t_idx)
-                        last_data.append(val)
-
-                    else:
-                        mid = site - 1
-                        middle_coords[mid][0].append(0)
-                        middle_coords[mid][1].append(0)
-                        middle_coords[mid][2].append(s_idx)
-                        middle_coords[mid][3].append(t_idx)
-                        middle_data[mid].append(val)
-
-        first_array = sparse.COO(first_coords, first_data, shape=(1, 2, 2))
-
-        middle_arrays = [
-            sparse.COO(middle_coords[i], middle_data[i], shape=(1, 1, 2, 2))
-            for i in range(num_sites - 2)
-        ]
-
-        last_array = sparse.COO(last_coords, last_data, shape=(1, 2, 2))
-
-        return MatrixProductOperator.from_arrays(
-            [first_array] + middle_arrays + [last_array],
-            storage_hint=StorageHint.SPARSE,
-        )
+        exp_mpo = id_mpo + p_mpo
+        return exp_mpo
 
     def to_sparse_array(self) -> SparseArray:
         """
