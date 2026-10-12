@@ -165,6 +165,13 @@ class IterativeQSCI(QuantumAlgorithm):
         backend: QuantumBackend | None = None,
         max_new_per_iter: int | None = None,
         initial_state: "MatrixProductState | str | None" = None,
+        num_alpha: int | None = None,
+        num_beta: int | None = None,
+        spin_orbital_order: str | None = None,
+        verify_spin: bool = True,
+        max_reference_dets: int | None = None,
+        reference_weight_floor: float = 1e-8,
+        prune_threshold: float = 0.0,
     ) -> "IterativeQSCI":
         """
         Parameters
@@ -200,6 +207,13 @@ class IterativeQSCI(QuantumAlgorithm):
         self.dmrg_maxiter = dmrg_maxiter
         self.n_spinorbs = len(list(self.hamiltonian.keys())[0])
         self.nelec = num_electrons
+        self.num_alpha = num_alpha
+        self.num_beta = num_beta
+        self.spin_orbital_order = spin_orbital_order
+        self.verify_spin = verify_spin
+        self.max_reference_dets = max_reference_dets
+        self.reference_weight_floor = reference_weight_floor
+        self.prune_threshold = prune_threshold
 
         if initial_state is None:
             self.initial_reference_state = MatrixProductState.from_hf_state(
@@ -214,7 +228,20 @@ class IterativeQSCI(QuantumAlgorithm):
 
         self.niters = niters
         self.scoring_function = scoring_function
+        #: Retained only so existing call sites keep working.  The
+        #: per-iteration admission cap has been removed: it made the measured
+        #: new-determinant count a property of the cap rather than of the
+        #: sampling.  A non-None value is ignored, with a warning.
         self.max_new_per_iter = max_new_per_iter
+        if max_new_per_iter is not None:
+            import warnings
+
+            warnings.warn(
+                "max_new_per_iter is ignored: the per-iteration admission "
+                "cap has been removed. Pass the global cap as the "
+                "subspace_size argument of run() instead.",
+                stacklevel=2,
+            )
         self.set_backend(backend)
 
         # Pre-process Hamiltonian into integer masks once at construction time.
@@ -237,9 +264,13 @@ class IterativeQSCI(QuantumAlgorithm):
         self.important_configurations = []
         self.unimportant_configurations = []
         self.all_circuit_depths = []
+        self.all_max_circuit_depths = []
         self.new_dets_per_iter = []
+        self.new_shots_per_iter = []  # shots landing outside the previous subspace
+        self.pruned_per_iter = []  # pool determinants dropped each iteration
         self.new_dets_admitted_per_iter = []  # identities of newly admitted dets
         self.pool_sizes = []  # len(important_configurations) AFTER each iteration
+        self.hf_bitstring = "1" * self.nelec + "0" * (self.n_spinorbs - self.nelec)
 
     @property
     def circuit(self) -> QuantumCircuit:
@@ -322,12 +353,18 @@ class IterativeQSCI(QuantumAlgorithm):
         num_shots: int,
         subspace_size: int,
         reference_state: MatrixProductState,
-    ) -> tuple[list[str], np.ndarray]:
+        previous_subspace: set[str] | None = None,
+    ) -> tuple[list[str], np.ndarray, int]:
         cls = ControlledTimeEvolvedQSCI if self.method == "CTE" else TimeEvolvedQSCI
         qsci = cls(
             self.hamiltonian,
             reference_state,
             backend=self.backend,
+            num_electrons=self.nelec,
+            num_alpha=self.num_alpha,
+            num_beta=self.num_beta,
+            spin_orbital_order=self.spin_orbital_order,
+            verify_spin=self.verify_spin,
             known_important_configurations=self.important_configurations,
             known_unimportant_configurations=self.unimportant_configurations,
             **self.method_args,
@@ -344,46 +381,90 @@ class IterativeQSCI(QuantumAlgorithm):
         self.all_subspace_sizes.append(len(subspace))
         self.all_subspaces.append(subspace)
         self.all_circuit_depths.append(result.metadata["avg_circuit_depth"])
+        self.all_max_circuit_depths.append(
+            result.metadata.get("max_circuit_depth", float("nan"))
+        )
 
-        return subspace, gs
+        # Shots that landed on a configuration outside the PREVIOUS subspace.
+        # This is the quantity the yield identity M = t^2 d_psi^2 predicts --
+        # a shot count, not a distinct-determinant count -- so recording it
+        # lets the two be tested separately instead of being conflated.
+        prev = set() if previous_subspace is None else set(previous_subspace)
+        sv = result.metadata.get("sv_counts") or {}
+        new_shots = int(sum(v for k, v in sv.items() if k not in prev))
+        self.new_shots_per_iter.append(new_shots)
+
+        return subspace, gs, new_shots
 
     def _update_important_configurations(
         self,
         subspace: list[str],
         gs: np.ndarray,
-        max_new: int | None,
     ) -> int:
+        """Admit every configuration in the diagonalised subspace to the pool.
+
+        There is no per-iteration cap.  Capping admission made the measured
+        new-determinant count a property of the cap rather than of the
+        sampling, so it could not be compared with its own expectation, and
+        it throttled the subspace growth that the energy depends on.
+        Selection is done by ``prune_pool`` on the CI amplitude instead,
+        which is the CIPSI criterion and is applied AFTER a diagonalisation
+        has given every candidate a well-defined amplitude.
+        """
         known_important = set(self.important_configurations)
-        known_unimportant = set(self.unimportant_configurations)
+        self.unimportant_configurations = []
+        # known_unimportant = set(self.unimportant_configurations)
 
-        candidates = [
-            (subspace[i], gs[i])
-            for i in range(len(subspace))
-            if subspace[i] not in known_important
-            and subspace[i] not in known_unimportant
-            and np.abs(gs[i]) ** 2 > 1e-16
-        ]
-        candidates.sort(key=lambda x: np.abs(x[1]) ** 2, reverse=True)
-        if max_new is not None:
-            candidates = candidates[:max_new]
+        # candidates = [
+        #     (subspace[i], gs[i])
+        #     for i in range(len(subspace))
+        #     if subspace[i] not in known_important
+        #     and np.abs(gs[i]) ** 2 > 1e-16
+        # ]
+        # candidates.sort(key=lambda x: np.abs(x[1]) ** 2, reverse=True)
 
-        new_bitstrings = [c[0] for c in candidates]
-
+        new_bitstrings = [bs for bs in subspace if bs not in known_important]
         self.important_configurations = list(known_important | set(new_bitstrings))
         self.new_dets_admitted_per_iter.append(list(new_bitstrings))
-
-        admitted = set(new_bitstrings)
-        for i in range(len(subspace)):
-            bs = subspace[i]
-            if (
-                bs not in known_important
-                and bs not in admitted
-                and np.abs(gs[i]) ** 2 <= 1e-16
-            ):
-                self.unimportant_configurations.append(bs)
-        self.unimportant_configurations = list(set(self.unimportant_configurations))
-
         return len(new_bitstrings)
+        # if max_new is not None:
+        #     candidates = candidates[:max_new]
+
+        # new_bitstrings = [c[0] for c in candidates]
+
+        # self.important_configurations = list(known_important | set(new_bitstrings))
+        # self.new_dets_admitted_per_iter.append(list(new_bitstrings))
+
+        # admitted = set(new_bitstrings)
+        # for i in range(len(subspace)):
+        #     bs = subspace[i]
+        #     if (
+        #         bs not in known_important
+        #         and bs not in admitted
+        #         and np.abs(gs[i]) ** 2 <= 1e-16
+        #     ):
+        #         self.unimportant_configurations.append(bs)
+        # self.unimportant_configurations = list(set(self.unimportant_configurations))
+
+        # return len(new_bitstrings)
+
+    def prune_pool(self, subspace, gs):
+        """Prune the accumulated pool on CI amplitude.
+
+        Applied to the subspace just diagonalised, so every determinant has been
+        seen in a projection containing its partners. The pool is a subset of that
+        subspace, so every pool determinant has a well-defined amplitude here.
+        """
+        if self.prune_threshold <= 0.0:
+            return 0
+        amp2 = np.abs(np.asarray(gs).reshape(-1)) ** 2
+        keep = {bs for bs, a in zip(subspace, amp2) if a > self.prune_threshold}
+        keep.add(self.hf_bitstring)  # never drop the reference
+        before = len(self.important_configurations)
+        self.important_configurations = [
+            bs for bs in self.important_configurations if bs in keep
+        ]
+        return before - len(self.important_configurations)
 
     def calculate_scoring_function(
         self,
@@ -396,68 +477,108 @@ class IterativeQSCI(QuantumAlgorithm):
             return lam * amplitude + (1 - lam) * discovery_coefficient
         return self.scoring_function(iteration_number, amplitude, discovery_coefficient)
 
-    def prepare_reference_state(
-        self,
-        iteration_number: int,
-        subspace: list[str],
-        gs: np.ndarray,
-    ) -> MatrixProductState:
+    def prepare_reference_state(self, iteration_number, subspace, gs):
         assert len(subspace) == len(gs)
-        filtered_subspace = [
-            subspace[i]
-            for i in range(len(subspace))
-            if subspace[i] in self.important_configurations
-        ]
-        filtered_gs = [
-            gs[i]
-            for i in range(len(gs))
-            if subspace[i] in self.important_configurations
-        ]
+        amps = np.real(np.asarray(gs).reshape(-1))
 
-        # Compute all discovery coefficients in one batch call
-        is_exploit = (
-            self.scoring_function is not None
-            and getattr(self.scoring_function, "__name__", "") == "exploitation_scoring"
-        )
-        if is_exploit:
-            discovery_coeffs = np.zeros(len(filtered_subspace))
-        else:
-            discovery_coeffs = self.calculate_discovery_coefficients(filtered_subspace)
+        d = np.asarray(self.calculate_discovery_coefficients(subspace), float)
+        nrm = float(np.linalg.norm(d))
+        d_tilde = d / nrm if nrm > 0 else d
 
-        # total_d = np.sum(discovery_coeffs ** 2)
-        # if total_d > 0:
-        #     normalised_dc = discovery_coeffs / np.sqrt(total_d)
-        # else:
-        #     normalised_dc = discovery_coeffs
-
+        sign = np.where(amps < 0.0, -1.0, 1.0)
         scores = np.array(
             [
-                self.calculate_scoring_function(
-                    iteration_number, filtered_gs[i], discovery_coeffs[i]
+                sign[i]
+                * self.calculate_scoring_function(
+                    iteration_number, abs(float(amps[i])), float(d_tilde[i])
                 )
                 for i in range(len(subspace))
             ]
         )
 
-        total_s = np.sum(scores**2)
-        if total_s > 0:
-            weights = scores / np.sqrt(total_s)
+        order = np.argsort(-np.abs(scores))
+        if self.max_reference_dets is not None:
+            order = order[: self.max_reference_dets]
+        largest = float(np.abs(scores[order[0]])) if order.size else 0.0
+        if largest > 0.0:
+            keep = order[np.abs(scores[order]) > self.reference_weight_floor * largest]
         else:
-            weights = np.full(len(subspace), 1.0 / np.sqrt(len(filtered_subspace)))
+            keep = np.array([int(np.argmax(np.abs(amps)))])
 
-        d = {
-            filtered_subspace[i]: float(weights[i])
-            for i in range(len(filtered_subspace))
-        }
-        # def largest_power_of_2_leq(n):
-        #     if n < 1:
-        #         raise ValueError("n must be >= 1")
-        #     return 1 << (n.bit_length() - 1)
-        # new_bd = largest_power_of_2_leq(len(d))
-        # d_bd = {k:d[k] for k in list(d.keys())[:new_bd]}
-        mps = MatrixProductState.from_bitstring_dict(d)
-        # mps.compress(2)
-        return mps
+        weights = scores[keep]
+        norm = float(np.linalg.norm(weights))
+        weights = (
+            weights / norm
+            if norm > 0.0
+            else np.full(keep.size, 1.0 / np.sqrt(keep.size))
+        )
+
+        return MatrixProductState.from_bitstring_dict(
+            {subspace[int(k)]: float(wi) for k, wi in zip(keep, weights)}
+        )
+
+    # def prepare_reference_state(
+    #     self,
+    #     iteration_number: int,
+    #     subspace: list[str],
+    #     gs: np.ndarray,
+    # ) -> MatrixProductState:
+    #     assert len(subspace) == len(gs)
+    #     # filtered_subspace = [
+    #     #     subspace[i]
+    #     #     for i in range(len(subspace))
+    #     #     if subspace[i] in self.important_configurations
+    #     # ]
+    #     # filtered_gs = [
+    #     #     gs[i]
+    #     #     for i in range(len(gs))
+    #     #     if subspace[i] in self.important_configurations
+    #     # ]
+
+    #     # Compute all discovery coefficients in one batch call
+    #     is_exploit = (
+    #         self.scoring_function is not None
+    #         and getattr(self.scoring_function, "__name__", "") == "exploitation_scoring"
+    #     )
+    #     if is_exploit:
+    #         discovery_coeffs = np.zeros(len(subspace))
+    #     else:
+    #         discovery_coeffs = self.calculate_discovery_coefficients(subspace)
+
+    #     total_d = np.sum(discovery_coeffs ** 2)
+    #     if total_d > 0:
+    #         normalised_dc = discovery_coeffs / np.sqrt(total_d)
+    #     else:
+    #         normalised_dc = discovery_coeffs
+
+    #     scores = np.array(
+    #         [
+    #             self.calculate_scoring_function(
+    #                 iteration_number, gs[i], normalised_dc[i]
+    #             )
+    #             for i in range(len(subspace))
+    #         ]
+    #     )
+
+    #     total_s = np.sum(scores**2)
+    #     if total_s > 0:
+    #         weights = scores / np.sqrt(total_s)
+    #     else:
+    #         weights = np.full(len(subspace), 1.0 / np.sqrt(len(subspace)))
+
+    #     d = {
+    #         subspace[i]: float(weights[i])
+    #         for i in range(len(subspace))
+    #     }
+    #     # def largest_power_of_2_leq(n):
+    #     #     if n < 1:
+    #     #         raise ValueError("n must be >= 1")
+    #     #     return 1 << (n.bit_length() - 1)
+    #     # new_bd = largest_power_of_2_leq(len(d))
+    #     # d_bd = {k:d[k] for k in list(d.keys())[:new_bd]}
+    #     mps = MatrixProductState.from_bitstring_dict(d)
+    #     # mps.compress(2)
+    #     return mps
 
     def run(self, num_shots: int, subspace_size: int) -> Result:
         """
@@ -473,27 +594,39 @@ class IterativeQSCI(QuantumAlgorithm):
         reference_state = self.initial_reference_state
         shots_per_iteration = int(num_shots / self.niters)
 
+        previous_subspace: set[str] = set()
         for iteration in range(self.niters):
             print(f"Iteration {iteration + 1}/{self.niters}")
 
-            max_subspace = self.max_new_per_iter * (iteration + 1)
-            subspace, gs = self.run_one_shot(
-                shots_per_iteration, max_subspace, reference_state
+            # The cap handed to gather_samples is the GLOBAL one the caller
+            # asked for.  Previously this was max_new_per_iter*(iteration+1),
+            # so the subspace_size argument of this method was silently
+            # ignored and the subspace grew on a schedule rather than on the
+            # evidence.
+            subspace, gs, new_shots = self.run_one_shot(
+                shots_per_iteration, subspace_size, reference_state, previous_subspace
             )
 
-            n_new = self._update_important_configurations(
-                subspace, gs, self.max_new_per_iter
-            )
+            n_new = self._update_important_configurations(subspace, gs)
             self.new_dets_per_iter.append(n_new)
+
+            # Selection: drop pool determinants the diagonalisation just
+            # found to carry no amplitude.  This is the only place anything
+            # leaves the pool, and it was never being called.
+            n_pruned = self.prune_pool(subspace, gs)
+            self.pruned_per_iter.append(n_pruned)
+
             self.pool_sizes.append(len(self.important_configurations))
+            previous_subspace = set(subspace)
             print(
                 f"  subspace size (post-Davidson): {len(subspace)}"
                 f"  |  new dets admitted: {n_new}"
+                f"  |  pruned: {n_pruned}"
                 f"  |  pool size: {len(self.important_configurations)}"
+                f"  |  new-config shots: {new_shots}/{shots_per_iteration}"
             )
 
-            if len(self.important_configurations) > 0:
-                reference_state = self.prepare_reference_state(iteration, subspace, gs)
+            reference_state = self.prepare_reference_state(iteration, subspace, gs)
 
         end_timer = default_timer()
 
@@ -507,7 +640,11 @@ class IterativeQSCI(QuantumAlgorithm):
             "all_subspace_sizes": self.all_subspace_sizes,
             "all_groundstates": self.all_groundstates,
             "all_circuit_depths": self.all_circuit_depths,
+            "all_max_circuit_depths": self.all_max_circuit_depths,
             "new_dets_per_iter": self.new_dets_per_iter,
+            "new_shots_per_iter": self.new_shots_per_iter,
+            "pruned_per_iter": self.pruned_per_iter,
+            "shots_per_iteration": shots_per_iteration,
             "new_dets_admitted_per_iter": self.new_dets_admitted_per_iter,
             "pool_sizes": self.pool_sizes,
             "total_runtime": end_timer - start_timer,

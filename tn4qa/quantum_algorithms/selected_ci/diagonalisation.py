@@ -81,8 +81,23 @@ def _parse_paulis(
 
 
 def _bitstrings_to_ints(samples: list[str]) -> np.ndarray:
-    """Convert list of bitstrings to integer indices. '1100' → 12."""
-    return np.array([int(b, 2) for b in samples], dtype=np.int64)
+    """Encode bitstrings so that CHARACTER q becomes BIT q.
+
+    The Pauli engine indexes ``z``/``x`` by character position (character 0 is
+    qubit 0, see ``_parse_paulis``), while ``_pauli_action`` reads the basis
+    state as ``b[q] = (bj_int >> q) & 1``.  Encoding with a plain ``int(b, 2)``
+    puts character 0 in the MOST significant bit, so Pauli index q would be
+    matched against character ``n-1-q`` -- the Hamiltonian would be applied
+    with its qubit ordering reversed relative to the samples.  Reversing the
+    string here lines the two up.
+
+    The effect of getting this wrong is not a crash: the mirrored subspace is
+    still a legitimate subspace, so the energy stays variational and merely
+    comes out too high, while the returned ground-state vector is indexed
+    against the WRONG determinants.  On a symmetric chain the energy error can
+    be small enough to miss, which is what hid this.
+    """
+    return np.array([int(b[::-1], 2) for b in samples], dtype=np.int64)
 
 
 def _pauli_action(
@@ -206,13 +221,40 @@ def exact_diagonalisation(
     # Symmetrise numerical noise
     ham_proj = (ham_proj + ham_proj.conj().T) * 0.5
 
+    # A molecular Hamiltonian in the computational basis is real symmetric.
+    # Keeping it complex costs roughly a factor of two and, far worse, sends
+    # eigsh down a complex Krylov space started from a random complex vector,
+    # so the returned eigenvector carries an arbitrary global phase.
+    if np.max(np.abs(ham_proj.imag)) <= 1e-12 * max(
+        float(np.max(np.abs(ham_proj.real))), 1.0
+    ):
+        ham_proj = np.ascontiguousarray(ham_proj.real)
+
     n = ham_proj.shape[0]
     if n >= sparse_threshold:
         evals, evecs = eigsh(ham_proj, k=1, which="SA", tol=1e-12)
     else:
         evals, evecs = eigh(ham_proj)
 
-    return float(evals[0].real), evecs[:, 0]
+    vec = evecs[:, 0]
+
+    # Fix the gauge before returning.  Any eigensolver is free to return the
+    # eigenvector multiplied by an arbitrary phase, and eigsh -- which this
+    # function uses above ``sparse_threshold`` determinants -- routinely does.
+    # A caller that then takes ``np.real`` of the result, as the iterative
+    # reference-state construction does, loses a random fraction of the norm
+    # (measured at 19-46% on 200- and 400-dimensional subspaces) and gets the
+    # relative signs wrong with it.  Dividing through by the phase of the
+    # largest-magnitude component makes the result real for a real
+    # Hamiltonian and deterministic in sign.
+    if vec.size:
+        pivot = vec[int(np.argmax(np.abs(vec)))]
+        if abs(pivot) > 0:
+            vec = vec * (np.conj(pivot) / abs(pivot))
+        if np.iscomplexobj(vec) and np.max(np.abs(vec.imag)) <= 1e-10:
+            vec = vec.real
+
+    return float(evals[0].real), vec
 
 
 # ---------------------------------------------------------------------------

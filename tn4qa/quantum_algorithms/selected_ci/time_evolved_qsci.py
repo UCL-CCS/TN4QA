@@ -36,6 +36,10 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
         known_unimportant_configurations: list[str] = [],
         postprocessing_function: list[Callable] | None = None,
         postprocessing_args: list[dict] | None = None,
+        num_alpha: int | None = None,
+        num_beta: int | None = None,
+        spin_orbital_order: str | None = None,
+        verify_spin: bool = True,
     ) -> "TimeEvolvedQSCI":
         """
         Constructor for TE-QSCI class.
@@ -53,6 +57,11 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
         self.max_qdrift_terms = max_qdrift_terms
 
         self.num_electrons = num_electrons
+        self.num_alpha = num_alpha
+        self.num_beta = num_beta
+        self.spin_orbital_order = spin_orbital_order
+        self.verify_spin = verify_spin
+
         self.important_configurations = known_important_configurations
         self.unimportant_configurations = known_unimportant_configurations
         self.postprocessing_function = postprocessing_function
@@ -78,6 +87,8 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
             mpstocirc = MPSAnalyticDecomposition(self.reference_state, 1, 1.0)
             qc = mpstocirc.bond_dim_2_to_qc_exact(self.reference_state)
         else:
+            # if self.reference_state.bond_dimension > 4:
+            #     self.reference_state.compress(4)
             self.reference_state.compress(2)
             mpstocirc = MPSAnalyticDecomposition(self.reference_state, 1, 1.0)
             qc = mpstocirc.mps_to_qc_via_ttn(self.reference_state, 2)
@@ -88,7 +99,7 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
         if duration == 0.0:
             ref = copy.deepcopy(self.reference_state_qc)
             return ref
-        sim = TrotterSimulation(self.hamiltonian, duration=duration)
+        sim = TrotterSimulation(self.hamiltonian, duration=duration, error=0.1)
         sim_circ = sim.circuit
         ref = copy.deepcopy(self.reference_state_qc)
         ref.compose(sim_circ, inplace=True)
@@ -101,8 +112,13 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
         if duration == 0.0:
             ref = copy.deepcopy(self.reference_state_qc)
             return ref
+        qdrift_ham = {
+            k: v
+            for k, v in self.hamiltonian.items()
+            if k != "I" * self.reference_state.num_sites
+        }
         sim = QDriftSimulation(
-            self.hamiltonian,
+            qdrift_ham,
             duration=duration,
             error=error,
             max_num_terms=self.max_qdrift_terms,
@@ -153,6 +169,10 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
             self.unimportant_configurations,
             self.postprocessing_function,
             self.postprocessing_args,
+            self.num_alpha,
+            self.num_beta,
+            self.spin_orbital_order,
+            self.verify_spin,
         )
         result = qsci.run(num_shots, subspace_size)
 
