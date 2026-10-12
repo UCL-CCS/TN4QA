@@ -175,3 +175,13 @@ nodex/
 # Block2
 nodex/
 .development/
+
+figures/
+figures_data/
+molecules/
+notebooks/
+paper_figs/
+*.ipynb
+*.json
+*.pdf
+*.txt
