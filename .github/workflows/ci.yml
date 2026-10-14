@@ -42,8 +42,7 @@ jobs:
           cache-dependency-glob: "uv.lock"
       - name: Install Dependencies
         run: |
-          uv venv .venv/
-          uv pip install -r pyproject.toml --all-extras --group
+          uv sync --all-extras --all-groups
       - name: Check Pre-commits
         run: |
           uv run pre-commit install
@@ -65,8 +64,7 @@ jobs:
           cache: "pip"
       - name: Install dependencies and tn4qa package
         run: |
-          uv venv .venv/
-          uv pip install -r pyproject.toml --all-extras --group
+          uv sync --all-extras --all-groups
       - name: Compute code coverage
         run: |
           python -m pytest --cov=tn4qa --cov-report=xml:coverage.xml ./
