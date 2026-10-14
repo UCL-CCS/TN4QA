@@ -50,18 +50,21 @@ jobs:
         continue-on-error: true
       - uses: actions/checkout@v4
       - name: Run Pytest
-        run: uv run pytest -n auto
+        run: uv run pytest
 
   coverage-python:
     runs-on: ubuntu-latest
     needs: pre-commit-ci
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install uv & Setup Python
+        uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.12"
-          cache: "pip"
+          # Install a specific version of uv.
+          python-version: ${{matrix.python-version}}
+          version: "0.7.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - name: Install dependencies and tn4qa package
         run: |
           uv sync --all-extras --all-groups
