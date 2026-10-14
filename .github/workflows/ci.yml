@@ -43,7 +43,7 @@ jobs:
       - name: Install Dependencies
         run: |
           uv venv .venv/
-          uv pip install -r pyproject.toml --all-extras --all-groups
+          uv pip install -r pyproject.toml --all-extras --groups
       - name: Check Pre-commits
         run: |
           uv run pre-commit install
@@ -65,9 +65,8 @@ jobs:
           cache: "pip"
       - name: Install dependencies and tn4qa package
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install poetry
-          python -m poetry install
+          uv venv .venv/
+          uv pip install -r pyproject.toml --all-extras --groups
       - name: Compute code coverage
         run: |
           python -m pytest --cov=tn4qa --cov-report=xml:coverage.xml ./
