@@ -128,9 +128,9 @@ class DMRG:
 
         first, last = arrays[0], arrays[-1]
         if first.ndim == 3:
-            arrays[0] = first[:, :, 0]
+            arrays[0] = first[0, :, :]
         if last.ndim == 3:
-            arrays[-1] = last[0, :, :]
+            arrays[-1] = last[:, :, 0]
 
         first[...] = first[::-1, ...]
         last[...] = last[..., ::-1]
