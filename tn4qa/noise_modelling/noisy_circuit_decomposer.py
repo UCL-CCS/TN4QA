@@ -391,15 +391,12 @@ class NoisyCircuitDecomposer:
     def print_decomposition(decomp: dict[str, list[dict]]) -> None:
         """Pretty-print the layered decomposition (without full matrices)."""
         for layer_key in sorted(decomp.keys(), key=lambda k: int(k.split("_")[1])):
-            print(f"\n{'='*50}")
+            print(f"\n{'=' * 50}")
             print(f"  {layer_key.upper()}")
-            print(f"{'='*50}")
+            print(f"{'=' * 50}")
             for gate_info in decomp[layer_key]:
                 qstr = ", ".join(str(q) for q in gate_info["qubits"])
-                print(
-                    f"  Gate: {gate_info['gate_label'].upper():8s}  "
-                    f"qubits: ({qstr})"
-                )
+                print(f"  Gate: {gate_info['gate_label'].upper():8s}  qubits: ({qstr})")
                 n = gate_info["ideal_ptm"].shape[0]
                 ideal_diag = np.diag(gate_info["ideal_ptm"])
                 noise_diag = np.diag(gate_info["noise_ptm"])

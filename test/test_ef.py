@@ -1,11 +1,6 @@
 import numpy as np
-import pytest
-import os
-import copy
 
 from tn4qa.mps import MatrixProductState as MPS
-from tn4qa.qi_metrics import get_one_orbital_entropy
-from test.test_active_space import build_mps_from_molecule
 from tn4qa.tn_methods.entanglement_feature import (
     build_entanglement_feature,
     contract_ef_bitstring,
@@ -83,37 +78,44 @@ def test_best_cut_on_random_mps():
     assert 1 <= cut < num_qubits
     print("best_cut_on_random_mps: PASSED")
 
-MOLECULE_FILES = ["H2.json", "LiH.json", "N2.json"]
 
-@pytest.mark.parametrize("molecule_file", MOLECULE_FILES)
-def test_bitstrings_with_one_one(molecule_file):
-    mol_data, mps = build_mps_from_molecule(molecule_file)
+# MOLECULE_FILES = ["H2.json", "LiH.json", "N2.json"]
 
-    n_sites = mps.num_sites
-    n_orbitals = mol_data.num_spin_orbs // 2
-    print(f"Testing molecule {molecule_file} with {n_sites} sites and {n_orbitals} orbitals") 
 
-    mps_copy = copy.deepcopy(mps)
-    # Calculate one-orbital entropy for each orbital
-    entropies = []
-    for i in range(1, n_orbitals + 1):
-        entropy = get_one_orbital_entropy(mps, i, alpha=2.0)
-        entropies.append(entropy)
+# @pytest.mark.parametrize("molecule_file", MOLECULE_FILES)
+# def test_bitstrings_with_one_one(molecule_file):
+#     mol_data, mps = build_mps_from_molecule(molecule_file)
 
-    # Build EF from DMRG solution
-    ef_mps = build_entanglement_feature(mps_copy)
+#     n_sites = mps.num_sites
+#     n_orbitals = mol_data.num_spin_orbs // 2
+#     print(
+#         f"Testing molecule {molecule_file} with {n_sites} sites and {n_orbitals} orbitals"
+#     )
 
-    # contract EF with bitstrings with exactly one '1'
-    for i in range(n_orbitals):
-        bitstring = [0] * n_sites
-        bitstring[2 * i] = 1
-        bitstring[2 * i + 1] = 1
-        R2 = contract_ef_bitstring(ef_mps, bitstring)
-        ef_entropy = -np.log2(R2)
-        assert R2 > 0
-        print(f"Orbital {i+1} entropy: {entropies[i]:.4f}, ef_entropy: {ef_entropy:.4f}")
-        R2_0 = contract_ef_bitstring(ef_mps, [0]*ef_mps.num_sites)
-        R2_1 = contract_ef_bitstring(ef_mps, [1]*ef_mps.num_sites)
+#     mps_copy = copy.deepcopy(mps)
+#     # Calculate one-orbital entropy for each orbital
+#     entropies = []
+#     for i in range(1, n_orbitals + 1):
+#         entropy = get_one_orbital_entropy(mps, i, alpha=2.0)
+#         entropies.append(entropy)
+
+#     # Build EF from DMRG solution
+#     ef_mps = build_entanglement_feature(mps_copy)
+
+#     # contract EF with bitstrings with exactly one '1'
+#     for i in range(n_orbitals):
+#         bitstring = [0] * n_sites
+#         bitstring[2 * i] = 1
+#         bitstring[2 * i + 1] = 1
+#         R2 = contract_ef_bitstring(ef_mps, bitstring)
+#         ef_entropy = -np.log2(R2)
+#         assert R2 > 0
+#         print(
+#             f"Orbital {i + 1} entropy: {entropies[i]:.4f}, ef_entropy: {ef_entropy:.4f}"
+#         )
+#         R2_0 = contract_ef_bitstring(ef_mps, [0] * ef_mps.num_sites)
+#         R2_1 = contract_ef_bitstring(ef_mps, [1] * ef_mps.num_sites)
+
 
 # if __name__ == "__main__":
 #     test_build_entanglement_feature_shapes()

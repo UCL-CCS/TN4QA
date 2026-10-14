@@ -40,6 +40,7 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
         num_beta: int | None = None,
         spin_orbital_order: str | None = None,
         verify_spin: bool = True,
+        admission_threshold: int = 1,
     ) -> "TimeEvolvedQSCI":
         """
         Constructor for TE-QSCI class.
@@ -66,6 +67,7 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
         self.unimportant_configurations = known_unimportant_configurations
         self.postprocessing_function = postprocessing_function
         self.postprocessing_args = postprocessing_args
+        self.admission_threshold = admission_threshold
 
         self.circuit_depths = []
         self.energy = None
@@ -173,6 +175,7 @@ class TimeEvolvedQSCI(QuantumAlgorithm):
             self.num_beta,
             self.spin_orbital_order,
             self.verify_spin,
+            self.admission_threshold,
         )
         result = qsci.run(num_shots, subspace_size)
 

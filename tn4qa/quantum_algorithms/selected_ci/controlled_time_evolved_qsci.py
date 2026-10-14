@@ -804,8 +804,7 @@ class ControlledTimeEvolvedQSCI(QuantumAlgorithm):
         """
         if len(bitstring) != self.num_qubits:
             raise ValueError(
-                f"bitstring has length {len(bitstring)}, expected "
-                f"{self.num_qubits}."
+                f"bitstring has length {len(bitstring)}, expected {self.num_qubits}."
             )
         flips, zs, phases, cs = self._pauli_tables()
         j = int(bitstring, 2)

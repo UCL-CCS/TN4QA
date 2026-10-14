@@ -309,7 +309,7 @@ def print_groundstate_summary(
     order = np.argsort(weights)[::-1]
 
     print(f"\nGround state energy: {energy:.10f}")
-    print(f"\n{'Bitstring':<{len(samples[0])+2}}  {'Amplitude':>14}  {'Weight':>10}")
+    print(f"\n{'Bitstring':<{len(samples[0]) + 2}}  {'Amplitude':>14}  {'Weight':>10}")
     print("-" * (len(samples[0]) + 32))
     for idx in order[:k]:
         if weights[idx] < 1e-12:

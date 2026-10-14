@@ -276,8 +276,8 @@ After Pauli twirling, the depolarising error channel becomes a Pauli channel:
   N(ρ) = p_II · ρ  +  Σ_{{P≠II}} p_P · P ρ P†
 
 Probabilities:
-  p_II = 1 − 14ε/15 = {self._probs['II']:.6g}
-  p_P  = ε/15       = {eps/15:.6g}   (for each of the 15 non-identity Paulis)
+  p_II = 1 − 14ε/15 = {self._probs["II"]:.6g}
+  p_P  = ε/15       = {eps / 15:.6g}   (for each of the 15 non-identity Paulis)
 
 Noise PTM (diagonal):
   λ_II = 1

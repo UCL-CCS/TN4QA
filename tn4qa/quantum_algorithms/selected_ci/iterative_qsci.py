@@ -172,6 +172,7 @@ class IterativeQSCI(QuantumAlgorithm):
         max_reference_dets: int | None = None,
         reference_weight_floor: float = 1e-8,
         prune_threshold: float = 0.0,
+        admission_threshold: int = 1,
     ) -> "IterativeQSCI":
         """
         Parameters
@@ -271,6 +272,7 @@ class IterativeQSCI(QuantumAlgorithm):
         self.new_dets_admitted_per_iter = []  # identities of newly admitted dets
         self.pool_sizes = []  # len(important_configurations) AFTER each iteration
         self.hf_bitstring = "1" * self.nelec + "0" * (self.n_spinorbs - self.nelec)
+        self.admission_threshold = admission_threshold
 
     @property
     def circuit(self) -> QuantumCircuit:
@@ -367,6 +369,7 @@ class IterativeQSCI(QuantumAlgorithm):
             verify_spin=self.verify_spin,
             known_important_configurations=self.important_configurations,
             known_unimportant_configurations=self.unimportant_configurations,
+            admission_threshold=self.admission_threshold,
             **self.method_args,
         )
         self.circuits = qsci.circuit

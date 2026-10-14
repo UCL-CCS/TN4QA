@@ -81,7 +81,7 @@ class DynamicalDecouplingTranspiler:
     ) -> None:
         if dd_scheme not in _DD_SEQUENCES:
             raise ValueError(
-                f"Unknown DD scheme '{dd_scheme}'. " f"Choose from: {self.SCHEMES}"
+                f"Unknown DD scheme '{dd_scheme}'. Choose from: {self.SCHEMES}"
             )
         self.backend = backend
         self.dd_scheme = dd_scheme

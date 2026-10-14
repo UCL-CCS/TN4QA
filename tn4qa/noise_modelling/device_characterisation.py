@@ -39,7 +39,7 @@ def _get_readout_fid(qidx: int, data: dict[str, Any]) -> float:
         Returns:
             Readout fidelity.
     """
-    dict_string = f"QB{qidx+1}.single_shot_readout_fidelity"
+    dict_string = f"QB{qidx + 1}.single_shot_readout_fidelity"
     fid = float(data["metrics"][dict_string]["value"])
     return fid
 
@@ -55,7 +55,7 @@ def _get_t1_time(qidx: int, data: dict[str, Any]) -> float:
         Returns:
             Time T1.
     """
-    dict_string = f"QB{qidx+1}.t1_time"
+    dict_string = f"QB{qidx + 1}.t1_time"
     t1 = float(data["metrics"][dict_string]["value"])
     return t1
 
@@ -71,7 +71,7 @@ def _get_t2_time(qidx: int, data: dict[str, Any]) -> float:
         Returns:
             Time T2.
     """
-    dict_string = f"QB{qidx+1}.t2_time"
+    dict_string = f"QB{qidx + 1}.t2_time"
     t2 = float(data["metrics"][dict_string]["value"])
     return t2
 
@@ -87,7 +87,7 @@ def _get_1q_gate_fid(qidx: int, data: dict[str, Any]) -> float:
         Returns:
             One-qubit gate fidelity.
     """
-    dict_string = f"QB{qidx+1}.fidelity_1qb_gates_averaged"
+    dict_string = f"QB{qidx + 1}.fidelity_1qb_gates_averaged"
     fid = float(data["metrics"][dict_string]["value"])
     return fid
 
@@ -109,8 +109,8 @@ def _get_2q_gate_fid(
             Two-qubit gate fidelity.
     """
     # cz is symmetric
-    dict_string_tc = f"TC-{target_qidx+1}-{control_qidx+1}.cz_gate_fidelity"
-    dict_string_ct = f"TC-{control_qidx+1}-{target_qidx+1}.cz_gate_fidelity"
+    dict_string_tc = f"TC-{target_qidx + 1}-{control_qidx + 1}.cz_gate_fidelity"
+    dict_string_ct = f"TC-{control_qidx + 1}-{target_qidx + 1}.cz_gate_fidelity"
     if data["metrics"].get(dict_string_tc) is not None:
         fid = float(data["metrics"][dict_string_tc]["value"])
     elif data["metrics"].get(dict_string_ct) is not None:

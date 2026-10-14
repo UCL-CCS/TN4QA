@@ -1,9 +1,12 @@
 import json
 from dataclasses import dataclass
 from enum import Enum
+from functools import reduce
 
+import ferrmion as fr
 import numpy as np
 import sparse
+from pyscf import ao2mo
 
 
 class PauliTerm(Enum):
@@ -223,3 +226,152 @@ def split_matrices(C: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     A = C[:, ::2]
     B = C[:, 1::2]
     return A, B
+
+
+def spinorb_from_spatial_rhf(one_body, two_body):
+    n_spatial = one_body.shape[0]
+    n_qubits = 2 * n_spatial
+
+    # Initialize Hamiltonian coefficients.
+    one_body_coefficients = np.zeros((n_qubits, n_qubits))
+    two_body_coefficients = np.zeros((n_qubits, n_qubits, n_qubits, n_qubits))
+    # Loop through integrals.
+    for p in range(n_spatial):
+        for q in range(n_spatial):
+            # Populate 1-body coefficients. Require p and q have same spin.
+            one_body_coefficients[2 * p, 2 * q] = one_body[p, q]
+            one_body_coefficients[2 * p + 1, 2 * q + 1] = one_body[p, q]
+            # Continue looping to prepare 2-body coefficients.
+            for r in range(n_spatial):
+                for s in range(n_spatial):
+                    # Mixed spin
+                    two_body_coefficients[2 * p, 2 * q + 1, 2 * r + 1, 2 * s] = (
+                        two_body[p, q, r, s]
+                    )
+                    two_body_coefficients[2 * p + 1, 2 * q, 2 * r, 2 * s + 1] = (
+                        two_body[p, q, r, s]
+                    )
+                    # Same spin
+                    two_body_coefficients[2 * p, 2 * q, 2 * r, 2 * s] = two_body[
+                        p, q, r, s
+                    ]
+                    two_body_coefficients[
+                        2 * p + 1, 2 * q + 1, 2 * r + 1, 2 * s + 1
+                    ] = two_body[p, q, r, s]
+
+    # Truncate.
+    # one_body_coefficients[np.absolute(one_body_coefficients) < 1e-8] = 0.0
+    # two_body_coefficients[np.absolute(two_body_coefficients) < 1e-8] = 0.0
+
+    return one_body_coefficients, two_body_coefficients
+
+
+def spinorb_from_spatial_uhf(
+    one_body_a, one_body_b, two_body_aa, two_body_bb, two_body_ab
+):
+    n_spatial = one_body_a.shape[0]
+    n_qubits = 2 * n_spatial
+
+    one_body_coefficients = np.zeros((n_qubits, n_qubits))
+    two_body_coefficients = np.zeros((n_qubits, n_qubits, n_qubits, n_qubits))
+
+    for p in range(n_spatial):
+        for q in range(n_spatial):
+            one_body_coefficients[2 * p, 2 * q] = one_body_a[p, q]  # α-α
+            one_body_coefficients[2 * p + 1, 2 * q + 1] = one_body_b[p, q]  # β-β
+
+            for r in range(n_spatial):
+                for s in range(n_spatial):
+                    two_body_coefficients[2 * p, 2 * q, 2 * r, 2 * s] = two_body_aa[
+                        p, q, r, s
+                    ]
+                    two_body_coefficients[
+                        2 * p + 1, 2 * q + 1, 2 * r + 1, 2 * s + 1
+                    ] = two_body_bb[p, q, r, s]
+                    two_body_coefficients[2 * p, 2 * q + 1, 2 * r + 1, 2 * s] = (
+                        two_body_ab[p, q, r, s]
+                    )
+                    two_body_coefficients[2 * p + 1, 2 * q, 2 * r, 2 * s + 1] = (
+                        two_body_ab[q, p, s, r]
+                    )
+
+    # one_body_coefficients[np.abs(one_body_coefficients) < 1e-8] = 0.0
+    # two_body_coefficients[np.abs(two_body_coefficients) < 1e-8] = 0.0
+
+    return one_body_coefficients, two_body_coefficients
+
+
+def build_qham(scf_obj):
+    C = scf_obj.mo_coeff
+    S = scf_obj.get_ovlp()
+    hcore = scf_obj.get_hcore()
+    mol_obj = scf_obj.mol
+
+    if len(C.shape) == 2:
+        # scf_type = "RHF"
+        n_orbitals = C.shape[1]
+        assert np.allclose(
+            C.T @ S @ C, np.eye(n_orbitals)
+        ), "MO coefficients are not orthonormal"
+        one_spatial = (
+            reduce(np.dot, (C.T, hcore, C))
+            .reshape(n_orbitals, n_orbitals)
+            .astype(float)
+        )
+        two_spatial = ao2mo.kernel(mol_obj, C)
+        two_spatial = ao2mo.restore(1, two_spatial, n_orbitals)
+        two_spatial = np.asarray(two_spatial.transpose(0, 2, 3, 1), order="C")
+        ones_spin, twos_spin = spinorb_from_spatial_rhf(one_spatial, two_spatial)
+        twos_spin *= 0.5
+    elif len(C.shape) == 3:
+        # scf_type = "UHF"
+        assert np.allclose(
+            C[0].T @ S @ C[0], np.eye(C[0].shape[1])
+        ), "MO coefficients are not orthonormal"
+        assert np.allclose(
+            C[1].T @ S @ C[1], np.eye(C[1].shape[1])
+        ), "MO coefficients are not orthonormal"
+        C_a = C[0]
+        C_b = C[1]
+        n_orbitals = C_a.shape[1]
+        one_spatial_a = (
+            reduce(np.dot, (C_a.T, hcore, C_a))
+            .reshape(n_orbitals, n_orbitals)
+            .astype(float)
+        )
+        one_spatial_b = (
+            reduce(np.dot, (C_b.T, hcore, C_b))
+            .reshape(n_orbitals, n_orbitals)
+            .astype(float)
+        )
+        two_spatial_aa = ao2mo.kernel(mol_obj, C_a)
+        two_spatial_aa = np.asarray(
+            ao2mo.restore(1, two_spatial_aa, n_orbitals).transpose(0, 2, 3, 1),
+            order="C",
+        )
+        two_spatial_bb = ao2mo.kernel(mol_obj, C_b)
+        two_spatial_bb = np.asarray(
+            ao2mo.restore(1, two_spatial_bb, n_orbitals).transpose(0, 2, 3, 1),
+            order="C",
+        )
+        two_spatial_ab = ao2mo.kernel(mol_obj, (C_a, C_a, C_b, C_b))
+        two_spatial_ab = np.asarray(
+            ao2mo.restore(1, two_spatial_ab, n_orbitals).transpose(0, 2, 3, 1),
+            order="C",
+        )
+        ones_spin, twos_spin = spinorb_from_spatial_uhf(
+            one_spatial_a, one_spatial_b, two_spatial_aa, two_spatial_bb, two_spatial_ab
+        )
+        twos_spin *= 0.5
+    else:
+        raise ValueError("unknown SCF type")
+    fham = fr.molecular_hamiltonian(
+        one_e_coeffs=ones_spin,
+        two_e_coeffs=twos_spin,
+        constant_energy=mol_obj.energy_nuc(),
+    )
+    qham = fr.JordanWigner(fham.n_modes).encode(fham)
+    return {
+        k: v.real
+        for k, v in sorted(qham.items(), key=lambda item: np.abs(item[1]), reverse=True)
+    }

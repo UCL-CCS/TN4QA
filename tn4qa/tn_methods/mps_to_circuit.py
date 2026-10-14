@@ -1078,15 +1078,15 @@ def build_unitaries(mps: MatrixProductState, max_dim: int | None = None):
                 )
                 if len(tensor0.indices) == 2:
                     contraction = "ab,acd->bdc"
-                    new_t_inds = ["down", f"p{i+1}"]
+                    new_t_inds = ["down", f"p{i + 1}"]
                     boundary = True
                 elif len(tensor1.indices) == 2:
                     contraction = "abc,bd->cda"
-                    new_t_inds = ["up", f"p{i+1}"]
+                    new_t_inds = ["up", f"p{i + 1}"]
                     boundary = True
                 else:
                     contraction = "abc,bde->cead"
-                    new_t_inds = ["up", "down", f"p{i+1}"]
+                    new_t_inds = ["up", "down", f"p{i + 1}"]
                     boundary = False
                 combined_tensor_data = np.einsum(
                     contraction, tensor0.to_dense(), tensor1.to_dense()

@@ -33,6 +33,7 @@ class QSCI(QuantumAlgorithm):
         num_beta: int | None = None,
         spin_orbital_order: str | None = None,
         verify_spin: bool = True,
+        admission_threshold: int = 1,
     ) -> "QSCI":
         """
         Constructor for QSCI class.
@@ -51,6 +52,7 @@ class QSCI(QuantumAlgorithm):
         self.unimportant_configurations = known_unimportant_configurations
         self.postprocessing_functions = postprocessing_functions
         self.postprocessing_args = postprocessing_args
+        self.admission_threshold = admission_threshold
 
     @property
     def circuit(self) -> QuantumCircuit:
@@ -104,7 +106,7 @@ class QSCI(QuantumAlgorithm):
         the samples have the right electron count and the wrong S_z.
         """
         submitted = sum(counts.values())
-        new_counts = {k: v for k, v in counts.items() if v > 0}
+        new_counts = {k: v for k, v in counts.items() if v > self.admission_threshold}
         submitted = sum(new_counts.values())
         rejected_number = rejected_spin = 0
 

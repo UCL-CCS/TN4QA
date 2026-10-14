@@ -76,7 +76,7 @@ def _apply_local_gate_dense(
     eps = 1e-14
 
     if site0 == 1 and site1 == n:
-        merged = np.einsum("i,j,klij->kl", t0, t1, G)
+        merged = np.einsum("ai,aj,klij->kl", t0, t1, G)
         u, s, vh = scipy.linalg.svd(merged, full_matrices=False, check_finite=False)
         keep = _truncate_sv(
             s, min(2, 2) if max_bond is None else min(max_bond, 2, 2), tol

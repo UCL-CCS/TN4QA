@@ -113,7 +113,7 @@ class ParentHamiltonian:
             items = items[:max_terms]
 
         width = self.N
-        print(f"\n{'Pauli string':<{width+2}}  Coefficient")
+        print(f"\n{'Pauli string':<{width + 2}}  Coefficient")
         print("─" * (width + 18))
         for pstr, w in items:
             print(f"  {pstr}  {w:+.8f}")

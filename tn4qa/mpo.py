@@ -2182,11 +2182,11 @@ class MatrixProductOperator(TensorNetwork):
         new_t_data = ctg.array_contract(
             arrays=[t1.data, t2.data, t3.data],
             inputs=[t1.indices, t2.indices, t3.indices],
-            output=[f"F{n-1}", f"E{n}", f"B{n}"],
+            output=[f"F{n - 1}", f"E{n}", f"B{n}"],
             cache_expression=False,
             prefer_einsum=True,
         )
-        new_t = Tensor(new_t_data, [f"F{n-1}", f"E{n}", f"B{n}"], [])
+        new_t = Tensor(new_t_data, [f"F{n - 1}", f"E{n}", f"B{n}"], [])
         tn.pop_tensors_by_label(t1.labels)
         tn.pop_tensors_by_label(t2.labels)
         tn.pop_tensors_by_label(t3.labels)

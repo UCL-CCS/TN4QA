@@ -18,8 +18,8 @@ def build_entanglement_feature(mps: MPS) -> MPS:
         t = mps.tensors[tidx]
         bond_size = t.data.shape[0]
         if bond_size < x:
-            mps = mps.expand_bond_dimension(x-bond_size, tidx)
-    #print(mps)
+            mps = mps.expand_bond_dimension(x - bond_size, tidx)
+    # print(mps)
     for A in mps.tensors:
         if A.data.ndim == 2:
             x, p = A.data.shape  # A shape (x,2)
