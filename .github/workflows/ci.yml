@@ -43,6 +43,7 @@ jobs:
       - name: Install Dependencies
         run: |
           uv sync --all-extras --all-groups
+          python -m pip install pytest
       - name: Check Pre-commits
         run: |
           uv run pre-commit install
@@ -68,6 +69,7 @@ jobs:
       - name: Install dependencies and tn4qa package
         run: |
           uv sync --all-extras --all-groups
+          python -m pip install pytest
       - name: Compute code coverage
         run: |
           python -m pytest --cov=tn4qa --cov-report=xml:coverage.xml ./
