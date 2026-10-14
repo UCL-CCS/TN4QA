@@ -28,6 +28,7 @@ dependencies = [
     "optuna>=4.8.0",
     "block2==0.5.3rc18",
     "pandas",
+    "ferrmion",
 ]
 
 [tool.hatch.metadata]
